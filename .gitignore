@@ -1,0 +1,23 @@
+# YuMark Android App
+
+# Gradle
+.gradle/
+build/
+app/build/
+
+# Local config（含本机 SDK 路径，不应入库）
+local.properties
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+captures/
+
+# Claude Code 工作区
+.claude/
+
+# APK/AAB 产物
+*.apk
+*.aab
+output-metadata.json

@@ -1,0 +1,152 @@
+<resources>
+    <string name="app_name">YuMark</string>
+
+    <!-- 通用 -->
+    <string name="ok">确定</string>
+    <string name="cancel">取消</string>
+    <string name="delete">删除</string>
+    <string name="rename">重命名</string>
+    <string name="save">保存</string>
+    <string name="close">关闭</string>
+    <string name="search">搜索</string>
+    <string name="settings">设置</string>
+
+    <!-- 文件列表 -->
+    <string name="file_list">文件列表</string>
+    <string name="all_documents">所有文档</string>
+    <string name="create_document">新建文档</string>
+    <string name="create_folder">新建文件夹</string>
+    <string name="import_file">导入文件</string>
+    <string name="export">导出</string>
+    <string name="sort">排序</string>
+    <string name="favorites">收藏夹</string>
+
+    <!-- 文件夹操作 -->
+    <string name="new_folder">新建文件夹</string>
+    <string name="folder_name">文件夹名称</string>
+    <string name="delete_folder">删除文件夹</string>
+    <string name="delete_folder_confirm">确定要删除文件夹"%1$s"吗？</string>
+    <string name="delete_folder_with_contents">删除文件夹及其中所有内容？</string>
+    <string name="create_subfolder">新建子文件夹</string>
+    <string name="move_to_folder">移动到文件夹</string>
+
+    <!-- 文档操作 -->
+    <string name="document_name">文档名称</string>
+    <string name="delete_document">删除文档</string>
+    <string name="delete_document_confirm">确定要删除文档"%1$s"吗？此操作无法撤销。</string>
+    <string name="rename_document">重命名文档</string>
+    <string name="favorite">收藏</string>
+    <string name="unfavorite">取消收藏</string>
+    <string name="word_count">%d 字</string>
+    <string name="updated_just_now">刚刚</string>
+    <string name="updated_minutes_ago">%d 分钟前</string>
+    <string name="updated_hours_ago">%d 小时前</string>
+    <string name="updated_days_ago">%d 天前</string>
+    <string name="updated_weeks_ago">%d 周前</string>
+
+    <!-- 编辑器 -->
+    <string name="editor">编辑器</string>
+    <string name="preview_mode">预览模式</string>
+    <string name="edit_mode">编辑模式</string>
+    <string name="toggle_preview">切换预览</string>
+    <string name="toggle_sidebar">切换侧边栏</string>
+    <string name="start_writing">开始写作...</string>
+    <string name="saving">保存中...</string>
+    <string name="saved">已保存</string>
+    <string name="auto_save">自动保存</string>
+
+    <!-- 工具栏 -->
+    <string name="toolbar_heading">标题</string>
+    <string name="toolbar_bold">粗体</string>
+    <string name="toolbar_italic">斜体</string>
+    <string name="toolbar_strikethrough">删除线</string>
+    <string name="toolbar_link">链接</string>
+    <string name="toolbar_image">图片</string>
+    <string name="toolbar_code">代码</string>
+    <string name="toolbar_code_block">代码块</string>
+    <string name="toolbar_quote">引用</string>
+    <string name="toolbar_list">列表</string>
+    <string name="toolbar_numbered_list">编号列表</string>
+    <string name="toolbar_table">表格</string>
+    <string name="toolbar_horizontal_rule">分隔线</string>
+
+    <!-- 菜单 -->
+    <string name="menu_file">文件</string>
+    <string name="menu_edit">编辑</string>
+    <string name="menu_view">视图</string>
+    <string name="menu_format">格式</string>
+    <string name="menu_help">帮助</string>
+
+    <!-- 文件菜单 -->
+    <string name="new_document">新建文档</string>
+    <string name="open_file">打开文件</string>
+    <string name="save_file">保存</string>
+    <string name="save_as">另存为</string>
+    <string name="export_as">导出为</string>
+    <string name="export_html">导出为 HTML</string>
+    <string name="export_pdf">导出为 PDF</string>
+    <string name="export_word">导出为 Word</string>
+
+    <!-- 视图菜单 -->
+    <string name="show_sidebar">显示侧边栏</string>
+    <string name="hide_sidebar">隐藏侧边栏</string>
+    <string name="source_code_mode">源代码模式</string>
+    <string name="typewriter_mode">打字机模式</string>
+    <string name="focus_mode">专注模式</string>
+
+    <!-- 设置 -->
+    <string name="general_settings">通用设置</string>
+    <string name="editor_settings">编辑器设置</string>
+    <string name="appearance">外观</string>
+    <string name="font_size">字体大小</string>
+    <string name="theme">主题</string>
+    <string name="light_theme">浅色主题</string>
+    <string name="dark_theme">深色主题</string>
+    <string name="auto_theme">跟随系统</string>
+    <string name="auto_save_enabled">启用自动保存</string>
+    <string name="auto_save_interval">自动保存间隔（秒）</string>
+    <string name="image_compression">图片压缩</string>
+    <string name="auto_compress_images">自动压缩图片</string>
+    <string name="compression_quality">压缩质量</string>
+    <string name="max_image_width">最大图片宽度</string>
+    <string name="reset_settings">重置设置</string>
+    <string name="reset_settings_confirm">确定要重置所有设置为默认值吗？</string>
+
+    <!-- 排序选项 -->
+    <string name="sort_by_name_asc">按名称（A-Z）</string>
+    <string name="sort_by_name_desc">按名称（Z-A）</string>
+    <string name="sort_by_date_newest">按日期（最新）</string>
+    <string name="sort_by_date_oldest">按日期（最旧）</string>
+    <string name="sort_by_word_count_asc">按字数（少到多）</string>
+    <string name="sort_by_word_count_desc">按字数（多到少）</string>
+
+    <!-- 错误信息 -->
+    <string name="error_load_document">加载文档失败</string>
+    <string name="error_save_document">保存文档失败</string>
+    <string name="error_delete_document">删除文档失败</string>
+    <string name="error_create_folder">创建文件夹失败</string>
+    <string name="error_delete_folder">删除文件夹失败</string>
+    <string name="error_import_file">导入文件失败</string>
+    <string name="error_export_file">导出文件失败</string>
+    <string name="error_empty_name">名称不能为空</string>
+
+    <!-- 提示信息 -->
+    <string name="hint_document_name">输入文档名称</string>
+    <string name="hint_folder_name">输入文件夹名称</string>
+    <string name="hint_search">搜索文档...</string>
+
+    <!-- 空状态 -->
+    <string name="empty_documents">还没有文档</string>
+    <string name="empty_documents_hint">点击 + 按钮创建第一个文档</string>
+    <string name="empty_search_results">没有找到匹配的文档</string>
+    <string name="empty_folder">文件夹为空</string>
+
+    <!-- 工作区与大纲 -->
+    <string name="outline">大纲</string>
+    <string name="outline_empty">没有检测到标题</string>
+    <string name="open_folder">打开文件夹</string>
+    <string name="close_workspace">关闭文件夹</string>
+    <string name="refresh">刷新</string>
+    <string name="workspace_truncated">文件过多，仅显示前 2000 个文档</string>
+    <string name="workspace_reselect">重新选择</string>
+</resources>

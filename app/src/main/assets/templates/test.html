@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Test</title>
+<script>
+console.log('Test HTML loaded');
+window.testLoaded = true;
+</script>
+</head>
+<body>
+<h1>Test Content</h1>
+<div id="content">Initial content</div>
+<script>
+console.log('Body script executed');
+document.getElementById('content').innerHTML = '<p>JavaScript works!</p>';
+</script>
+</body>
+</html>
