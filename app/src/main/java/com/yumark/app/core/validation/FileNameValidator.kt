@@ -95,6 +95,21 @@ object FileNameValidator {
             is ValidationResult.Error -> result.message
         }
     }
+
+    /**
+     * 清理文件名用于安全落盘：替换非法字符与路径片段；空结果回退 "document"
+     * 与 validate 不同，sanitize 永远返回可用的文件名（用于导出等不应失败的场景）
+     */
+    fun sanitize(name: String): String {
+        val cleaned = name
+            .replace(INVALID_CHARS_REGEX, "_")
+            .replace("..", "_")
+            .trim()
+
+        if (cleaned.isBlank()) return "document"
+
+        return if (cleaned.length > 200) cleaned.substring(0, 200) else cleaned
+    }
 }
 
 /**

@@ -13,5 +13,4 @@ sealed class FileListUiState {
         val isSearching: Boolean,
         val sortOption: SortOption
     ) : FileListUiState()
-    data class Error(val message: String) : FileListUiState()
 }

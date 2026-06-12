@@ -65,6 +65,13 @@ fun FileListScreen(
         }
     }
 
+    // 打开抽屉时自动重扫工作区，保持文件树新鲜
+    LaunchedEffect(drawerState.isOpen) {
+        if (drawerState.isOpen && workspace != null) {
+            viewModel.rescanWorkspace()
+        }
+    }
+
     val folderPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
@@ -273,11 +280,14 @@ fun FileListScreen(
                             }
                         },
                         actions = {
-                            IconButton(onClick = { isSearchActive = true }) {
-                                Icon(Icons.Default.Search, stringResource(R.string.search))
-                            }
-                            IconButton(onClick = { showSortMenu = true }) {
-                                Icon(Icons.Default.Sort, stringResource(R.string.sort))
+                            // 搜索/排序作用于内部文档库，工作区模式下隐藏避免语义混乱
+                            if (workspace == null) {
+                                IconButton(onClick = { isSearchActive = true }) {
+                                    Icon(Icons.Default.Search, stringResource(R.string.search))
+                                }
+                                IconButton(onClick = { showSortMenu = true }) {
+                                    Icon(Icons.Default.Sort, stringResource(R.string.sort))
+                                }
                             }
                             IconButton(onClick = { navController.navigate("settings") }) {
                                 Icon(Icons.Default.Settings, stringResource(R.string.settings))
@@ -295,15 +305,46 @@ fun FileListScreen(
                 }
             },
             floatingActionButton = {
-                FloatingActionButton(onClick = { showCreateDialog = true }) {
-                    Icon(Icons.Default.Add, stringResource(R.string.create_document))
+                // 工作区模式下 FAB 新建的是内部文档，隐藏避免误解
+                if (workspace == null) {
+                    FloatingActionButton(onClick = { showCreateDialog = true }) {
+                        Icon(Icons.Default.Add, stringResource(R.string.create_document))
+                    }
                 }
             }
         ) { padding ->
-            Box(modifier = Modifier.padding(padding)) {
-                when (val s = uiState) {
+            Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+                val ws = workspace
+                if (ws != null) {
+                    // 工作区模式：主界面提示从侧栏打开文档（内部文档库列表在此模式下隐藏）
+                    Column(
+                        modifier = Modifier.align(Alignment.Center).padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.FolderOpen,
+                            contentDescription = null,
+                            modifier = Modifier.size(56.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "正在浏览「${ws.name}」",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            stringResource(R.string.workspace_main_hint),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        TextButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Text(stringResource(R.string.workspace_open_sidebar))
+                        }
+                    }
+                } else when (val s = uiState) {
                     is FileListUiState.Loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                    is FileListUiState.Error -> Text(s.message, modifier = Modifier.align(Alignment.Center))
                     is FileListUiState.Success -> {
                         if (s.documents.isEmpty() && !s.isSearching) {
                             Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {

@@ -16,6 +16,7 @@ import com.yumark.app.domain.usecase.LoadSettingsUseCase
 import com.yumark.app.domain.usecase.export.ExportDocumentUseCase
 import com.yumark.app.presentation.theme.AppThemes
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -23,6 +24,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -71,6 +73,11 @@ class EditorViewModel @Inject constructor(
     val themeId: StateFlow<String> = loadSettingsUseCase.observe()
         .map { it.themeId }
         .stateIn(viewModelScope, SharingStarted.Eagerly, AppThemes.DEFAULT_ID)
+
+    /** 编辑/预览字号（设置驱动） */
+    val editorFontSize: StateFlow<Int> = loadSettingsUseCase.observe()
+        .map { it.fontSize }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 16)
 
     private var autoSaveJob: Job? = null
 
@@ -176,6 +183,10 @@ class EditorViewModel @Inject constructor(
         val id = documentId ?: return
         viewModelScope.launch {
             doSave()  // 导出读取的是仓库数据，先确保落盘
+            withContext(Dispatchers.IO) {
+                // 清理上次导出残留，避免私有目录无限累积
+                fileManager.getExportsDir().listFiles()?.forEach { it.delete() }
+            }
             exportDocumentUseCase(
                 id,
                 ExportFormat.HTML,

@@ -191,12 +191,6 @@ fun SettingsScreen(
             )
 
             Divider()
-            ListItem(
-                headlineContent = { Text("自动压缩图片") },
-                supportingContent = { Text(if (settings.autoCompressImages) settings.imageCompressionQuality.name else "关闭") }
-            )
-
-            Divider()
 
             // About
             ListItem(

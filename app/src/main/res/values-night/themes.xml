@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色模式启动窗口：避免冷启动闪白 -->
+    <style name="Theme.YuMark" parent="android:Theme.Material.NoActionBar" />
+</resources>

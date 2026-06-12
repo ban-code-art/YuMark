@@ -149,4 +149,6 @@
     <string name="refresh">刷新</string>
     <string name="workspace_truncated">文件过多，仅显示前 2000 个文档</string>
     <string name="workspace_reselect">重新选择</string>
+    <string name="workspace_main_hint">从左侧栏选择要打开的文档</string>
+    <string name="workspace_open_sidebar">打开侧栏</string>
 </resources>

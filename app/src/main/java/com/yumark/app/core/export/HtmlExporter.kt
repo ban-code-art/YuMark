@@ -1,6 +1,7 @@
 package com.yumark.app.core.export
 
 import android.content.Context
+import com.yumark.app.core.validation.FileNameValidator
 import com.yumark.app.domain.model.Document
 import com.yumark.app.domain.model.ExportOptions
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -45,7 +46,9 @@ class HtmlExporter @Inject constructor(
 
     fun export(document: Document, options: ExportOptions): Result<File> = runCatching {
         val html = buildHtml(document)
-        val file = File(options.outputDir, "${document.name}.html")
+        // 文件名消毒：与 Markdown 导出路径保持同一防线
+        val safeName = FileNameValidator.sanitize(document.name)
+        val file = File(options.outputDir, "$safeName.html")
         file.writeText(html)
         file
     }

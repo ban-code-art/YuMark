@@ -4,6 +4,7 @@ import android.content.Intent
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,6 +25,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -49,6 +51,20 @@ fun EditorScreen(
     val outlineDrawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val editorFontSize by viewModel.editorFontSize.collectAsState()
+
+    // 统一保存出口：顶栏箭头与系统返回共用，防抖避免连退两页
+    var isExiting by remember { mutableStateOf(false) }
+    val saveAndExit: () -> Unit = {
+        if (!isExiting) {
+            isExiting = true
+            scope.launch {
+                viewModel.saveAndWait()
+                navController.navigateUp()
+            }
+        }
+    }
+    BackHandler(onBack = saveAndExit)
 
     val themeId by viewModel.themeId.collectAsState()
     // 以实际生效的主题亮度判断深浅（兼容设置里手动选择的深色模式）
@@ -125,6 +141,22 @@ fun EditorScreen(
         }
     }
 
+    // 预览字号跟随设置
+    LaunchedEffect(rendererReady.value, editorFontSize) {
+        if (rendererReady.value) {
+            previewWebView.evaluateJavascript(
+                "document.body.style.fontSize='${editorFontSize}px';", null
+            )
+        }
+    }
+
+    // 退出预览时收起大纲抽屉
+    LaunchedEffect(isPreviewMode) {
+        if (!isPreviewMode && outlineDrawerState.isOpen) {
+            outlineDrawerState.close()
+        }
+    }
+
     // 保存失败 Snackbar（编辑内容保留在内存，不打断编辑）
     LaunchedEffect(saveError) {
         saveError?.let {
@@ -180,13 +212,7 @@ fun EditorScreen(
                         TopAppBar(
                             title = { Text(document?.name ?: stringResource(R.string.editor)) },
                             navigationIcon = {
-                                IconButton(onClick = {
-                                    // 等待保存完成再返回：避免协程随 ViewModel 销毁被取消导致丢数据
-                                    scope.launch {
-                                        viewModel.saveAndWait()
-                                        navController.navigateUp()
-                                    }
-                                }) {
+                                IconButton(onClick = saveAndExit) {
                                     Icon(Icons.Default.ArrowBack, stringResource(R.string.close))
                                 }
                             },
@@ -282,23 +308,37 @@ fun EditorScreen(
                                     Column(modifier = Modifier.fillMaxSize()) {
                                         MarkdownToolbar(
                                             onInsertSyntax = { syntax ->
-                                                // 在光标处插入；包裹型语法把光标移到中间
+                                                val text = editValue.text
                                                 val pos = editValue.selection.start
-                                                    .coerceIn(0, editValue.text.length)
-                                                val newText = editValue.text.substring(0, pos) +
-                                                    syntax + editValue.text.substring(pos)
-                                                val cursorOffset = when (syntax) {
-                                                    "****" -> 2
-                                                    "**" -> 1
-                                                    "``" -> 1
-                                                    "[](url)" -> 1
-                                                    else -> syntax.length
+                                                    .coerceIn(0, text.length)
+                                                // 行级语法（标题/列表/引用）插到当前行行首，包裹型插在光标处
+                                                val isLineSyntax = syntax in setOf("# ", "- ", "1. ", "> ")
+                                                if (isLineSyntax) {
+                                                    val lineStart = if (pos == 0) 0
+                                                    else text.lastIndexOf('\n', pos - 1) + 1
+                                                    val newText = text.substring(0, lineStart) +
+                                                        syntax + text.substring(lineStart)
+                                                    editValue = TextFieldValue(
+                                                        newText,
+                                                        selection = TextRange(pos + syntax.length)
+                                                    )
+                                                    viewModel.onContentChanged(newText)
+                                                } else {
+                                                    val newText = text.substring(0, pos) +
+                                                        syntax + text.substring(pos)
+                                                    val cursorOffset = when (syntax) {
+                                                        "****" -> 2
+                                                        "**" -> 1
+                                                        "``" -> 1
+                                                        "[](url)" -> 1
+                                                        else -> syntax.length
+                                                    }
+                                                    editValue = TextFieldValue(
+                                                        newText,
+                                                        selection = TextRange(pos + cursorOffset)
+                                                    )
+                                                    viewModel.onContentChanged(newText)
                                                 }
-                                                editValue = TextFieldValue(
-                                                    newText,
-                                                    selection = TextRange(pos + cursorOffset)
-                                                )
-                                                viewModel.onContentChanged(newText)
                                             }
                                         )
 
@@ -315,7 +355,8 @@ fun EditorScreen(
                                                 .padding(horizontal = 20.dp, vertical = 16.dp),
                                             textStyle = MaterialTheme.typography.bodyLarge.copy(
                                                 color = MaterialTheme.colorScheme.onBackground,
-                                                lineHeight = MaterialTheme.typography.bodyLarge.fontSize * 1.6f
+                                                fontSize = editorFontSize.sp,
+                                                lineHeight = (editorFontSize * 1.6f).sp
                                             ),
                                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                             decorationBox = { innerTextField ->
