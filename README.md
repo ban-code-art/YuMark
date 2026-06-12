@@ -28,7 +28,26 @@ YuMark 是一款面向 Android 平台的 Markdown 编辑器，灵感来自桌面
 
 ## 应用截图
 
-> 截图即将添加
+<p align="center">
+  <img src="docs/images/screenshot_document_list.png" width="270" alt="文档列表">
+  <img src="docs/images/screenshot_editor.png" width="270" alt="编辑模式">
+  <img src="docs/images/screenshot_preview.png" width="270" alt="预览模式">
+</p>
+
+<p align="center">
+  <img src="docs/images/screenshot_sidebar.png" width="270" alt="文件树侧栏">
+  <img src="docs/images/screenshot_outline.png" width="270" alt="大纲导航">
+  <img src="docs/images/screenshot_settings.png" width="270" alt="设置页面">
+</p>
+
+| 截图 | 说明 |
+|------|------|
+| 文档列表 | 主界面，展示所有文档及搜索/排序功能 |
+| 编辑模式 | Markdown 原文编辑，底部工具栏快捷插入 |
+| 预览模式 | 实时渲染，支持 LaTeX 数学公式 |
+| 文件树侧栏 | 左侧拉出工作区文件树结构 |
+| 大纲导航 | 右侧拉出标题大纲，点击定位 |
+| 设置页面 | 主题切换、深色模式、字体、自动保存 |
 
 ## 核心功能
 
