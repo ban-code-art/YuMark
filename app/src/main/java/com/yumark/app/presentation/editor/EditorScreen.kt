@@ -1,5 +1,6 @@
 package com.yumark.app.presentation.editor
 
+import android.content.Intent
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -19,9 +20,12 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.yumark.app.R
@@ -129,6 +133,23 @@ fun EditorScreen(
         }
     }
 
+    // 导出成功 → 系统分享
+    val exportedFile by viewModel.exportedFile.collectAsState()
+    LaunchedEffect(exportedFile) {
+        exportedFile?.let { file ->
+            val uri = FileProvider.getUriForFile(
+                context, "${context.packageName}.fileprovider", file
+            )
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/html"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(intent, null))
+            viewModel.clearExportedFile()
+        }
+    }
+
     // 用 RTL 包裹实现右侧大纲抽屉（内容区恢复 LTR）
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         ModalNavigationDrawer(
@@ -160,8 +181,11 @@ fun EditorScreen(
                             title = { Text(document?.name ?: stringResource(R.string.editor)) },
                             navigationIcon = {
                                 IconButton(onClick = {
-                                    viewModel.saveDocument()
-                                    navController.navigateUp()
+                                    // 等待保存完成再返回：避免协程随 ViewModel 销毁被取消导致丢数据
+                                    scope.launch {
+                                        viewModel.saveAndWait()
+                                        navController.navigateUp()
+                                    }
                                 }) {
                                     Icon(Icons.Default.ArrowBack, stringResource(R.string.close))
                                 }
@@ -193,21 +217,19 @@ fun EditorScreen(
                                     }
                                 }
 
-                                IconButton(onClick = { showMenu = true }) {
-                                    Icon(Icons.Default.MoreVert, stringResource(R.string.menu_file))
-                                }
+                                // 导出（外部工作区文档暂不支持）
+                                if (!viewModel.isExternal) {
+                                    IconButton(onClick = { showMenu = true }) {
+                                        Icon(Icons.Default.MoreVert, stringResource(R.string.menu_file))
+                                    }
 
-                                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.toolbar_image)) },
-                                        onClick = { viewModel.onInsertImageClick(); showMenu = false },
-                                        leadingIcon = { Icon(Icons.Default.Image, null) }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.export)) },
-                                        onClick = { showMenu = false },
-                                        leadingIcon = { Icon(Icons.Default.Download, null) }
-                                    )
+                                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.export)) },
+                                            onClick = { viewModel.exportAsHtml(); showMenu = false },
+                                            leadingIcon = { Icon(Icons.Default.Download, null) }
+                                        )
+                                    }
                                 }
                             }
                         )
@@ -219,29 +241,29 @@ fun EditorScreen(
                                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                             }
                             is EditorUiState.Success -> {
-                                // 本地编辑状态，避免依赖异步的 document 状态
-                                var editContent by remember { mutableStateOf(document?.content ?: "") }
+                                // 本地编辑状态（含光标/选区），避免依赖异步的 document 状态
+                                var editValue by remember { mutableStateOf(TextFieldValue(document?.content ?: "")) }
 
                                 LaunchedEffect(document?.id) {
                                     document?.content?.let { content ->
-                                        if (editContent.isEmpty() && content.isNotEmpty()) {
-                                            editContent = content
+                                        if (editValue.text.isEmpty() && content.isNotEmpty()) {
+                                            editValue = TextFieldValue(content)
                                         }
                                     }
                                 }
 
                                 // 就绪即渲染；内容变化时重渲染（守卫避免重复渲染同一内容）
                                 var lastRendered by remember { mutableStateOf<String?>(null) }
-                                LaunchedEffect(isPreviewMode, rendererReady.value, editContent) {
+                                LaunchedEffect(isPreviewMode, rendererReady.value, editValue.text) {
                                     if (isPreviewMode && rendererReady.value &&
-                                        editContent.isNotEmpty() && editContent != lastRendered
+                                        editValue.text.isNotEmpty() && editValue.text != lastRendered
                                     ) {
                                         val encoded = android.util.Base64.encodeToString(
-                                            editContent.toByteArray(Charsets.UTF_8),
+                                            editValue.text.toByteArray(Charsets.UTF_8),
                                             android.util.Base64.NO_WRAP
                                         )
                                         previewWebView.evaluateJavascript(renderJs(encoded), null)
-                                        lastRendered = editContent
+                                        lastRendered = editValue.text
                                     }
                                 }
 
@@ -260,16 +282,31 @@ fun EditorScreen(
                                     Column(modifier = Modifier.fillMaxSize()) {
                                         MarkdownToolbar(
                                             onInsertSyntax = { syntax ->
-                                                viewModel.insertSyntax(syntax)
-                                            },
-                                            onInsertImage = { viewModel.onInsertImageClick() }
+                                                // 在光标处插入；包裹型语法把光标移到中间
+                                                val pos = editValue.selection.start
+                                                    .coerceIn(0, editValue.text.length)
+                                                val newText = editValue.text.substring(0, pos) +
+                                                    syntax + editValue.text.substring(pos)
+                                                val cursorOffset = when (syntax) {
+                                                    "****" -> 2
+                                                    "**" -> 1
+                                                    "``" -> 1
+                                                    "[](url)" -> 1
+                                                    else -> syntax.length
+                                                }
+                                                editValue = TextFieldValue(
+                                                    newText,
+                                                    selection = TextRange(pos + cursorOffset)
+                                                )
+                                                viewModel.onContentChanged(newText)
+                                            }
                                         )
 
                                         BasicTextField(
-                                            value = editContent,
+                                            value = editValue,
                                             onValueChange = { newValue ->
-                                                editContent = newValue
-                                                viewModel.onContentChanged(newValue)
+                                                editValue = newValue
+                                                viewModel.onContentChanged(newValue.text)
                                             },
                                             modifier = Modifier
                                                 .weight(1f)
@@ -283,7 +320,7 @@ fun EditorScreen(
                                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                             decorationBox = { innerTextField ->
                                                 Box {
-                                                    if (editContent.isEmpty()) {
+                                                    if (editValue.text.isEmpty()) {
                                                         Text(
                                                             "开始书写 Markdown…",
                                                             style = MaterialTheme.typography.bodyLarge,
@@ -304,7 +341,7 @@ fun EditorScreen(
                                                 horizontalArrangement = Arrangement.End
                                             ) {
                                                 Text(
-                                                    "${editContent.length} 字符",
+                                                    "${editValue.text.length} 字符",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
@@ -320,8 +357,8 @@ fun EditorScreen(
                                 ) {
                                     Text(state.message, color = MaterialTheme.colorScheme.error)
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    Button(onClick = { viewModel.saveDocument() }) {
-                                        Text("Retry")
+                                    Button(onClick = { viewModel.loadDocument() }) {
+                                        Text("重试")
                                     }
                                 }
                             }

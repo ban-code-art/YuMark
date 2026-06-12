@@ -1,1 +1,0 @@
-// Placeholder - Download from https://github.com/KaTeX/KaTeX

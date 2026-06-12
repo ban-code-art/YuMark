@@ -66,6 +66,10 @@ class DocumentRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun getAllDocumentMetas(): Result<List<Document>> = runCatching {
+        documentDao.getAll().map { entity -> mapper.toDomain(entity, "") }
+    }
+
     override suspend fun getDocumentsByFolder(folderId: String?): Result<List<Document>> = runCatching {
         documentDao.getByFolder(folderId).map { entity ->
             val content = fileManager.loadDocumentContent(entity.id).getOrElse { error ->

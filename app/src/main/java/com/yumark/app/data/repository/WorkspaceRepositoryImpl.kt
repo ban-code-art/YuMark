@@ -80,7 +80,8 @@ class WorkspaceRepositoryImpl @Inject constructor(
         }
 
     override suspend fun writeDocument(docUri: String, content: String): Result<Unit> =
-        withContext(Dispatchers.IO) {
+        // NonCancellable：写盘一旦开始必须完成，避免协程取消时 "wt" 截断后留下半截文件
+        withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
             runCatching {
                 // "wt" 截断模式：新内容比旧内容短时不残留旧字节
                 context.contentResolver.openOutputStream(Uri.parse(docUri), "wt")

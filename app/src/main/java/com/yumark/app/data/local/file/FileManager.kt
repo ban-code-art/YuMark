@@ -58,7 +58,8 @@ class FileManager @Inject constructor(
     }
 
     suspend fun saveDocumentContent(id: String, content: String): Result<Unit> =
-        withContext(Dispatchers.IO) {
+        // NonCancellable：写盘一旦开始必须完成，避免协程取消留下半截文件
+        withContext(Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
             try {
                 // 验证 ID 安全性
                 validateFileId(id)

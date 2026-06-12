@@ -11,8 +11,8 @@
 -keep class javax.inject.** { *; }
 
 # WebView JavaScript interface
--keep class com.yumark.app.core.webview.JsBridge { *; }
--keepclassmembers class com.yumark.app.core.webview.JsBridge {
+# WebView JS 桥：保留所有 @JavascriptInterface 方法（含 EditorScreen 内的匿名对象）
+-keepclassmembers class * {
     @android.webkit.JavascriptInterface <methods>;
 }
 

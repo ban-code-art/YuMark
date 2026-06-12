@@ -54,6 +54,16 @@ fun FileListScreen(
     val workspaceError by viewModel.workspaceError.collectAsState()
     val isWorkspaceLoading by viewModel.isWorkspaceLoading.collectAsState()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // 操作失败提示（删除/重命名/创建失败等），不影响列表
+    val actionError by viewModel.actionError.collectAsState()
+    LaunchedEffect(actionError) {
+        actionError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearActionError()
+        }
+    }
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -226,6 +236,7 @@ fun FileListScreen(
         }
     ) {
         Scaffold(
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 if (isSearchActive) {
                     // 搜索模式

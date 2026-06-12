@@ -8,6 +8,9 @@ interface DocumentRepository {
     fun observeDocument(id: String): Flow<Document?>
     fun observeAllDocuments(): Flow<List<Document>>
     suspend fun getAllDocuments(): Result<List<Document>>
+
+    /** 仅元数据（content 为空字符串），用于树/列表等不需要正文的场景，避免全量文件 IO */
+    suspend fun getAllDocumentMetas(): Result<List<Document>>
     suspend fun getDocumentsByFolder(folderId: String?): Result<List<Document>>
     suspend fun searchDocuments(query: String): Result<List<Document>>
     suspend fun createDocument(name: String, folderId: String?): Result<Document>

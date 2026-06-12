@@ -1,19 +1,21 @@
 package com.yumark.app.presentation.editor
 
-import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.yumark.app.data.local.file.FileManager
 import com.yumark.app.domain.model.Document
+import com.yumark.app.domain.model.ExportFormat
+import com.yumark.app.domain.model.ExportOptions
 import com.yumark.app.domain.model.OutlineItem
 import com.yumark.app.domain.model.UserSettings
 import com.yumark.app.domain.repository.WorkspaceRepository
 import com.yumark.app.domain.usecase.LoadDocumentUseCase
 import com.yumark.app.domain.usecase.SaveDocumentUseCase
 import com.yumark.app.domain.usecase.LoadSettingsUseCase
+import com.yumark.app.domain.usecase.export.ExportDocumentUseCase
 import com.yumark.app.presentation.theme.AppThemes
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -23,6 +25,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.io.File
 import javax.inject.Inject
 
 @HiltViewModel
@@ -31,12 +34,16 @@ class EditorViewModel @Inject constructor(
     private val saveDocumentUseCase: SaveDocumentUseCase,
     private val loadSettingsUseCase: LoadSettingsUseCase,
     private val workspaceRepository: WorkspaceRepository,
-    @ApplicationContext private val context: Context,
+    private val exportDocumentUseCase: ExportDocumentUseCase,
+    private val fileManager: FileManager,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     private val documentId: String? = savedStateHandle["documentId"]
     private val docUri: String? = savedStateHandle["docUri"]
+
+    /** 是否为外部工作区文档（不支持导出等依赖 Room 的功能） */
+    val isExternal: Boolean get() = docUri != null
 
     private val _uiState = MutableStateFlow<EditorUiState>(EditorUiState.Loading)
     val uiState: StateFlow<EditorUiState> = _uiState.asStateFlow()
@@ -50,13 +57,15 @@ class EditorViewModel @Inject constructor(
     private val _isPreviewMode = MutableStateFlow(false)  // 默认编辑模式
     val isPreviewMode: StateFlow<Boolean> = _isPreviewMode.asStateFlow()
 
-    private val _cursorPosition = MutableStateFlow(0)
-
     private val _outline = MutableStateFlow<List<OutlineItem>>(emptyList())
     val outline: StateFlow<List<OutlineItem>> = _outline.asStateFlow()
 
     private val _saveError = MutableStateFlow<String?>(null)
     val saveError: StateFlow<String?> = _saveError.asStateFlow()
+
+    /** 导出成功的文件（UI 收到后弹分享） */
+    private val _exportedFile = MutableStateFlow<File?>(null)
+    val exportedFile: StateFlow<File?> = _exportedFile.asStateFlow()
 
     /** 当前主题 id（驱动预览区深色配色） */
     val themeId: StateFlow<String> = loadSettingsUseCase.observe()
@@ -65,7 +74,7 @@ class EditorViewModel @Inject constructor(
 
     private var autoSaveJob: Job? = null
 
-    // 添加 Mutex 保护共享状态，防止并发修改导致数据竞争
+    // 保护保存的读-改-写竞态
     private val stateMutex = Mutex()
 
     // 标记文档是否已被用户修改（脏数据标记）
@@ -74,7 +83,20 @@ class EditorViewModel @Inject constructor(
     init {
         require(documentId != null || docUri != null) { "documentId or docUri required" }
 
-        // 首次加载文档（内部 Room 文档 或 外部 SAF 文档）
+        loadDocument()
+
+        // 监听设置变化（自动保存）
+        viewModelScope.launch {
+            loadSettingsUseCase.observe().collect { settings ->
+                if (settings.autoSaveEnabled) startAutoSave(settings.autoSaveInterval)
+                else stopAutoSave()
+            }
+        }
+    }
+
+    /** 加载文档（内部 Room 文档 或 外部 SAF 文档）；错误态 Retry 也走这里 */
+    fun loadDocument() {
+        _uiState.value = EditorUiState.Loading
         viewModelScope.launch {
             val settings = loadSettingsUseCase()
             if (docUri != null) {
@@ -101,14 +123,6 @@ class EditorViewModel @Inject constructor(
                 }
             }
         }
-
-        // 监听设置变化（自动保存）
-        viewModelScope.launch {
-            loadSettingsUseCase.observe().collect { settings ->
-                if (settings.autoSaveEnabled) startAutoSave(settings.autoSaveInterval)
-                else stopAutoSave()
-            }
-        }
     }
 
     /** 默认预览：设置开启且文档非空才进预览（空文档直接编辑，避免空白预览） */
@@ -124,34 +138,58 @@ class EditorViewModel @Inject constructor(
         isDocumentDirty = true
     }
 
-    fun onCursorPositionChanged(position: Int) {
-        _cursorPosition.value = position
+    fun saveDocument() {
+        viewModelScope.launch { doSave() }
     }
 
-    fun saveDocument() {
-        viewModelScope.launch {
-            stateMutex.withLock {
-                _document.value?.let { doc ->
-                    _isSaving.value = true
-                    val result = if (docUri != null) {
-                        workspaceRepository.writeDocument(docUri, doc.content)
-                    } else {
-                        saveDocumentUseCase(doc)
-                    }
-                    result.onSuccess {
-                        isDocumentDirty = false
-                    }.onFailure { e ->
-                        // 保存失败不改变整页状态，编辑内容保留在内存
-                        _saveError.value = e.message ?: "保存失败"
-                    }
-                    _isSaving.value = false
+    /** 供返回键等需要等待保存落盘后再继续的场景（在调用方协程内执行，不会被 VM 销毁取消） */
+    suspend fun saveAndWait() = doSave()
+
+    private suspend fun doSave() {
+        stateMutex.withLock {
+            // 不脏不写盘：避免自动保存每 30s 重写外部原文件
+            if (!isDocumentDirty) return
+            _document.value?.let { doc ->
+                _isSaving.value = true
+                val result = if (docUri != null) {
+                    workspaceRepository.writeDocument(docUri, doc.content)
+                } else {
+                    saveDocumentUseCase(doc)
                 }
+                result.onSuccess {
+                    isDocumentDirty = false
+                }.onFailure { e ->
+                    // 保存失败不改变整页状态，编辑内容保留在内存
+                    _saveError.value = e.message ?: "保存失败"
+                }
+                _isSaving.value = false
             }
         }
     }
 
     fun clearSaveError() {
         _saveError.value = null
+    }
+
+    /** 导出为 HTML（仅内部文档），成功后通过 exportedFile 通知 UI 弹分享 */
+    fun exportAsHtml() {
+        val id = documentId ?: return
+        viewModelScope.launch {
+            doSave()  // 导出读取的是仓库数据，先确保落盘
+            exportDocumentUseCase(
+                id,
+                ExportFormat.HTML,
+                ExportOptions(outputDir = fileManager.getExportsDir())
+            ).onSuccess { file ->
+                _exportedFile.value = file
+            }.onFailure { e ->
+                _saveError.value = e.message ?: "导出失败"
+            }
+        }
+    }
+
+    fun clearExportedFile() {
+        _exportedFile.value = null
     }
 
     /** WebView JS 渲染完成后回传的大纲（JSON 数组） */
@@ -171,51 +209,10 @@ class EditorViewModel @Inject constructor(
         _isPreviewMode.value = !_isPreviewMode.value
     }
 
-    fun onInsertImageClick() {
-        // TODO: 打开图片选择器
-        // 当前仅作占位，实际需要 Activity Result API
-    }
-
-    fun insertImage(markdownImageSyntax: String) {
-        viewModelScope.launch {
-            stateMutex.withLock {
-                _document.value?.let { doc ->
-                    val newContent = doc.content + "\n" + markdownImageSyntax
-                    _document.value = doc.copy(content = newContent)
-                }
-            }
-        }
-    }
-
-    fun insertSyntax(syntax: String) {
-        viewModelScope.launch {
-            stateMutex.withLock {
-                _document.value?.let { doc ->
-                    val cursor = _cursorPosition.value
-                    val before = doc.content.substring(0, cursor.coerceAtMost(doc.content.length))
-                    val after = doc.content.substring(cursor.coerceAtMost(doc.content.length))
-
-                    // 计算新的光标位置（对于包裹型语法，将光标放在中间）
-                    val newCursor = when {
-                        syntax.contains("****") -> cursor + 2  // 粗体
-                        syntax.contains("**") -> cursor + 1    // 斜体
-                        syntax.contains("``") -> cursor + 1    // 代码
-                        syntax.contains("[](") -> cursor + 1   // 链接
-                        else -> cursor + syntax.length
-                    }
-
-                    val newContent = before + syntax + after
-                    _document.value = doc.copy(content = newContent)
-                    _cursorPosition.value = newCursor
-                }
-            }
-        }
-    }
-
     private fun startAutoSave(intervalSec: Int) {
         autoSaveJob?.cancel()
         autoSaveJob = viewModelScope.launch {
-            while (isActive) { delay(intervalSec * 1000L); saveDocument() }
+            while (isActive) { delay(intervalSec * 1000L); doSave() }
         }
     }
 

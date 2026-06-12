@@ -54,6 +54,14 @@ class FileListViewModel @Inject constructor(
     private var cachedTreeKey: Pair<Int, Int>? = null
     private var cachedTree: List<FolderTreeNode>? = null
 
+    /** 操作失败提示（Snackbar 一次性事件），不影响列表 uiState */
+    private val _actionError = MutableStateFlow<String?>(null)
+    val actionError: StateFlow<String?> = _actionError.asStateFlow()
+
+    fun clearActionError() {
+        _actionError.value = null
+    }
+
     init {
         viewModelScope.launch {
             combine(
@@ -248,7 +256,8 @@ class FileListViewModel @Inject constructor(
     }
 
     private fun setError(msg: String) {
-        _uiState.value = FileListUiState.Error(msg)
+        // 操作失败不摧毁列表页，走 Snackbar 提示
+        _actionError.value = msg
     }
 }
 

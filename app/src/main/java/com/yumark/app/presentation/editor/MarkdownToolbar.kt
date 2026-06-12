@@ -17,7 +17,6 @@ import com.yumark.app.R
 @Composable
 fun MarkdownToolbar(
     onInsertSyntax: (String) -> Unit,
-    onInsertImage: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -55,12 +54,6 @@ fun MarkdownToolbar(
                 icon = Icons.Default.Link,
                 label = stringResource(R.string.toolbar_link),
                 onClick = { onInsertSyntax("[](url)") }
-            )
-
-            ToolbarButton(
-                icon = Icons.Default.Image,
-                label = stringResource(R.string.toolbar_image),
-                onClick = onInsertImage
             )
 
             ToolbarButton(

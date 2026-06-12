@@ -13,7 +13,8 @@ class GetFolderTreeUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(): Result<List<FolderTreeNode>> = runCatching {
         val allFolders = folderRepository.getAllFolders().getOrThrow()
-        val allDocuments = documentRepository.getAllDocuments().getOrThrow()
+        // 树只需要元数据，避免为每个文档做文件 IO 读取正文
+        val allDocuments = documentRepository.getAllDocumentMetas().getOrThrow()
 
         buildFolderTree(null, allFolders, allDocuments, 0)
     }
