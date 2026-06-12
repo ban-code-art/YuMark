@@ -210,7 +210,7 @@ fun FolderRow(
                         Icon(Icons.Default.CreateNewFolder, null)
                     }
                 )
-                Divider()
+                HorizontalDivider()
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.rename)) },
                     onClick = {

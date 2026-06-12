@@ -89,6 +89,7 @@ class ExportDocumentUseCase @Inject constructor(
         return htmlExporter.export(document, options).getOrThrow()
     }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun exportPdf(document: Document, options: ExportOptions): File {
         // TODO: 使用 Android PrintManager API 生成 PDF
         // 1. 创建 WebView 渲染 HTML
@@ -97,6 +98,7 @@ class ExportDocumentUseCase @Inject constructor(
         throw UnsupportedOperationException("PDF export not yet implemented")
     }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun exportWord(document: Document, options: ExportOptions): File {
         // TODO: 使用 Apache POI 或其他库生成 .docx
         // 1. 解析 Markdown 为结构化数据
@@ -105,6 +107,7 @@ class ExportDocumentUseCase @Inject constructor(
         throw UnsupportedOperationException("Word export not yet implemented")
     }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun exportImage(document: Document, options: ExportOptions): File {
         // TODO: WebView 截图转 PNG
         // 1. 渲染 Markdown 到 WebView

@@ -31,6 +31,8 @@ class FileListViewModelTest {
     private val manageFoldersUseCase: ManageFoldersUseCase = mockk()
     private val getFolderTreeUseCase: GetFolderTreeUseCase = mockk()
     private val workspaceRepository: WorkspaceRepository = mockk(relaxed = true)
+    private val importDocumentUseCase: com.yumark.app.domain.usecase.importing.ImportDocumentUseCase = mockk(relaxed = true)
+    private val importFolderUseCase: com.yumark.app.domain.usecase.importing.ImportFolderUseCase = mockk(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -55,7 +57,7 @@ class FileListViewModelTest {
     private fun createViewModel() = FileListViewModel(
         documentRepository, folderRepository, createDocumentUseCase,
         deleteDocumentUseCase, searchUseCase, manageFoldersUseCase, getFolderTreeUseCase,
-        workspaceRepository
+        workspaceRepository, importDocumentUseCase, importFolderUseCase
     )
 
     @Test

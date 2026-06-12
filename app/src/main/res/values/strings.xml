@@ -151,4 +151,27 @@
     <string name="workspace_reselect">重新选择</string>
     <string name="workspace_main_hint">从左侧栏选择要打开的文档</string>
     <string name="workspace_open_sidebar">打开侧栏</string>
+
+    <!-- 默认目录 -->
+    <string name="default_dir">默认目录</string>
+    <string name="default_dir_unset">未设置</string>
+    <string name="default_dir_choose">选择</string>
+    <string name="default_dir_clear">清除</string>
+    <string name="default_dir_confirm_title">确认默认目录</string>
+    <string name="default_dir_confirm_message">已选择「%1$s」，设为默认目录？以后打开 App 将自动加载此目录。</string>
+    <string name="default_dir_picked_fallback">所选文件夹</string>
+    <string name="open_folder_confirm_title">确认打开文件夹</string>
+    <string name="open_folder_confirm_message">已选择「%1$s」，打开此文件夹？</string>
+
+    <!-- 导入库 -->
+    <string name="import_library">导入库</string>
+    <string name="import_folder">导入文件夹</string>
+    <string name="import_to_library">导入到导入库</string>
+    <string name="import_select_files">选择要导入的文件</string>
+    <string name="import_select_folder_files">选择要导入的项（%1$d）</string>
+    <string name="import_success">已导入 %1$d 个文件</string>
+    <string name="import_empty_selection">未选择任何文件</string>
+    <string name="import_folder_empty">该文件夹中没有可导入的 Markdown/文本文件</string>
+    <string name="import_select_all">全选</string>
+    <string name="error_import_folder">导入文件夹失败</string>
 </resources>

@@ -4,6 +4,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -48,7 +49,7 @@ fun MarkdownToolbar(
                 onClick = { onInsertSyntax("**") }
             )
 
-            Divider(modifier = Modifier.width(1.dp).height(32.dp))
+            VerticalDivider(modifier = Modifier.height(32.dp))
 
             ToolbarButton(
                 icon = Icons.Default.Link,
@@ -62,10 +63,10 @@ fun MarkdownToolbar(
                 onClick = { onInsertSyntax("``") }
             )
 
-            Divider(modifier = Modifier.width(1.dp).height(32.dp))
+            VerticalDivider(modifier = Modifier.height(32.dp))
 
             ToolbarButton(
-                icon = Icons.Default.FormatListBulleted,
+                icon = Icons.AutoMirrored.Filled.FormatListBulleted,
                 label = stringResource(R.string.toolbar_list),
                 onClick = { onInsertSyntax("- ") }
             )

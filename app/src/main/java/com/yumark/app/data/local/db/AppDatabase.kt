@@ -29,9 +29,9 @@ abstract class AppDatabase : RoomDatabase() {
          * 示例：从版本 1 升级到版本 2
          */
         val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(database: SupportSQLiteDatabase) {
+            override fun migrate(db: SupportSQLiteDatabase) {
                 // 示例：添加新列
-                // database.execSQL("ALTER TABLE documents ADD COLUMN tags TEXT NOT NULL DEFAULT ''")
+                // db.execSQL("ALTER TABLE documents ADD COLUMN tags TEXT NOT NULL DEFAULT ''")
             }
         }
 
@@ -39,9 +39,9 @@ abstract class AppDatabase : RoomDatabase() {
          * 示例：从版本 2 升级到版本 3
          */
         val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(database: SupportSQLiteDatabase) {
+            override fun migrate(db: SupportSQLiteDatabase) {
                 // 示例：创建新表
-                // database.execSQL("""
+                // db.execSQL("""
                 //     CREATE TABLE IF NOT EXISTS tags (
                 //         id TEXT PRIMARY KEY NOT NULL,
                 //         name TEXT NOT NULL,

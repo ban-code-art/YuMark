@@ -1,20 +1,28 @@
 package com.yumark.app.presentation.settings
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.documentfile.provider.DocumentFile
+import com.yumark.app.R
 import com.yumark.app.domain.model.CompressionQuality
 import com.yumark.app.domain.model.UserSettings
 import com.yumark.app.domain.repository.SettingsRepository
+import com.yumark.app.domain.repository.WorkspaceRepository
 import com.yumark.app.presentation.theme.AppThemes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -27,13 +35,33 @@ import androidx.hilt.navigation.compose.hiltViewModel
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val repo: SettingsRepository
+    private val repo: SettingsRepository,
+    private val workspaceRepository: WorkspaceRepository
 ) : ViewModel() {
     private val _settings = MutableStateFlow(UserSettings())
     val settings: StateFlow<UserSettings> = _settings.asStateFlow()
 
+    /** 默认目录显示名，null 表示未设置 */
+    private val _defaultDirName = MutableStateFlow<String?>(null)
+    val defaultDirName: StateFlow<String?> = _defaultDirName.asStateFlow()
+
     init {
         viewModelScope.launch { repo.observeSettings().collect { _settings.value = it } }
+        // 默认目录 URI 变化时刷新显示名
+        viewModelScope.launch {
+            workspaceRepository.defaultDirUri.collect {
+                _defaultDirName.value = if (it == null) null else workspaceRepository.defaultDirName()
+            }
+        }
+    }
+
+    /** 设为默认目录（UI 已完成持久授权）；同时立即打开为当前工作区 */
+    fun setDefaultDir(treeUri: String) {
+        viewModelScope.launch { workspaceRepository.setDefaultDir(treeUri) }
+    }
+
+    fun clearDefaultDir() {
+        viewModelScope.launch { workspaceRepository.clearDefaultDir() }
     }
 
     fun updateFontSize(s: Int) {
@@ -80,6 +108,40 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val settings by viewModel.settings.collectAsState()
+    val defaultDirName by viewModel.defaultDirName.collectAsState()
+    val context = LocalContext.current
+
+    // 方案 A：系统选择器返回后，先回显名称让用户确认，确认后才持久授权 + 设为默认目录
+    var pendingDir by remember { mutableStateOf<android.net.Uri?>(null) }
+    val folderPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri -> if (uri != null) pendingDir = uri }
+
+    pendingDir?.let { uri ->
+        val fallbackName = stringResource(R.string.default_dir_picked_fallback)
+        val name = remember(uri, fallbackName) {
+            DocumentFile.fromTreeUri(context, uri)?.name ?: uri.lastPathSegment ?: fallbackName
+        }
+        AlertDialog(
+            onDismissRequest = { pendingDir = null },
+            title = { Text(stringResource(R.string.default_dir_confirm_title)) },
+            text = { Text(stringResource(R.string.default_dir_confirm_message, name)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    // 用户确认后才持久授权，避免误选目录也占用授权配额
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    )
+                    viewModel.setDefaultDir(uri.toString())
+                    pendingDir = null
+                }) { Text(stringResource(R.string.ok)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDir = null }) { Text(stringResource(R.string.cancel)) }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -87,7 +149,7 @@ fun SettingsScreen(
                 title = { Text("设置") },
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
-                        Icon(Icons.Default.ArrowBack, "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
                     }
                 }
             )
@@ -147,7 +209,7 @@ fun SettingsScreen(
             }
             Spacer(modifier = Modifier.height(8.dp))
 
-            Divider()
+            HorizontalDivider()
 
             // Font Size
             ListItem(
@@ -163,7 +225,7 @@ fun SettingsScreen(
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
 
-            Divider()
+            HorizontalDivider()
 
             // Auto Save
             ListItem(
@@ -177,7 +239,7 @@ fun SettingsScreen(
                 }
             )
 
-            Divider()
+            HorizontalDivider()
 
             ListItem(
                 headlineContent = { Text("打开文档默认进入预览") },
@@ -190,7 +252,29 @@ fun SettingsScreen(
                 }
             )
 
-            Divider()
+            HorizontalDivider()
+
+            // 默认目录：选择后启动 App 自动加载该目录文件树到侧栏
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.default_dir)) },
+                supportingContent = {
+                    Text(defaultDirName ?: stringResource(R.string.default_dir_unset))
+                },
+                trailingContent = {
+                    Row {
+                        TextButton(onClick = { folderPicker.launch(null) }) {
+                            Text(stringResource(R.string.default_dir_choose))
+                        }
+                        if (defaultDirName != null) {
+                            TextButton(onClick = { viewModel.clearDefaultDir() }) {
+                                Text(stringResource(R.string.default_dir_clear))
+                            }
+                        }
+                    }
+                }
+            )
+
+            HorizontalDivider()
 
             // About
             ListItem(

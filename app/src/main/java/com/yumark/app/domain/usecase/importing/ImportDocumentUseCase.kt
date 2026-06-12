@@ -1,4 +1,4 @@
-package com.yumark.app.domain.usecase.import
+package com.yumark.app.domain.usecase.importing
 
 import android.content.Context
 import android.net.Uri

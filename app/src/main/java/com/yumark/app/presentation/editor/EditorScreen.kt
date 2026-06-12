@@ -11,6 +11,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +33,7 @@ import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.yumark.app.R
+import com.yumark.app.presentation.navigation.Screen
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -92,8 +95,27 @@ fun EditorScreen(
                 allowFileAccess = true
                 allowContentAccess = true
             }
-            // 透明背景：深色模式进预览不闪白
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            // 不透明背景：透明 WebView 会禁用分块光栅化/合成优化，长文档滚动时持续重绘导致卡顿。
+            // 用与渲染页一致的纯色背景，既保持硬件加速滚动流畅，又避免深色模式进预览闪白。
+            setBackgroundColor(previewBgColor(isDarkMode, themeId))
+
+            // 预览模式下外层 ModalNavigationDrawer 的水平拖拽手势会与 WebView 竞争触摸事件，
+            // 导致垂直滚动需经 Compose 手势竞技场判定方向后才响应，表现为滚动卡顿/划不动。
+            // 触摸落在 WebView 上时请求父级不拦截，让 WebView 独占滚动（大纲仍可由顶栏按钮打开）。
+            setOnTouchListener { v, event ->
+                when (event.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN,
+                    android.view.MotionEvent.ACTION_MOVE ->
+                        v.parent?.requestDisallowInterceptTouchEvent(true)
+                    android.view.MotionEvent.ACTION_UP -> {
+                        v.parent?.requestDisallowInterceptTouchEvent(false)
+                        v.performClick()
+                    }
+                    android.view.MotionEvent.ACTION_CANCEL ->
+                        v.parent?.requestDisallowInterceptTouchEvent(false)
+                }
+                false
+            }
 
             addJavascriptInterface(object {
                 @JavascriptInterface
@@ -139,6 +161,22 @@ fun EditorScreen(
             val (bg, fg) = previewDarkColors
             previewWebView.evaluateJavascript(darkStyleJs(bg, fg), null)
         }
+    }
+
+    // 相对路径图片解析基址（导入库/外部工作区文档）：就绪即注入，渲染前后到达均生效
+    val imageResolver by viewModel.imageResolver.collectAsState()
+    LaunchedEffect(rendererReady.value, imageResolver) {
+        if (rendererReady.value && imageResolver != null) {
+            val json = kotlinx.serialization.json.Json.encodeToString(
+                ImageResolverConfig.serializer(), imageResolver!!
+            )
+            previewWebView.evaluateJavascript("window.setImageResolver($json)", null)
+        }
+    }
+
+    // WebView 单实例创建时只取了初始背景色，主题/深浅切换后同步更新原生背景，保持与渲染页一致
+    LaunchedEffect(isDarkMode, themeId) {
+        previewWebView.setBackgroundColor(previewBgColor(isDarkMode, themeId))
     }
 
     // 预览字号跟随设置
@@ -213,14 +251,14 @@ fun EditorScreen(
                             title = { Text(document?.name ?: stringResource(R.string.editor)) },
                             navigationIcon = {
                                 IconButton(onClick = saveAndExit) {
-                                    Icon(Icons.Default.ArrowBack, stringResource(R.string.close))
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.close))
                                 }
                             },
                             actions = {
                                 // 大纲（仅预览模式）
                                 if (isPreviewMode) {
                                     IconButton(onClick = { scope.launch { outlineDrawerState.open() } }) {
-                                        Icon(Icons.Default.FormatListBulleted, stringResource(R.string.outline))
+                                        Icon(Icons.AutoMirrored.Filled.FormatListBulleted, stringResource(R.string.outline))
                                     }
                                 }
 
@@ -256,6 +294,11 @@ fun EditorScreen(
                                             leadingIcon = { Icon(Icons.Default.Download, null) }
                                         )
                                     }
+                                }
+
+                                // 设置入口：看文档时也能直接调整字号/主题等
+                                IconButton(onClick = { navController.navigate(Screen.Settings.route) }) {
+                                    Icon(Icons.Default.Settings, stringResource(R.string.settings))
                                 }
                             }
                         )
@@ -409,6 +452,19 @@ fun EditorScreen(
             }
         }
     }
+}
+
+/**
+ * 预览 WebView 的原生背景色。必须与 renderer.html 实际生效的 body 背景一致：
+ * 浅色模式 body 恒为 #fff；深色模式由 darkStyleJs 注入主题背景色。
+ * 用不透明纯色（而非透明）是为了保留 WebView 的硬件加速合成路径，长文档滚动才不卡。
+ */
+private fun previewBgColor(isDarkMode: Boolean, themeId: String): Int {
+    val hex = if (!isDarkMode) "#FFFFFF" else when (themeId) {
+        "claude" -> "#262624"
+        else -> "#1E1E1E"
+    }
+    return android.graphics.Color.parseColor(hex)
 }
 
 /** 渲染 Markdown（Base64 通道，避免字符转义问题） */

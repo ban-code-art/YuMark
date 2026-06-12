@@ -27,6 +27,59 @@ window.__mermaidLoaded = function() {
     } catch(e) { console.log('mermaid late run: ' + e.message); }
 };
 
+// ===== 相对路径图片解析 =====
+// Android 侧通过 setImageResolver 提供文档所在目录的基址：
+//  - 导入库文档: prefix=file:///...import_assets/ 的 URL, base=库内目录链, encodeAll=false（逐段编码）
+//  - 外部工作区文档: prefix=content://.../document/ 前缀, base=父目录 documentId, encodeAll=true（整体编码）
+window.__imageResolver = null;
+
+// 把相对引用解析到 base 目录下；".." 不会越过根（防路径穿越）
+function joinImagePath(base, rel) {
+    rel = rel.replace(/\\/g, '/');
+    var rootPrefix = '';
+    var m = base.match(/^([^/]*:)([\s\S]*)$/);
+    if (m) { rootPrefix = m[1]; base = m[2]; }
+    var segs = base ? base.split('/').filter(function(s) { return !!s; }) : [];
+    if (rel.charAt(0) === '/') segs = [];
+    var parts = rel.split('/');
+    for (var i = 0; i < parts.length; i++) {
+        var p = parts[i];
+        if (!p || p === '.') continue;
+        if (p === '..') { if (segs.length) segs.pop(); continue; }
+        segs.push(p);
+    }
+    return rootPrefix + segs.join('/');
+}
+
+function resolveImages() {
+    var cfg = window.__imageResolver;
+    var contentEl = document.getElementById('content');
+    if (!cfg || !contentEl) return;
+    var imgs = contentEl.querySelectorAll('img');
+    for (var i = 0; i < imgs.length; i++) {
+        var img = imgs[i];
+        // 原始引用只记录一次，重渲染/换基址后仍可重新解析
+        var raw = img.getAttribute('data-yumark-src');
+        if (raw === null) {
+            raw = img.getAttribute('src') || '';
+            img.setAttribute('data-yumark-src', raw);
+        }
+        if (!raw || /^(https?:|data:|file:|content:|blob:)/i.test(raw)) continue;
+        var rel;
+        try { rel = decodeURIComponent(raw); } catch (e) { rel = raw; }
+        var joined = joinImagePath(cfg.base || '', rel);
+        var src = cfg.encodeAll
+            ? cfg.prefix + encodeURIComponent(joined)
+            : cfg.prefix + joined.split('/').map(encodeURIComponent).join('/');
+        img.setAttribute('src', src);
+    }
+}
+
+window.setImageResolver = function(cfg) {
+    window.__imageResolver = cfg;
+    resolveImages();
+};
+
 // 立即定义renderMarkdown函数，不等待DOM
 window.renderMarkdown = function(markdownText) {
     function log(msg) {
@@ -72,6 +125,19 @@ window.renderMarkdown = function(markdownText) {
         processedText = processedText.replace(/(^|[^\\$])\$((?:\\[^\n]|[^\\$\n])+?)\$(?!\d)/g, function(match, prefix, formula) {
             if (/^\s/.test(formula) || /\s$/.test(formula)) return match;
             return prefix + stash('inline', formula);
+        });
+
+        // 步骤2.5: 归一化图片链接目标（Typora/Windows 风格：反斜杠分隔、未编码空格）。
+        // CommonMark 规定目标中含未编码空格时整段不解析为图片，必须先转成合法 URL。
+        // 在代码区域仍受保护时执行，避免误改代码示例。
+        processedText = processedText.replace(/(!\[[^\]\n]*\]\()([^()\n]+)(\))/g, function(m, pre, dest, post) {
+            dest = dest.trim();
+            if (dest.charAt(0) === '<') return m;
+            var title = '';
+            var tm = dest.match(/\s+("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')$/);
+            if (tm) { title = ' ' + tm[1]; dest = dest.slice(0, tm.index); }
+            dest = dest.replace(/\\/g, '/').replace(/ /g, '%20');
+            return pre + dest + title + post;
         });
 
         // 恢复代码区域，交给 marked 正常渲染
@@ -132,6 +198,9 @@ window.renderMarkdown = function(markdownText) {
         if (contentEl) {
             contentEl.innerHTML = html;
             log('HTML set');
+
+            // 相对路径图片解析（基址可能先于/晚于首次渲染到达，两侧都触发）
+            try { resolveImages(); } catch(e) { log('Image resolve error: ' + e.message); }
 
             // 兜底：扫描漏网的公式（如不常见的定界符写法），不含单个 $，避免误伤普通文本
             if (typeof renderMathInElement !== 'undefined') {

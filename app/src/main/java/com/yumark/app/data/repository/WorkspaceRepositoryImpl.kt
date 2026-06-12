@@ -59,16 +59,43 @@ class WorkspaceRepositoryImpl @Inject constructor(
 
     override suspend fun restoreOnLaunch() {
         if (_workspace.value != null) return
-        val saved = workspaceDataStore.treeUriFlow.first() ?: return
-        val hasPermission = context.contentResolver.persistedUriPermissions.any {
-            it.uri.toString() == saved && it.isReadPermission
+        // 优先恢复用户在设置里指定的默认目录；失败时回退到上次会话打开的工作区
+        val defaultDir = workspaceDataStore.defaultDirUriFlow.first()
+        if (defaultDir != null) {
+            if (hasReadPermission(defaultDir) && openWorkspace(defaultDir).isSuccess) return
+            // 默认目录授权失效或打开失败：只清默认目录，继续尝试上次工作区
+            workspaceDataStore.clearDefaultDirUri()
         }
-        if (!hasPermission) {
+        val lastSession = workspaceDataStore.treeUriFlow.first() ?: return
+        if (!hasReadPermission(lastSession)) {
             workspaceDataStore.clearTreeUri()
             return
         }
-        openWorkspace(saved).onFailure { workspaceDataStore.clearTreeUri() }
+        openWorkspace(lastSession).onFailure { workspaceDataStore.clearTreeUri() }
     }
+
+    override val defaultDirUri: kotlinx.coroutines.flow.Flow<String?>
+        get() = workspaceDataStore.defaultDirUriFlow
+
+    override suspend fun setDefaultDir(treeUri: String): Result<Workspace> {
+        // 设为默认目录的同时立即打开它（持久授权由 UI 在选择回调里完成）
+        workspaceDataStore.saveDefaultDirUri(treeUri)
+        return openWorkspace(treeUri)
+    }
+
+    override suspend fun clearDefaultDir() {
+        workspaceDataStore.clearDefaultDirUri()
+    }
+
+    override suspend fun defaultDirName(): String? {
+        val uri = workspaceDataStore.defaultDirUriFlow.first() ?: return null
+        return DocumentFile.fromTreeUri(context, Uri.parse(uri))?.name
+    }
+
+    private fun hasReadPermission(uri: String): Boolean =
+        context.contentResolver.persistedUriPermissions.any {
+            it.uri.toString() == uri && it.isReadPermission
+        }
 
     override suspend fun readDocument(docUri: String): Result<String> =
         withContext(Dispatchers.IO) {

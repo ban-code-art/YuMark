@@ -90,13 +90,13 @@ class ImageRepositoryImpl @Inject constructor(
                 } else {
                     90
                 }
-                processedBitmap!!.compress(format, quality, out)
+                processedBitmap.compress(format, quality, out)
             }
 
             val image = Image(
                 id = imageId, documentId = documentId, fileName = fileName,
-                filePath = "images/$fileName", width = processedBitmap!!.width,
-                height = processedBitmap!!.height, fileSize = file.length(),
+                filePath = "images/$fileName", width = processedBitmap.width,
+                height = processedBitmap.height, fileSize = file.length(),
                 createdAt = kotlinx.datetime.Clock.System.now()
             )
 

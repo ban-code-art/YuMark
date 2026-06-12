@@ -17,10 +17,14 @@ class FileManager @Inject constructor(
     private val imagesDir = File(context.filesDir, "images")
     private val exportsDir = File(context.filesDir, "exports")
 
+    // 导入库的图片资产：按导入时的相对目录结构镜像存放，供预览解析相对路径引用
+    private val importAssetsDir = File(context.filesDir, "import_assets")
+
     init {
         documentsDir.mkdirs()
         imagesDir.mkdirs()
         exportsDir.mkdirs()
+        importAssetsDir.mkdirs()
     }
 
     /**
@@ -120,4 +124,5 @@ class FileManager @Inject constructor(
     fun getDocumentsDir(): File = documentsDir
     fun getImagesDir(): File = imagesDir
     fun getExportsDir(): File = exportsDir
+    fun getImportAssetsDir(): File = importAssetsDir
 }

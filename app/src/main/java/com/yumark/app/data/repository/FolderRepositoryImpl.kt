@@ -50,6 +50,24 @@ class FolderRepositoryImpl @Inject constructor(
         folder
     }
 
+    override suspend fun ensureImportLibraryFolder(): Result<Folder> = runCatching {
+        // 导入库根用固定 ID（不走 UUID），存在则复用、不存在则惰性创建
+        val existing = folderDao.getById(FolderRepository.IMPORT_LIBRARY_FOLDER_ID)
+        if (existing != null) {
+            mapper.toDomain(existing)
+        } else {
+            val folder = Folder(
+                id = FolderRepository.IMPORT_LIBRARY_FOLDER_ID,
+                name = FolderRepository.IMPORT_LIBRARY_FOLDER_NAME,
+                parentId = null,
+                createdAt = kotlinx.datetime.Clock.System.now(),
+                order = 0
+            )
+            folderDao.insert(mapper.toEntity(folder))
+            folder
+        }
+    }
+
     override suspend fun renameFolder(id: String, newName: String): Result<Unit> = runCatching {
         val entity = folderDao.getById(id) ?: throw Exception("Folder not found: $id")
         folderDao.update(entity.copy(name = newName))

@@ -8,9 +8,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +27,7 @@ import com.yumark.app.R
 import com.yumark.app.domain.model.Document
 import com.yumark.app.domain.model.SearchResult
 import com.yumark.app.domain.model.SortOption
+import com.yumark.app.domain.usecase.importing.ImportCandidate
 import com.yumark.app.presentation.navigation.Screen
 import com.yumark.app.presentation.sidebar.SidebarFileTree
 import com.yumark.app.presentation.sidebar.WorkspaceFileTree
@@ -47,6 +51,7 @@ fun FileListScreen(
     var isSearchActive by remember { mutableStateOf(false) }
     var documentToRename by remember { mutableStateOf<Document?>(null) }
     var documentToDelete by remember { mutableStateOf<Document?>(null) }
+    var showImportMenu by remember { mutableStateOf(false) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -72,17 +77,86 @@ fun FileListScreen(
         }
     }
 
+    // 方案 A：选完文件夹先回显名称确认，确认后才持久授权 + 打开，避免嵌套深时误选父目录
+    var pendingWorkspaceDir by remember { mutableStateOf<android.net.Uri?>(null) }
     val folderPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri -> if (uri != null) pendingWorkspaceDir = uri }
+
+    pendingWorkspaceDir?.let { uri ->
+        val fallbackName = stringResource(R.string.default_dir_picked_fallback)
+        val name = remember(uri, fallbackName) {
+            DocumentFile.fromTreeUri(context, uri)?.name
+                ?: uri.lastPathSegment ?: fallbackName
+        }
+        AlertDialog(
+            onDismissRequest = { pendingWorkspaceDir = null },
+            title = { Text(stringResource(R.string.open_folder_confirm_title)) },
+            text = { Text(stringResource(R.string.open_folder_confirm_message, name)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    )
+                    viewModel.openWorkspace(uri.toString())
+                    pendingWorkspaceDir = null
+                }) { Text(stringResource(R.string.ok)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingWorkspaceDir = null }) { Text(stringResource(R.string.cancel)) }
+            }
+        )
+    }
+
+    // 导入成功提示
+    val importMessage by viewModel.importMessage.collectAsState()
+    LaunchedEffect(importMessage) {
+        importMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearImportMessage()
+        }
+    }
+
+    // 导入文件：系统多选选择器，仅勾选项被导入（手动选择，非自动导入）
+    val importFilesLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            // 持久读取授权对每个文件单独生效（复制读取需要）
+            uris.forEach { uri ->
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                }
+            }
+            viewModel.importFiles(uris)
+        }
+    }
+
+    // 导入文件夹：先选文件夹（树授权），扫描后弹勾选对话框，仅勾选项被复制
+    val importFolderLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         if (uri != null) {
-            // 持久化读写授权，重启后仍有效
-            context.contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            )
-            viewModel.openWorkspace(uri.toString())
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            viewModel.scanImportFolder(uri.toString())
         }
+    }
+
+    // 文件夹导入勾选对话框（默认全不选，手动勾）
+    val importCandidates by viewModel.importCandidates.collectAsState()
+    importCandidates?.let { candidates ->
+        ImportSelectionDialog(
+            candidates = candidates,
+            onConfirm = { viewModel.confirmImportFolder(it) },
+            onDismiss = { viewModel.cancelImportFolder() }
+        )
     }
 
     ModalNavigationDrawer(
@@ -104,8 +178,33 @@ fun FileListScreen(
                             style = MaterialTheme.typography.titleLarge
                         )
                         Row {
-                            IconButton(onClick = { folderPickerLauncher.launch(null) }) {
-                                Icon(Icons.Default.FolderOpen, stringResource(R.string.open_folder))
+                            // 旧的「打开文件夹」入口已移除（外部文件夹改由 设置 → 默认目录 进入），
+                            // 避免与「导入文件夹」并存造成两个入口的困惑
+                            Box {
+                                IconButton(onClick = { showImportMenu = true }) {
+                                    Icon(Icons.Default.FileDownload, stringResource(R.string.import_to_library))
+                                }
+                                DropdownMenu(
+                                    expanded = showImportMenu,
+                                    onDismissRequest = { showImportMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.import_file)) },
+                                        onClick = {
+                                            showImportMenu = false
+                                            importFilesLauncher.launch(arrayOf("text/*", "text/markdown", "application/octet-stream"))
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Description, null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.import_folder)) },
+                                        onClick = {
+                                            showImportMenu = false
+                                            importFolderLauncher.launch(null)
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.FolderOpen, null) }
+                                    )
+                                }
                             }
                             IconButton(onClick = { showFolderDialog = true }) {
                                 Icon(Icons.Default.CreateNewFolder, stringResource(R.string.create_folder))
@@ -113,7 +212,7 @@ fun FileListScreen(
                         }
                     }
 
-                    Divider()
+                    HorizontalDivider()
 
                     // 工作区错误提示条（如恢复失败/打开失败）
                     workspaceError?.let { err ->
@@ -205,7 +304,7 @@ fun FileListScreen(
                         }
                     }
 
-                    Divider()
+                    HorizontalDivider()
 
                     if (ws.truncated) {
                         Text(
@@ -266,7 +365,7 @@ fun FileListScreen(
                                 searchQuery = ""
                                 viewModel.onSearchQueryChanged("")
                             }) {
-                                Icon(Icons.Default.ArrowBack, stringResource(R.string.close))
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.close))
                             }
                         }
                     )
@@ -286,7 +385,7 @@ fun FileListScreen(
                                     Icon(Icons.Default.Search, stringResource(R.string.search))
                                 }
                                 IconButton(onClick = { showSortMenu = true }) {
-                                    Icon(Icons.Default.Sort, stringResource(R.string.sort))
+                                    Icon(Icons.AutoMirrored.Filled.Sort, stringResource(R.string.sort))
                                 }
                             }
                             IconButton(onClick = { navController.navigate("settings") }) {
@@ -700,11 +799,89 @@ private fun formatDate(instant: kotlinx.datetime.Instant): String {
     }
 }
 
-private fun SortOption.label(): String = when (this) {
-    SortOption.NAME_ASC -> "名称 (A-Z)"
-    SortOption.NAME_DESC -> "名称 (Z-A)"
-    SortOption.DATE_NEWEST -> "最新优先"
-    SortOption.DATE_OLDEST -> "最旧优先"
-    SortOption.WORD_COUNT_ASC -> "字数 (少→多)"
-    SortOption.WORD_COUNT_DESC -> "字数 (多→少)"
+/**
+ * 文件夹导入勾选对话框：列出扫描到的候选文件，默认全不选，用户手动勾选要导入的项。
+ * 按相对文件夹路径分组，便于在嵌套结构中辨认。
+ */
+@Composable
+private fun ImportSelectionDialog(
+    candidates: List<ImportCandidate>,
+    onConfirm: (List<ImportCandidate>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    // 选中状态用候选的 uri 作键（默认全不选）
+    val checked = remember(candidates) { mutableStateMapOf<String, Boolean>() }
+    val selectedCount = checked.count { it.value }
+    val allSelected = selectedCount == candidates.size && candidates.isNotEmpty()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.import_select_folder_files, selectedCount)) },
+        text = {
+            Column {
+                // 全选/全不选快捷开关
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val target = !allSelected
+                            candidates.forEach { checked[it.uri] = target }
+                        }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = allSelected,
+                        onCheckedChange = { target -> candidates.forEach { checked[it.uri] = target } }
+                    )
+                    Text(stringResource(R.string.import_select_all), style = MaterialTheme.typography.bodyMedium)
+                }
+                HorizontalDivider()
+                LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                    items(candidates, key = { it.uri }) { candidate ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { checked[candidate.uri] = !(checked[candidate.uri] ?: false) }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = checked[candidate.uri] ?: false,
+                                onCheckedChange = { checked[candidate.uri] = it }
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    candidate.displayName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                // 相对路径（去掉根名后的子文件夹链），帮助辨认同名文件
+                                val sub = candidate.relativeFolderPath.drop(1).joinToString(" / ")
+                                if (sub.isNotEmpty()) {
+                                    Text(
+                                        sub,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(candidates.filter { checked[it.uri] == true }) },
+                enabled = selectedCount > 0
+            ) { Text(stringResource(R.string.ok)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        }
+    )
 }

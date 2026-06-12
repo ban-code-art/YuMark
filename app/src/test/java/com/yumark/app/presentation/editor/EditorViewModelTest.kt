@@ -28,6 +28,7 @@ class EditorViewModelTest {
     private val workspaceRepository: WorkspaceRepository = mockk()
     private val exportDocumentUseCase: ExportDocumentUseCase = mockk()
     private val fileManager: FileManager = mockk()
+    private val folderRepository: com.yumark.app.domain.repository.FolderRepository = mockk()
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -49,13 +50,13 @@ class EditorViewModelTest {
 
     private fun internalVm(docId: String = "doc-1") = EditorViewModel(
         loadDocumentUseCase, saveDocumentUseCase, loadSettingsUseCase,
-        workspaceRepository, exportDocumentUseCase, fileManager,
+        workspaceRepository, exportDocumentUseCase, fileManager, folderRepository,
         SavedStateHandle(mapOf("documentId" to docId))
     )
 
     private fun externalVm(uri: String = "content://test/doc.md") = EditorViewModel(
         loadDocumentUseCase, saveDocumentUseCase, loadSettingsUseCase,
-        workspaceRepository, exportDocumentUseCase, fileManager,
+        workspaceRepository, exportDocumentUseCase, fileManager, folderRepository,
         SavedStateHandle(mapOf("docUri" to uri))
     )
 

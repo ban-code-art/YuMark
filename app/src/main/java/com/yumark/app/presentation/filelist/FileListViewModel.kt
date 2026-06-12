@@ -13,6 +13,10 @@ import com.yumark.app.domain.usecase.DeleteDocumentUseCase
 import com.yumark.app.domain.usecase.ManageFoldersUseCase
 import com.yumark.app.domain.usecase.SearchDocumentsUseCase
 import com.yumark.app.domain.usecase.GetFolderTreeUseCase
+import com.yumark.app.domain.usecase.importing.ImportCandidate
+import com.yumark.app.domain.usecase.importing.ImportDocumentUseCase
+import com.yumark.app.domain.usecase.importing.ImportFolderUseCase
+import android.net.Uri
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
@@ -29,7 +33,9 @@ class FileListViewModel @Inject constructor(
     private val searchUseCase: SearchDocumentsUseCase,
     private val manageFoldersUseCase: ManageFoldersUseCase,
     private val getFolderTreeUseCase: GetFolderTreeUseCase,
-    private val workspaceRepository: WorkspaceRepository
+    private val workspaceRepository: WorkspaceRepository,
+    private val importDocumentUseCase: ImportDocumentUseCase,
+    private val importFolderUseCase: ImportFolderUseCase
 ) : ViewModel() {
 
     private val _currentFolderId = MutableStateFlow<String?>(null)
@@ -60,6 +66,89 @@ class FileListViewModel @Inject constructor(
 
     fun clearActionError() {
         _actionError.value = null
+    }
+
+    // ===== 导入收纳库 =====
+
+    /** 导入成功提示（一次性事件），UI 收到后弹 Snackbar */
+    private val _importMessage = MutableStateFlow<String?>(null)
+    val importMessage: StateFlow<String?> = _importMessage.asStateFlow()
+
+    fun clearImportMessage() {
+        _importMessage.value = null
+    }
+
+    /** 导入文件夹的待选项（扫描结果），非空时 UI 显示勾选对话框 */
+    private val _importCandidates = MutableStateFlow<List<ImportCandidate>?>(null)
+    val importCandidates: StateFlow<List<ImportCandidate>?> = _importCandidates.asStateFlow()
+
+    /** 与本次扫描配套的图片资产（不进勾选列表，随勾选文档自动复制） */
+    private var pendingImportImages: List<ImportCandidate> = emptyList()
+
+    private val _isImporting = MutableStateFlow(false)
+    val isImporting: StateFlow<Boolean> = _isImporting.asStateFlow()
+
+    /**
+     * 导入选中的单个/多个文件到导入库根。
+     * 走 ImportDocumentUseCase（已有），targetFolderId 传导入库根 ID。
+     */
+    fun importFiles(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            _isImporting.value = true
+            val importRoot = folderRepository.ensureImportLibraryFolder().getOrNull()
+            if (importRoot == null) {
+                _actionError.value = "无法创建导入库"
+                _isImporting.value = false
+                return@launch
+            }
+            var ok = 0
+            uris.forEach { uri ->
+                importDocumentUseCase(uri, importRoot.id)
+                    .onSuccess { ok++ }
+                    .onFailure { _actionError.value = it.message ?: "导入失败" }
+            }
+            _isImporting.value = false
+            if (ok > 0) _importMessage.value = "已导入 $ok 个文件"
+        }
+    }
+
+    /** 扫描所选文件夹，得到可导入候选列表（供 UI 勾选；默认全不选） */
+    fun scanImportFolder(treeUri: String) {
+        viewModelScope.launch {
+            _isImporting.value = true
+            importFolderUseCase.scan(treeUri)
+                .onSuccess { result ->
+                    if (result.documents.isEmpty()) {
+                        _actionError.value = "该文件夹中没有可导入的 Markdown/文本文件"
+                    } else {
+                        pendingImportImages = result.images
+                        _importCandidates.value = result.documents
+                    }
+                }
+                .onFailure { _actionError.value = it.message ?: "扫描文件夹失败" }
+            _isImporting.value = false
+        }
+    }
+
+    fun cancelImportFolder() {
+        _importCandidates.value = null
+        pendingImportImages = emptyList()
+    }
+
+    /** 确认导入勾选的候选文件，复制进导入库（相关图片资产一并复制） */
+    fun confirmImportFolder(selected: List<ImportCandidate>) {
+        _importCandidates.value = null
+        val images = pendingImportImages
+        pendingImportImages = emptyList()
+        if (selected.isEmpty()) return
+        viewModelScope.launch {
+            _isImporting.value = true
+            importFolderUseCase(selected, images)
+                .onSuccess { count -> if (count > 0) _importMessage.value = "已导入 $count 个文件" }
+                .onFailure { _actionError.value = it.message ?: "导入文件夹失败" }
+            _isImporting.value = false
+        }
     }
 
     init {
@@ -251,6 +340,7 @@ class FileListViewModel @Inject constructor(
         }
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun exportDocument(id: String, format: ExportFormat) {
         viewModelScope.launch { /* TODO */ }
     }

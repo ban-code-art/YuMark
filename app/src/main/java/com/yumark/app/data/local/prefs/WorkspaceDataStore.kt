@@ -26,6 +26,7 @@ class WorkspaceDataStore @Inject constructor(
 ) {
     private object Keys {
         val TREE_URI = stringPreferencesKey("workspace_tree_uri")
+        val DEFAULT_DIR_URI = stringPreferencesKey("default_dir_uri")
     }
 
     val treeUriFlow: Flow<String?> = context.workspaceDataStore.data
@@ -38,5 +39,21 @@ class WorkspaceDataStore @Inject constructor(
 
     suspend fun clearTreeUri() {
         context.workspaceDataStore.edit { it.remove(Keys.TREE_URI) }
+    }
+
+    /**
+     * 默认目录 URI（用户在设置里显式指定，启动时优先恢复）。
+     * 与 [treeUriFlow]（当前会话临时打开的工作区）分开：临时打开别的文件夹不改变默认目录。
+     */
+    val defaultDirUriFlow: Flow<String?> = context.workspaceDataStore.data
+        .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
+        .map { it[Keys.DEFAULT_DIR_URI] }
+
+    suspend fun saveDefaultDirUri(uri: String) {
+        context.workspaceDataStore.edit { it[Keys.DEFAULT_DIR_URI] = uri }
+    }
+
+    suspend fun clearDefaultDirUri() {
+        context.workspaceDataStore.edit { it.remove(Keys.DEFAULT_DIR_URI) }
     }
 }
