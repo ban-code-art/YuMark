@@ -15,12 +15,11 @@ import androidx.navigation.navArgument
 import com.yumark.app.presentation.editor.EditorScreen
 import com.yumark.app.presentation.filelist.FileListScreen
 import com.yumark.app.presentation.settings.SettingsScreen
-import com.yumark.app.presentation.splash.SplashScreen
 
 @Composable
 fun YuMarkNavGraph(
     navController: NavHostController = rememberNavController(),
-    startDestination: String = Screen.Splash.route
+    startDestination: String = Screen.FileList.route
 ) {
     NavHost(
         navController = navController,
@@ -34,9 +33,6 @@ fun YuMarkNavGraph(
             fadeOut(tween(180)) + slideOutHorizontally(tween(220)) { it / 24 }
         }
     ) {
-        composable(Screen.Splash.route) {
-            SplashScreen(navController = navController)
-        }
         composable(Screen.FileList.route) {
             FileListScreen(navController = navController)
         }

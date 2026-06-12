@@ -169,6 +169,8 @@
     <string name="import_to_library">导入到导入库</string>
     <string name="import_select_folder_files">选择要导入的项（%1$d）</string>
     <string name="import_select_all">全选</string>
-    <string name="import_folder_confirm_title">确认导入文件夹</string>
-    <string name="import_folder_confirm_message">已选择「%1$s」，扫描其中的 Markdown/文本文件并导入？\n\n选错了请点「取消」后重新选择。</string>
+    <string name="import_browser_title">选择要导入的文件夹</string>
+    <string name="import_browser_up">返回上一级</string>
+    <string name="import_browser_empty">没有子文件夹</string>
+    <string name="import_browser_confirm">导入此文件夹</string>
 </resources>

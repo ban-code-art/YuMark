@@ -128,25 +128,28 @@ fun FileListScreen(
         }
     }
 
-    // 导入文件夹：先选文件夹（树授权），回显名称确认后再扫描，
-    // 防止系统选择器停在上次目录时一路点确认、误把旧文件夹又导一遍
+    // 导入文件夹：系统选择器只负责授权入口文件夹（部分 ROM 点进文件夹即返回，
+    // 选不到深层），之后弹应用内浏览器逐层进入，点「导入此文件夹」才扫描
     var pendingImportDir by remember { mutableStateOf<android.net.Uri?>(null) }
     val importFolderLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
-    ) { uri -> if (uri != null) pendingImportDir = uri }
+    ) { uri ->
+        if (uri != null) {
+            // 浏览即需读权限，拿到结果立即持久授权
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            pendingImportDir = uri
+        }
+    }
 
     pendingImportDir?.let { uri ->
-        FolderConfirmDialog(
-            uri = uri,
-            titleRes = R.string.import_folder_confirm_title,
-            messageRes = R.string.import_folder_confirm_message,
-            onConfirm = {
-                runCatching {
-                    context.contentResolver.takePersistableUriPermission(
-                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-                }
-                viewModel.scanImportFolder(uri.toString())
+        ImportFolderBrowserDialog(
+            treeUri = uri,
+            onConfirm = { relativePath ->
+                viewModel.scanImportFolder(uri.toString(), relativePath)
                 pendingImportDir = null
             },
             onDismiss = { pendingImportDir = null }

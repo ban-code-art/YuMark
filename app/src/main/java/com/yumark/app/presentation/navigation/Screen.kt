@@ -3,7 +3,6 @@ package com.yumark.app.presentation.navigation
 import java.net.URLEncoder
 
 sealed class Screen(val route: String) {
-    data object Splash : Screen("splash")
     data object FileList : Screen("files")
     data object Editor : Screen("editor?documentId={documentId}&docUri={docUri}") {
         fun createRoute(documentId: String) = "editor?documentId=$documentId"

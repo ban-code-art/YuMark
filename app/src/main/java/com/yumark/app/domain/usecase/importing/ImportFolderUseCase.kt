@@ -66,19 +66,31 @@ class ImportFolderUseCase @Inject constructor(
     }
 
     /**
-     * 扫描所选文件夹，返回可导入的候选文档（供 UI 勾选）和图片资产。
+     * 扫描待导入文件夹，返回可导入的候选文档（供 UI 勾选）和图片资产。
      * 复用与工作区一致的过滤规则：跳隐藏项，限深限量。
+     *
+     * @param treeUri 系统选择器授权的根文件夹
+     * @param relativePath 应用内浏览器从根逐层进入的子文件夹名称链；空表示扫根本身。
+     *        部分 ROM 的系统选择器「点进文件夹即返回」，深层目录靠应用内浏览选定。
      */
-    suspend fun scan(treeUri: String): Result<ImportScanResult> =
+    suspend fun scan(
+        treeUri: String,
+        relativePath: List<String> = emptyList()
+    ): Result<ImportScanResult> =
         withContext(Dispatchers.IO) {
             runCatching {
                 val root = DocumentFile.fromTreeUri(context, Uri.parse(treeUri))
                     ?: error("无法访问所选文件夹")
                 if (!root.canRead()) error("没有该文件夹的读取权限")
+                var dir = root
+                for (segment in relativePath) {
+                    dir = dir.findFile(segment)?.takeIf { it.isDirectory }
+                        ?: error("找不到子文件夹: $segment")
+                }
                 val docs = mutableListOf<ImportCandidate>()
                 val images = mutableListOf<ImportCandidate>()
-                // 根文件夹自身的名称作为重建结构的第一层
-                collect(root, listOf(root.name ?: "导入"), depth = 0, docs = docs, images = images)
+                // 所选文件夹自身的名称作为重建结构的第一层
+                collect(dir, listOf(dir.name ?: "导入"), depth = 0, docs = docs, images = images)
                 ImportScanResult(docs, images)
             }
         }

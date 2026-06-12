@@ -117,11 +117,11 @@ class FileListViewModel @Inject constructor(
         }
     }
 
-    /** 扫描所选文件夹，得到可导入候选列表（供 UI 勾选；默认全不选） */
-    fun scanImportFolder(treeUri: String) {
+    /** 扫描待导入文件夹（根授权 + 应用内浏览选定的子路径），得到候选列表供勾选（默认全不选） */
+    fun scanImportFolder(treeUri: String, relativePath: List<String> = emptyList()) {
         viewModelScope.launch {
             _isImporting.value = true
-            importFolderUseCase.scan(treeUri)
+            importFolderUseCase.scan(treeUri, relativePath)
                 .onSuccess { result ->
                     if (result.documents.isEmpty()) {
                         _actionError.value = "该文件夹中没有可导入的 Markdown/文本文件"
