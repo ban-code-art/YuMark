@@ -13,7 +13,6 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,10 +23,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.yumark.app.R
+import com.yumark.app.core.util.SafLocations
 import com.yumark.app.domain.model.Document
 import com.yumark.app.domain.model.SearchResult
 import com.yumark.app.domain.model.SortOption
 import com.yumark.app.domain.usecase.importing.ImportCandidate
+import com.yumark.app.presentation.common.FolderConfirmDialog
 import com.yumark.app.presentation.navigation.Screen
 import com.yumark.app.presentation.sidebar.SidebarFileTree
 import com.yumark.app.presentation.sidebar.WorkspaceFileTree
@@ -57,6 +58,7 @@ fun FileListScreen(
 
     val workspace by viewModel.workspace.collectAsState()
     val workspaceError by viewModel.workspaceError.collectAsState()
+    val defaultDirRestoreFailed by viewModel.defaultDirRestoreFailed.collectAsState()
     val isWorkspaceLoading by viewModel.isWorkspaceLoading.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -84,28 +86,19 @@ fun FileListScreen(
     ) { uri -> if (uri != null) pendingWorkspaceDir = uri }
 
     pendingWorkspaceDir?.let { uri ->
-        val fallbackName = stringResource(R.string.default_dir_picked_fallback)
-        val name = remember(uri, fallbackName) {
-            DocumentFile.fromTreeUri(context, uri)?.name
-                ?: uri.lastPathSegment ?: fallbackName
-        }
-        AlertDialog(
-            onDismissRequest = { pendingWorkspaceDir = null },
-            title = { Text(stringResource(R.string.open_folder_confirm_title)) },
-            text = { Text(stringResource(R.string.open_folder_confirm_message, name)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    context.contentResolver.takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                    )
-                    viewModel.openWorkspace(uri.toString())
-                    pendingWorkspaceDir = null
-                }) { Text(stringResource(R.string.ok)) }
+        FolderConfirmDialog(
+            uri = uri,
+            titleRes = R.string.open_folder_confirm_title,
+            messageRes = R.string.open_folder_confirm_message,
+            onConfirm = {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+                viewModel.openWorkspace(uri.toString())
+                pendingWorkspaceDir = null
             },
-            dismissButton = {
-                TextButton(onClick = { pendingWorkspaceDir = null }) { Text(stringResource(R.string.cancel)) }
-            }
+            onDismiss = { pendingWorkspaceDir = null }
         )
     }
 
@@ -135,18 +128,29 @@ fun FileListScreen(
         }
     }
 
-    // 导入文件夹：先选文件夹（树授权），扫描后弹勾选对话框，仅勾选项被复制
+    // 导入文件夹：先选文件夹（树授权），回显名称确认后再扫描，
+    // 防止系统选择器停在上次目录时一路点确认、误把旧文件夹又导一遍
+    var pendingImportDir by remember { mutableStateOf<android.net.Uri?>(null) }
     val importFolderLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            }
-            viewModel.scanImportFolder(uri.toString())
-        }
+    ) { uri -> if (uri != null) pendingImportDir = uri }
+
+    pendingImportDir?.let { uri ->
+        FolderConfirmDialog(
+            uri = uri,
+            titleRes = R.string.import_folder_confirm_title,
+            messageRes = R.string.import_folder_confirm_message,
+            onConfirm = {
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                }
+                viewModel.scanImportFolder(uri.toString())
+                pendingImportDir = null
+            },
+            onDismiss = { pendingImportDir = null }
+        )
     }
 
     // 文件夹导入勾选对话框（默认全不选，手动勾）
@@ -200,7 +204,7 @@ fun FileListScreen(
                                         text = { Text(stringResource(R.string.import_folder)) },
                                         onClick = {
                                             showImportMenu = false
-                                            importFolderLauncher.launch(null)
+                                            importFolderLauncher.launch(SafLocations.storageRootHint())
                                         },
                                         leadingIcon = { Icon(Icons.Default.FolderOpen, null) }
                                     )
@@ -230,11 +234,23 @@ fun FileListScreen(
                                     color = MaterialTheme.colorScheme.onErrorContainer,
                                     modifier = Modifier.weight(1f)
                                 )
-                                TextButton(onClick = {
-                                    viewModel.clearWorkspaceError()
-                                    folderPickerLauncher.launch(null)
-                                }) {
-                                    Text(stringResource(R.string.workspace_reselect))
+                                // 默认目录失效要去设置页重设（这里临时选文件夹不会改默认目录）；
+                                // 其他打开失败仍走「重新选择」临时工作区流程
+                                if (defaultDirRestoreFailed) {
+                                    TextButton(onClick = {
+                                        viewModel.clearWorkspaceError()
+                                        navController.navigate(Screen.Settings.route)
+                                        scope.launch { drawerState.close() }
+                                    }) {
+                                        Text(stringResource(R.string.workspace_goto_settings))
+                                    }
+                                } else {
+                                    TextButton(onClick = {
+                                        viewModel.clearWorkspaceError()
+                                        folderPickerLauncher.launch(SafLocations.storageRootHint())
+                                    }) {
+                                        Text(stringResource(R.string.workspace_reselect))
+                                    }
                                 }
                             }
                         }

@@ -125,4 +125,15 @@ class FileManager @Inject constructor(
     fun getImagesDir(): File = imagesDir
     fun getExportsDir(): File = exportsDir
     fun getImportAssetsDir(): File = importAssetsDir
+
+    companion object {
+        /**
+         * 导入库镜像目录（import_assets）的路径段消毒：防 SAF 返回的名称带路径分隔符或 ".."。
+         * 写镜像（导入复制）与算镜像路径（重命名/删除同步）必须用同一规则，否则对不上。
+         */
+        fun sanitizeImportSegment(segment: String): String {
+            val cleaned = segment.replace('/', '_').replace('\\', '_')
+            return if (cleaned == "..") "_" else cleaned
+        }
+    }
 }

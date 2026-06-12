@@ -154,6 +154,9 @@ class EditorViewModel @Inject constructor(
      */
     private fun externalImageResolver(docUri: String): ImageResolverConfig? = runCatching {
         val docId = android.provider.DocumentsContract.getDocumentId(android.net.Uri.parse(docUri))
+        // 仅处理 "root:path/to/doc" 形态的 docId（externalstorage 等标准提供器）；
+        // 无冒号的第三方提供器无法推断父目录，返回 null 让图片保持原样而不是拼出无效 URI
+        if (':' !in docId) return@runCatching null
         val parentId = if ('/' in docId) docId.substringBeforeLast('/')
         else docId.substringBefore(':') + ":"
         val marker = "/document/"

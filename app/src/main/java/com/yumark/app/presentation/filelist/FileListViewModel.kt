@@ -53,6 +53,10 @@ class FileListViewModel @Inject constructor(
     private val _workspaceError = MutableStateFlow<String?>(null)
     val workspaceError: StateFlow<String?> = _workspaceError.asStateFlow()
 
+    /** 当前 workspaceError 是否来自「默认目录恢复失败」——错误条按钮据此引导去设置页而非临时选文件夹 */
+    private val _defaultDirRestoreFailed = MutableStateFlow(false)
+    val defaultDirRestoreFailed: StateFlow<Boolean> = _defaultDirRestoreFailed.asStateFlow()
+
     private val _isWorkspaceLoading = MutableStateFlow(false)
     val isWorkspaceLoading: StateFlow<Boolean> = _isWorkspaceLoading.asStateFlow()
 
@@ -136,7 +140,7 @@ class FileListViewModel @Inject constructor(
         pendingImportImages = emptyList()
     }
 
-    /** 确认导入勾选的候选文件，复制进导入库（相关图片资产一并复制） */
+    /** 确认导入勾选的候选文件，复制进导入库（图片资产一并复制）；逐文件容错并汇报成败数 */
     fun confirmImportFolder(selected: List<ImportCandidate>) {
         _importCandidates.value = null
         val images = pendingImportImages
@@ -145,7 +149,13 @@ class FileListViewModel @Inject constructor(
         viewModelScope.launch {
             _isImporting.value = true
             importFolderUseCase(selected, images)
-                .onSuccess { count -> if (count > 0) _importMessage.value = "已导入 $count 个文件" }
+                .onSuccess { stats ->
+                    _importMessage.value = when {
+                        stats.failed == 0 -> "已导入 ${stats.imported} 个文件"
+                        stats.imported == 0 -> "导入失败（${stats.failed} 个文件无法读取）"
+                        else -> "已导入 ${stats.imported} 个文件，${stats.failed} 个失败"
+                    }
+                }
                 .onFailure { _actionError.value = it.message ?: "导入文件夹失败" }
             _isImporting.value = false
         }
@@ -206,8 +216,16 @@ class FileListViewModel @Inject constructor(
             }
         }
 
-        // 启动时恢复上次的工作区（授权失效会静默清除）
-        viewModelScope.launch { workspaceRepository.restoreOnLaunch() }
+        // 启动时恢复默认目录/上次工作区；失败时在侧栏错误条提示（不再静默）
+        viewModelScope.launch {
+            workspaceRepository.restoreOnLaunch()
+                ?.takeIf { it.isNotBlank() }
+                ?.let {
+                    _workspaceError.value = it
+                    // restoreOnLaunch 仅在默认目录失效时返回错误
+                    _defaultDirRestoreFailed.value = true
+                }
+        }
     }
 
     fun onFolderSelected(id: String?) { _currentFolderId.value = id }
@@ -246,6 +264,7 @@ class FileListViewModel @Inject constructor(
 
     fun clearWorkspaceError() {
         _workspaceError.value = null
+        _defaultDirRestoreFailed.value = false
     }
 
     /** 工作区文件夹展开/收起（与内部文件夹共用 _expandedFolders，键为 uri） */

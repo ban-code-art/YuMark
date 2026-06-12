@@ -36,6 +36,12 @@ data class ImportScanResult(
     val images: List<ImportCandidate>
 )
 
+/** 导入结果统计：单个文件失败不中断整体，最终一并汇报 */
+data class ImportStats(
+    val imported: Int,
+    val failed: Int
+)
+
 /**
  * 把外部文件夹中的 Markdown/文本文件「复制」进导入库（内部 Room + filesDir）。
  *
@@ -99,9 +105,8 @@ class ImportFolderUseCase @Inject constructor(
                         displayName = name.substringBeforeLast('.', name),
                         relativeFolderPath = path
                     )
-                    ext in IMAGE_EXTENSIONS &&
-                        images.size < MAX_IMAGES &&
-                        child.length() in 1..MAX_IMAGE_BYTES -> images += ImportCandidate(
+                    // 尺寸校验推迟到复制时做：扫描期每次 length() 都是一趟跨进程查询，大目录会显著拖慢
+                    ext in IMAGE_EXTENSIONS && images.size < MAX_IMAGES -> images += ImportCandidate(
                         uri = child.uri.toString(),
                         displayName = name,
                         relativeFolderPath = path
@@ -112,18 +117,17 @@ class ImportFolderUseCase @Inject constructor(
     }
 
     /**
-     * 复制选中的候选文档进导入库（保留子文件夹结构），并复制与之相关的图片资产。
-     * 图片取「位于任一选中文档所在目录（或其子目录）」的项，覆盖 Typora 的
-     * ./<文档名>.assets/ 约定；复制到 filesDir/import_assets/<相对路径>。
-     * @return 成功导入的文档数
+     * 复制选中的候选文档进导入库（保留子文件夹结构），并复制所选树内的全部图片资产
+     * （覆盖 ./xxx.assets/、../shared/ 等任意树内相对引用）。
+     * 单个文件失败不中断整体，最终以 [ImportStats] 汇报成功/失败数。
      */
     suspend operator fun invoke(
         selected: List<ImportCandidate>,
         images: List<ImportCandidate> = emptyList()
-    ): Result<Int> =
+    ): Result<ImportStats> =
         withContext(Dispatchers.IO) {
             runCatching {
-                if (selected.isEmpty()) return@runCatching 0
+                if (selected.isEmpty()) return@runCatching ImportStats(0, 0)
 
                 val importRoot = folderRepository.ensureImportLibraryFolder().getOrThrow()
 
@@ -132,20 +136,23 @@ class ImportFolderUseCase @Inject constructor(
                 folderIdByPath[""] = importRoot.id
 
                 var imported = 0
+                var failed = 0
                 for (candidate in selected) {
-                    val targetFolderId = resolveFolderPath(
-                        candidate.relativeFolderPath, importRoot.id, folderIdByPath
-                    )
-                    val content = readContent(candidate.uri)
-                    val doc = documentRepository
-                        .createDocument(candidate.displayName, targetFolderId)
-                        .getOrThrow()
-                    documentRepository.saveDocument(doc.copy(content = content)).getOrThrow()
-                    imported++
+                    // 单个文件失败（扫描后被删/不可读等）跳过并计数，不让已导入的白做
+                    runCatching {
+                        val targetFolderId = resolveFolderPath(
+                            candidate.relativeFolderPath, importRoot.id, folderIdByPath
+                        )
+                        val content = readContent(candidate.uri)
+                        val doc = documentRepository
+                            .createDocument(candidate.displayName, targetFolderId)
+                            .getOrThrow()
+                        documentRepository.saveDocument(doc.copy(content = content)).getOrThrow()
+                    }.onSuccess { imported++ }.onFailure { failed++ }
                 }
 
-                copyRelatedImages(selected, images)
-                imported
+                if (imported > 0) copyImages(images)
+                ImportStats(imported, failed)
             }
         }
 
@@ -176,34 +183,40 @@ class ImportFolderUseCase @Inject constructor(
         return parentId
     }
 
-    /** 复制图片到 import_assets 镜像目录；单张失败不中断整体导入 */
-    private fun copyRelatedImages(selected: List<ImportCandidate>, images: List<ImportCandidate>) {
-        if (images.isEmpty()) return
-        val docDirs = selected.map { it.relativeFolderPath }
+    /**
+     * 复制图片到 import_assets 镜像目录，保留相对结构；单张失败/超限不中断整体导入。
+     * 复制所选树内全部图片：文档可能用 ../ 引用任意树内位置，按文档目录过滤会漏。
+     */
+    private fun copyImages(images: List<ImportCandidate>) {
         val assetsRoot = fileManager.getImportAssetsDir()
         for (image in images) {
-            val related = docDirs.any { docDir ->
-                image.relativeFolderPath.size >= docDir.size &&
-                    image.relativeFolderPath.subList(0, docDir.size) == docDir
-            }
-            if (!related) continue
             runCatching {
                 val dir = image.relativeFolderPath
-                    .map { sanitizeSegment(it) }
+                    .map { FileManager.sanitizeImportSegment(it) }
                     .fold(assetsRoot) { parent, segment -> File(parent, segment) }
                 dir.mkdirs()
-                val target = File(dir, sanitizeSegment(image.displayName))
-                context.contentResolver.openInputStream(Uri.parse(image.uri))?.use { input ->
-                    target.outputStream().use { output -> input.copyTo(output) }
-                }
+                val target = File(dir, FileManager.sanitizeImportSegment(image.displayName))
+                val complete = context.contentResolver.openInputStream(Uri.parse(image.uri))
+                    ?.use { input -> copyWithLimit(input, target) } ?: false
+                // 超过单张大小上限：不留半截文件
+                if (!complete) target.delete()
             }
         }
     }
 
-    /** 目录/文件名只取安全部分，防 SAF 返回的名称带路径分隔符或 ".." */
-    private fun sanitizeSegment(segment: String): String {
-        val cleaned = segment.replace('/', '_').replace('\\', '_')
-        return if (cleaned == "..") "_" else cleaned
+    /** 边复制边限量，超过 MAX_IMAGE_BYTES 返回 false（替代扫描期逐文件 length() 查询） */
+    private fun copyWithLimit(input: java.io.InputStream, target: File): Boolean {
+        target.outputStream().use { out ->
+            val buf = ByteArray(64 * 1024)
+            var total = 0L
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) return true
+                total += n
+                if (total > MAX_IMAGE_BYTES) return false
+                out.write(buf, 0, n)
+            }
+        }
     }
 
     private fun readContent(uri: String): String {

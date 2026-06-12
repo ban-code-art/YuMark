@@ -17,9 +17,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.documentfile.provider.DocumentFile
 import com.yumark.app.R
+import com.yumark.app.core.util.SafLocations
 import com.yumark.app.domain.model.CompressionQuality
+import com.yumark.app.presentation.common.FolderConfirmDialog
 import com.yumark.app.domain.model.UserSettings
 import com.yumark.app.domain.repository.SettingsRepository
 import com.yumark.app.domain.repository.WorkspaceRepository
@@ -118,28 +119,20 @@ fun SettingsScreen(
     ) { uri -> if (uri != null) pendingDir = uri }
 
     pendingDir?.let { uri ->
-        val fallbackName = stringResource(R.string.default_dir_picked_fallback)
-        val name = remember(uri, fallbackName) {
-            DocumentFile.fromTreeUri(context, uri)?.name ?: uri.lastPathSegment ?: fallbackName
-        }
-        AlertDialog(
-            onDismissRequest = { pendingDir = null },
-            title = { Text(stringResource(R.string.default_dir_confirm_title)) },
-            text = { Text(stringResource(R.string.default_dir_confirm_message, name)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    // 用户确认后才持久授权，避免误选目录也占用授权配额
-                    context.contentResolver.takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                    )
-                    viewModel.setDefaultDir(uri.toString())
-                    pendingDir = null
-                }) { Text(stringResource(R.string.ok)) }
+        FolderConfirmDialog(
+            uri = uri,
+            titleRes = R.string.default_dir_confirm_title,
+            messageRes = R.string.default_dir_confirm_message,
+            onConfirm = {
+                // 用户确认后才持久授权，避免误选目录也占用授权配额
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+                viewModel.setDefaultDir(uri.toString())
+                pendingDir = null
             },
-            dismissButton = {
-                TextButton(onClick = { pendingDir = null }) { Text(stringResource(R.string.cancel)) }
-            }
+            onDismiss = { pendingDir = null }
         )
     }
 
@@ -262,7 +255,7 @@ fun SettingsScreen(
                 },
                 trailingContent = {
                     Row {
-                        TextButton(onClick = { folderPicker.launch(null) }) {
+                        TextButton(onClick = { folderPicker.launch(SafLocations.storageRootHint()) }) {
                             Text(stringResource(R.string.default_dir_choose))
                         }
                         if (defaultDirName != null) {

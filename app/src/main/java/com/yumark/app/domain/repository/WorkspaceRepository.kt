@@ -29,8 +29,11 @@ interface WorkspaceRepository {
     /** 默认目录的显示名（去 SAF 前缀），未设置返回 null */
     suspend fun defaultDirName(): String?
 
-    /** 应用启动时从持久化恢复工作区；优先恢复默认目录，授权失效则静默清除 */
-    suspend fun restoreOnLaunch()
+    /**
+     * 应用启动时从持久化恢复工作区；优先恢复默认目录，失败回退到上次会话的工作区。
+     * @return 用户可见的失败提示（如默认目录授权已失效）；一切正常或本就无可恢复项时返回 null
+     */
+    suspend fun restoreOnLaunch(): String?
 
     suspend fun readDocument(docUri: String): Result<String>
     suspend fun writeDocument(docUri: String, content: String): Result<Unit>

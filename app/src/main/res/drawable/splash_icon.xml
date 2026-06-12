@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 系统开屏图标：用 418px 高清原图（mipmap 只有 192px，放大发糊），
+     四周内缩 25% 让图标只占图标区一半大小，避免铺满显得过大 -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/ic_launcher_art"
+    android:insetLeft="25%"
+    android:insetTop="25%"
+    android:insetRight="25%"
+    android:insetBottom="25%" />

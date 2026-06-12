@@ -129,14 +129,14 @@ window.renderMarkdown = function(markdownText) {
 
         // 步骤2.5: 归一化图片链接目标（Typora/Windows 风格：反斜杠分隔、未编码空格）。
         // CommonMark 规定目标中含未编码空格时整段不解析为图片，必须先转成合法 URL。
-        // 在代码区域仍受保护时执行，避免误改代码示例。
-        processedText = processedText.replace(/(!\[[^\]\n]*\]\()([^()\n]+)(\))/g, function(m, pre, dest, post) {
+        // 目标允许一层成对括号（如 image (1).png）；在代码区域仍受保护时执行，避免误改代码示例。
+        processedText = processedText.replace(/(!\[[^\]\n]*\]\()((?:[^()\n]|\([^()\n]*\))+)(\))/g, function(m, pre, dest, post) {
             dest = dest.trim();
             if (dest.charAt(0) === '<') return m;
             var title = '';
             var tm = dest.match(/\s+("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')$/);
             if (tm) { title = ' ' + tm[1]; dest = dest.slice(0, tm.index); }
-            dest = dest.replace(/\\/g, '/').replace(/ /g, '%20');
+            dest = dest.replace(/\\/g, '/').replace(/ /g, '%20').replace(/\(/g, '%28').replace(/\)/g, '%29');
             return pre + dest + title + post;
         });
 

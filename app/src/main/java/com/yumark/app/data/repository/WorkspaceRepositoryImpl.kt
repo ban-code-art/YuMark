@@ -57,21 +57,24 @@ class WorkspaceRepositoryImpl @Inject constructor(
         return openWorkspace(current.treeUri)
     }
 
-    override suspend fun restoreOnLaunch() {
-        if (_workspace.value != null) return
+    override suspend fun restoreOnLaunch(): String? {
+        if (_workspace.value != null) return null
         // 优先恢复用户在设置里指定的默认目录；失败时回退到上次会话打开的工作区
+        var error: String? = null
         val defaultDir = workspaceDataStore.defaultDirUriFlow.first()
         if (defaultDir != null) {
-            if (hasReadPermission(defaultDir) && openWorkspace(defaultDir).isSuccess) return
-            // 默认目录授权失效或打开失败：只清默认目录，继续尝试上次工作区
+            if (hasReadPermission(defaultDir) && openWorkspace(defaultDir).isSuccess) return null
+            // 默认目录授权失效或打开失败：清默认目录并提示用户，继续尝试上次工作区
             workspaceDataStore.clearDefaultDirUri()
+            error = "默认目录已失效，请到 设置 → 默认目录 重新选择"
         }
-        val lastSession = workspaceDataStore.treeUriFlow.first() ?: return
+        val lastSession = workspaceDataStore.treeUriFlow.first() ?: return error
         if (!hasReadPermission(lastSession)) {
             workspaceDataStore.clearTreeUri()
-            return
+            return error
         }
         openWorkspace(lastSession).onFailure { workspaceDataStore.clearTreeUri() }
+        return error
     }
 
     override val defaultDirUri: kotlinx.coroutines.flow.Flow<String?>

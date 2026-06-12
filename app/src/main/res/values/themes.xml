@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.YuMark" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <!-- 开屏页：用兼容库在所有 Android 版本（含 12 以下的真机）统一显示图标开屏动画，
+         结束后切换到正常主题。背景色与默认 Claude 浅色主题一致，避免闪色。 -->
+    <style name="Theme.YuMark.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#FAF9F5</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+        <item name="windowSplashScreenAnimationDuration">400</item>
+        <item name="postSplashScreenTheme">@style/Theme.YuMark</item>
+    </style>
 </resources>
