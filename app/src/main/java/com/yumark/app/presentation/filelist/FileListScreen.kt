@@ -891,6 +891,12 @@ private fun ImportSelectionDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false
+        ),
+        modifier = Modifier
+            .fillMaxWidth(0.9f)
+            .wrapContentHeight(),
         title = { Text(stringResource(R.string.import_select_folder_files, selectedCount)) },
         text = {
             Column {
@@ -990,6 +996,12 @@ private fun ImportFilesDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false
+        ),
+        modifier = Modifier
+            .fillMaxWidth(0.9f)
+            .wrapContentHeight(),
         title = { Text(stringResource(R.string.import_file)) },
         text = {
             Column {
@@ -1099,6 +1111,12 @@ private fun ImportTargetPickerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false
+        ),
+        modifier = Modifier
+            .fillMaxWidth(0.9f)
+            .wrapContentHeight(),
         title = { Text(stringResource(R.string.import_target_pick)) },
         text = {
             LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
