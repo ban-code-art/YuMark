@@ -407,6 +407,10 @@ fun EditorScreen(
                                 // 本地编辑状态（含光标/选区），避免依赖异步的 document 状态
                                 var editValue by remember { mutableStateOf(TextFieldValue(document?.content ?: "")) }
 
+                                // 保存滚动状态，在预览和编辑模式间切换时保持位置
+                                val scrollState = rememberScrollState()
+                                var savedWebViewScrollY by remember { mutableIntStateOf(0) }
+
                                 LaunchedEffect(document?.id) {
                                     document?.content?.let { content ->
                                         if (editValue.text.isEmpty() && content.isNotEmpty()) {
@@ -427,6 +431,27 @@ fun EditorScreen(
                                         )
                                         previewWebView.evaluateJavascript(renderJs(encoded), null)
                                         lastRendered = editValue.text
+                                    }
+                                }
+
+                                // 切换模式时同步滚动位置
+                                LaunchedEffect(isPreviewMode) {
+                                    if (isPreviewMode) {
+                                        // 切换到预览模式：保存编辑器滚动位置，恢复 WebView 滚动
+                                        kotlinx.coroutines.delay(100) // 等待 WebView 渲染
+                                        previewWebView.scrollY = savedWebViewScrollY
+                                    } else {
+                                        // 切换到编辑模式：保存 WebView 滚动位置，计算编辑器滚动位置
+                                        savedWebViewScrollY = previewWebView.scrollY
+
+                                        // 根据 WebView 滚动比例计算编辑器应该滚动的位置
+                                        kotlinx.coroutines.delay(100) // 等待布局完成
+                                        if (previewWebView.contentHeight > 0) {
+                                            val webViewScrollRatio = savedWebViewScrollY.toFloat() /
+                                                previewWebView.contentHeight
+                                            val targetScroll = (scrollState.maxValue * webViewScrollRatio).toInt()
+                                            scrollState.scrollTo(targetScroll.coerceIn(0, scrollState.maxValue))
+                                        }
                                     }
                                 }
 
@@ -488,7 +513,7 @@ fun EditorScreen(
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .fillMaxWidth()
-                                                .verticalScroll(rememberScrollState())
+                                                .verticalScroll(scrollState)
                                                 .padding(horizontal = 20.dp, vertical = 16.dp),
                                             textStyle = MaterialTheme.typography.bodyLarge.copy(
                                                 color = MaterialTheme.colorScheme.onBackground,
