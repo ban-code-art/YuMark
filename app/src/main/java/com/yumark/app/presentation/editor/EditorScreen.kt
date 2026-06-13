@@ -284,7 +284,9 @@ fun EditorScreen(
                     onOpenInternal = { id -> openFromSidebar(Screen.Editor.createRoute(id)) },
                     onOpenExternal = { uri -> openFromSidebar(Screen.Editor.createExternalRoute(uri)) },
                     onCloseDrawer = { scope.launch { fileDrawerState.close() } },
+                    showImportMenu = showImportMenu,
                     onShowImportMenu = { showImportMenu = true },
+                    onDismissImportMenu = { showImportMenu = false },
                     onShowFolderDialog = { showFolderDialog = true },
                     onShowCreateDialog = { folderId ->
                         viewModel.selectFolderForNewDoc(folderId)
@@ -773,29 +775,6 @@ fun EditorScreen(
             }
         )
     }
-
-    // 导入菜单下拉框
-    DropdownMenu(
-        expanded = showImportMenu,
-        onDismissRequest = { showImportMenu = false }
-    ) {
-        DropdownMenuItem(
-            text = { Text(stringResource(R.string.import_file)) },
-            onClick = {
-                showImportMenu = false
-                // TODO: 启动导入文件流程
-            },
-            leadingIcon = { Icon(Icons.Default.Description, null) }
-        )
-        DropdownMenuItem(
-            text = { Text(stringResource(R.string.import_folder)) },
-            onClick = {
-                showImportMenu = false
-                // TODO: 启动导入文件夹流程
-            },
-            leadingIcon = { Icon(Icons.Default.FolderOpen, null) }
-        )
-    }
 }
 
 /**
@@ -814,7 +793,9 @@ private fun EditorSidebarContent(
     onOpenInternal: (String) -> Unit,
     onOpenExternal: (String) -> Unit,
     onCloseDrawer: () -> Unit,
+    showImportMenu: Boolean,
     onShowImportMenu: () -> Unit,
+    onDismissImportMenu: () -> Unit,
     onShowFolderDialog: () -> Unit,
     onShowCreateDialog: (String) -> Unit,
     onShowSubfolderDialog: (String) -> Unit,
@@ -879,6 +860,28 @@ private fun EditorSidebarContent(
                 Box {
                     IconButton(onClick = onShowImportMenu) {
                         Icon(Icons.Default.FileDownload, stringResource(R.string.import_to_library))
+                    }
+                    // 导入菜单下拉框
+                    DropdownMenu(
+                        expanded = showImportMenu,
+                        onDismissRequest = onDismissImportMenu
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.import_file)) },
+                            onClick = {
+                                onDismissImportMenu()
+                                // TODO: 启动导入文件流程
+                            },
+                            leadingIcon = { Icon(Icons.Default.Description, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.import_folder)) },
+                            onClick = {
+                                onDismissImportMenu()
+                                // TODO: 启动导入文件夹流程
+                            },
+                            leadingIcon = { Icon(Icons.Default.FolderOpen, null) }
+                        )
                     }
                 }
                 IconButton(onClick = onShowFolderDialog) {
