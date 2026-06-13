@@ -46,14 +46,25 @@ class UpdateChecker @Inject constructor(
             val latestVersion = release.tag_name.removePrefix("v")
             val currentVersion = getCurrentVersion()
 
+            android.util.Log.d("UpdateChecker", "当前版本: $currentVersion")
+            android.util.Log.d("UpdateChecker", "最新版本: $latestVersion (tag: ${release.tag_name})")
+            android.util.Log.d("UpdateChecker", "资源数量: ${release.assets.size}")
+            release.assets.forEach { asset ->
+                android.util.Log.d("UpdateChecker", "资源: ${asset.name}, URL: ${asset.browser_download_url}")
+            }
+
             // 比较版本号
-            if (isNewerVersion(latestVersion, currentVersion)) {
+            val isNewer = isNewerVersion(latestVersion, currentVersion)
+            android.util.Log.d("UpdateChecker", "是否有新版本: $isNewer")
+
+            if (isNewer) {
                 // 找到 APK 资源
                 val apkAsset = release.assets.firstOrNull {
                     it.name.endsWith(".apk", ignoreCase = true)
                 }
 
                 if (apkAsset != null) {
+                    android.util.Log.d("UpdateChecker", "找到 APK: ${apkAsset.name}")
                     UpdateInfo(
                         version = latestVersion,
                         versionCode = parseVersionCode(latestVersion),
@@ -63,13 +74,15 @@ class UpdateChecker @Inject constructor(
                         publishDate = release.published_at
                     )
                 } else {
+                    android.util.Log.w("UpdateChecker", "未找到 APK 资源")
                     null
                 }
             } else {
+                android.util.Log.d("UpdateChecker", "已是最新版本")
                 null
             }
         } catch (e: Exception) {
-            android.util.Log.e("UpdateChecker", "检查更新失败", e)
+            android.util.Log.e("UpdateChecker", "检查更新失败: ${e.message}", e)
             null
         }
     }
