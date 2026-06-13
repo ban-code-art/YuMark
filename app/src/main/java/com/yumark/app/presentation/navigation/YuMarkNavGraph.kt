@@ -19,8 +19,19 @@ import com.yumark.app.presentation.settings.SettingsScreen
 @Composable
 fun YuMarkNavGraph(
     navController: NavHostController = rememberNavController(),
-    startDestination: String = Screen.FileList.route
+    startDestination: String = Screen.FileList.route,
+    externalFileUri: String? = null
 ) {
+    // 如果有外部文件 URI，直接导航到编辑器
+    androidx.compose.runtime.LaunchedEffect(externalFileUri) {
+        externalFileUri?.let { uri ->
+            navController.navigate(Screen.Editor.createExternalRoute(uri)) {
+                // 清除返回栈，避免按返回键回到启动器
+                popUpTo(Screen.FileList.route) { inclusive = false }
+            }
+        }
+    }
+
     NavHost(
         navController = navController,
         startDestination = startDestination,
