@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
@@ -25,6 +26,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,8 +35,11 @@ import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.yumark.app.R
+import com.yumark.app.domain.model.ExportFormat
 import com.yumark.app.presentation.navigation.Screen
-import kotlinx.coroutines.launch
+import com.yumark.app.presentation.sidebar.SidebarActions
+import com.yumark.app.presentation.sidebar.SidebarFileTree
+import com.yumark.app.presentation.sidebar.WorkspaceFileTree
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,7 +61,7 @@ fun EditorScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val editorFontSize by viewModel.editorFontSize.collectAsState()
 
-    // 统一保存出口：顶栏箭头与系统返回共用，防抖避免连退两页
+    // 统一保存出口：系统返回手势/键共用，防抖避免连退两页
     var isExiting by remember { mutableStateOf(false) }
     val saveAndExit: () -> Unit = {
         if (!isExiting) {
@@ -68,6 +73,28 @@ fun EditorScreen(
         }
     }
     BackHandler(onBack = saveAndExit)
+
+    // 左侧文件树抽屉：顶栏按钮打开，点文档直接切换（替代旧的返回箭头）
+    val fileDrawerState = rememberDrawerState(DrawerValue.Closed)
+    var fileTreeExpanded by remember { mutableStateOf(setOf<String>()) }
+    val folderTree by viewModel.folderTree.collectAsState()
+    val editorWorkspace by viewModel.workspace.collectAsState()
+
+    // 抽屉打开时返回键先收抽屉（声明在 saveAndExit 的 BackHandler 之后，优先生效）
+    BackHandler(enabled = fileDrawerState.isOpen) {
+        scope.launch { fileDrawerState.close() }
+    }
+
+    // 切换到侧栏点选的文档：先保存当前文档，再用新编辑器替换当前页（返回栈不增长）
+    val openFromSidebar: (String) -> Unit = { route ->
+        scope.launch {
+            fileDrawerState.close()
+            viewModel.saveAndWait()
+            navController.navigate(route) {
+                popUpTo(Screen.Editor.route) { inclusive = true }
+            }
+        }
+    }
 
     val themeId by viewModel.themeId.collectAsState()
     // 以实际生效的主题亮度判断深浅（兼容设置里手动选择的深色模式）
@@ -203,7 +230,7 @@ fun EditorScreen(
         }
     }
 
-    // 导出成功 → 系统分享
+    // 导出成功 → 系统分享（mime 按导出文件实际格式）
     val exportedFile by viewModel.exportedFile.collectAsState()
     LaunchedEffect(exportedFile) {
         exportedFile?.let { file ->
@@ -211,7 +238,11 @@ fun EditorScreen(
                 context, "${context.packageName}.fileprovider", file
             )
             val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/html"
+                type = when (file.extension.lowercase()) {
+                    "md", "markdown" -> "text/markdown"
+                    "html" -> "text/html"
+                    else -> "text/plain"
+                }
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
@@ -220,8 +251,56 @@ fun EditorScreen(
         }
     }
 
-    // 用 RTL 包裹实现右侧大纲抽屉（内容区恢复 LTR）
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+    // 侧边栏的对话框状态
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var showFolderDialog by remember { mutableStateOf(false) }
+    var showSubfolderDialog by remember { mutableStateOf<String?>(null) }
+    var folderToRename by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var folderToDelete by remember { mutableStateOf<String?>(null) }
+    var documentToRename by remember { mutableStateOf<com.yumark.app.domain.model.Document?>(null) }
+    var documentToDelete by remember { mutableStateOf<com.yumark.app.domain.model.Document?>(null) }
+    var showImportMenu by remember { mutableStateOf(false) }
+
+    // 外层左侧文件树抽屉（LTR）；内层沿用 RTL 包裹的右侧大纲抽屉
+    ModalNavigationDrawer(
+        drawerState = fileDrawerState,
+        // 仅打开时允许手势（滑动关闭），关闭时不抢编辑区/WebView 的水平手势
+        gesturesEnabled = fileDrawerState.isOpen,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerShape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
+            ) {
+                EditorSidebarContent(
+                    isExternal = viewModel.isExternal,
+                    workspace = editorWorkspace,
+                    folderTree = folderTree,
+                    currentDocumentId = viewModel.currentDocumentId,
+                    currentDocUri = viewModel.currentDocUri,
+                    expandedFolders = fileTreeExpanded,
+                    onToggleFolder = { key ->
+                        fileTreeExpanded = if (key in fileTreeExpanded) fileTreeExpanded - key
+                        else fileTreeExpanded + key
+                    },
+                    onOpenInternal = { id -> openFromSidebar(Screen.Editor.createRoute(id)) },
+                    onOpenExternal = { uri -> openFromSidebar(Screen.Editor.createExternalRoute(uri)) },
+                    onCloseDrawer = { scope.launch { fileDrawerState.close() } },
+                    onShowImportMenu = { showImportMenu = true },
+                    onShowFolderDialog = { showFolderDialog = true },
+                    onShowCreateDialog = { folderId ->
+                        viewModel.selectFolderForNewDoc(folderId)
+                        showCreateDialog = true
+                    },
+                    onShowSubfolderDialog = { showSubfolderDialog = it },
+                    onRenameFolder = { folderId, name -> folderToRename = folderId to name },
+                    onDeleteFolder = { folderToDelete = it },
+                    onRenameDocument = { documentToRename = it },
+                    onDeleteDocument = { documentToDelete = it }
+                )
+            }
+        }
+    ) {
+        // 用 RTL 包裹实现右侧大纲抽屉（内容区恢复 LTR）
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         ModalNavigationDrawer(
             drawerState = outlineDrawerState,
             gesturesEnabled = isPreviewMode,
@@ -248,10 +327,18 @@ fun EditorScreen(
                     snackbarHost = { SnackbarHost(snackbarHostState) },
                     topBar = {
                         TopAppBar(
-                            title = { Text(document?.name ?: stringResource(R.string.editor)) },
+                            title = {
+                                Text(
+                                    document?.name ?: stringResource(R.string.editor),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
                             navigationIcon = {
-                                IconButton(onClick = saveAndExit) {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.close))
+                                // 打开文件树侧栏（退出编辑器走系统返回手势/键）
+                                IconButton(onClick = { scope.launch { fileDrawerState.open() } }) {
+                                    Icon(Icons.Default.Menu, stringResource(R.string.toggle_sidebar))
                                 }
                             },
                             actions = {
@@ -289,8 +376,13 @@ fun EditorScreen(
 
                                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                                         DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.export)) },
-                                            onClick = { viewModel.exportAsHtml(); showMenu = false },
+                                            text = { Text(stringResource(R.string.export_markdown)) },
+                                            onClick = { viewModel.exportAs(ExportFormat.MARKDOWN); showMenu = false },
+                                            leadingIcon = { Icon(Icons.Default.Download, null) }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.export_html)) },
+                                            onClick = { viewModel.exportAs(ExportFormat.HTML); showMenu = false },
                                             leadingIcon = { Icon(Icons.Default.Download, null) }
                                         )
                                     }
@@ -452,6 +544,391 @@ fun EditorScreen(
             }
         }
     }
+    }
+
+    // ===== 侧边栏对话框 =====
+    // 创建文档
+    if (showCreateDialog) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showCreateDialog = false },
+            title = { Text(stringResource(R.string.create_document)) },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.document_name)) },
+                    placeholder = { Text(stringResource(R.string.hint_document_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.createDocument(name)
+                        showCreateDialog = false
+                    },
+                    enabled = name.isNotBlank()
+                ) {
+                    Text(stringResource(R.string.ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // 创建文件夹
+    if (showFolderDialog) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showFolderDialog = false },
+            title = { Text(stringResource(R.string.create_folder)) },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.folder_name)) },
+                    placeholder = { Text(stringResource(R.string.hint_folder_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.createFolder(name)
+                        showFolderDialog = false
+                    },
+                    enabled = name.isNotBlank()
+                ) {
+                    Text(stringResource(R.string.ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFolderDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // 创建子文件夹
+    showSubfolderDialog?.let { parentId ->
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showSubfolderDialog = null },
+            title = { Text(stringResource(R.string.create_subfolder)) },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.folder_name)) },
+                    placeholder = { Text(stringResource(R.string.hint_folder_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.createSubfolder(name, parentId)
+                        showSubfolderDialog = null
+                    },
+                    enabled = name.isNotBlank()
+                ) {
+                    Text(stringResource(R.string.ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSubfolderDialog = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // 重命名文件夹
+    folderToRename?.let { (folderId, oldName) ->
+        var newName by remember { mutableStateOf(oldName) }
+        AlertDialog(
+            onDismissRequest = { folderToRename = null },
+            title = { Text(stringResource(R.string.rename)) },
+            text = {
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text(stringResource(R.string.folder_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.renameFolder(folderId, newName)
+                        folderToRename = null
+                    },
+                    enabled = newName.isNotBlank() && newName != oldName
+                ) {
+                    Text(stringResource(R.string.rename))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { folderToRename = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // 删除文件夹
+    folderToDelete?.let { folderId ->
+        AlertDialog(
+            onDismissRequest = { folderToDelete = null },
+            title = { Text(stringResource(R.string.delete_folder)) },
+            text = { Text(stringResource(R.string.delete_folder_with_contents)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteFolder(folderId)
+                        folderToDelete = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text(stringResource(R.string.delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { folderToDelete = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // 重命名文档
+    documentToRename?.let { doc ->
+        var newName by remember { mutableStateOf(doc.name) }
+        AlertDialog(
+            onDismissRequest = { documentToRename = null },
+            title = { Text(stringResource(R.string.rename_document)) },
+            text = {
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text(stringResource(R.string.document_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.renameDocument(doc.id, newName)
+                        documentToRename = null
+                    },
+                    enabled = newName.isNotBlank() && newName != doc.name
+                ) {
+                    Text(stringResource(R.string.rename))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { documentToRename = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // 删除文档
+    documentToDelete?.let { doc ->
+        AlertDialog(
+            onDismissRequest = { documentToDelete = null },
+            title = { Text(stringResource(R.string.delete_document)) },
+            text = { Text(stringResource(R.string.delete_document_confirm, doc.name)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteDocument(doc.id)
+                        documentToDelete = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text(stringResource(R.string.delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { documentToDelete = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // 导入菜单下拉框
+    DropdownMenu(
+        expanded = showImportMenu,
+        onDismissRequest = { showImportMenu = false }
+    ) {
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.import_file)) },
+            onClick = {
+                showImportMenu = false
+                // TODO: 启动导入文件流程
+            },
+            leadingIcon = { Icon(Icons.Default.Description, null) }
+        )
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.import_folder)) },
+            onClick = {
+                showImportMenu = false
+                // TODO: 启动导入文件夹流程
+            },
+            leadingIcon = { Icon(Icons.Default.FolderOpen, null) }
+        )
+    }
+}
+
+/**
+ * 编辑器左侧抽屉内容：内部文档显示库文件树，外部文档显示工作区文件树。
+ * 点击当前文档仅收起抽屉；点击其他文档经 onOpenInternal/onOpenExternal 切换。
+ */
+@Composable
+private fun EditorSidebarContent(
+    isExternal: Boolean,
+    workspace: com.yumark.app.domain.model.Workspace?,
+    folderTree: List<com.yumark.app.domain.model.FolderTreeNode>?,
+    currentDocumentId: String?,
+    currentDocUri: String?,
+    expandedFolders: Set<String>,
+    onToggleFolder: (String) -> Unit,
+    onOpenInternal: (String) -> Unit,
+    onOpenExternal: (String) -> Unit,
+    onCloseDrawer: () -> Unit,
+    onShowImportMenu: () -> Unit,
+    onShowFolderDialog: () -> Unit,
+    onShowCreateDialog: (String) -> Unit,
+    onShowSubfolderDialog: (String) -> Unit,
+    onRenameFolder: (String, String) -> Unit,
+    onDeleteFolder: (String) -> Unit,
+    onRenameDocument: (com.yumark.app.domain.model.Document) -> Unit,
+    onDeleteDocument: (com.yumark.app.domain.model.Document) -> Unit
+) {
+    if (isExternal) {
+        val ws = workspace
+        if (ws == null) {
+            Text(
+                stringResource(R.string.workspace_main_hint),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(16.dp)
+            )
+            return
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.FolderOpen,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                ws.name,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        HorizontalDivider()
+        WorkspaceFileTree(
+            root = ws.root,
+            expandedFolders = expandedFolders,
+            onDocumentClick = { doc ->
+                if (doc.uri == currentDocUri) onCloseDrawer() else onOpenExternal(doc.uri)
+            },
+            onFolderToggle = onToggleFolder
+        )
+    } else {
+        // 内部文档库模式 - 顶部标题 + 操作按钮
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                stringResource(R.string.all_documents),
+                style = MaterialTheme.typography.titleLarge
+            )
+            Row {
+                Box {
+                    IconButton(onClick = onShowImportMenu) {
+                        Icon(Icons.Default.FileDownload, stringResource(R.string.import_to_library))
+                    }
+                }
+                IconButton(onClick = onShowFolderDialog) {
+                    Icon(Icons.Default.CreateNewFolder, stringResource(R.string.create_folder))
+                }
+            }
+        }
+        HorizontalDivider()
+
+        val tree = folderTree
+        if (tree == null) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        } else {
+            SidebarFileTree(
+                tree = tree,
+                currentDocumentId = currentDocumentId,
+                expandedFolders = expandedFolders,
+                onDocumentClick = { id ->
+                    if (id == currentDocumentId) onCloseDrawer() else onOpenInternal(id)
+                },
+                onFolderExpand = onToggleFolder,
+                onFolderCollapse = onToggleFolder,
+                actions = SidebarActions(
+                    onCreateDocument = { folderId -> onShowCreateDialog(folderId ?: "") },
+                    onCreateSubfolder = { folderId -> folderId?.let { onShowSubfolderDialog(it) } },
+                    onRenameFolder = { folderId ->
+                        // 需要从 folderTree 中找到文件夹名称
+                        val folder = findFolderInTree(tree, folderId)
+                        folder?.folder?.let { onRenameFolder(folderId, it.name) }
+                    },
+                    onDeleteFolder = onDeleteFolder,
+                    onRenameDocument = onRenameDocument,
+                    onDeleteDocument = onDeleteDocument
+                )
+            )
+        }
+    }
+}
+
+/** 在文件树中递归查找文件夹 */
+private fun findFolderInTree(
+    tree: List<com.yumark.app.domain.model.FolderTreeNode>,
+    folderId: String
+): com.yumark.app.domain.model.FolderTreeNode? {
+    for (node in tree) {
+        if (node.folder?.id == folderId) return node
+        val found = findFolderInTree(node.children, folderId)
+        if (found != null) return found
+    }
+    return null
 }
 
 /**

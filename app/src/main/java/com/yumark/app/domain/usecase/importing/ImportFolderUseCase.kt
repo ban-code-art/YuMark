@@ -129,35 +129,44 @@ class ImportFolderUseCase @Inject constructor(
     }
 
     /**
-     * 复制选中的候选文档进导入库（保留子文件夹结构），并复制所选树内的全部图片资产
+     * 复制选中的候选文档进导入位置（保留子文件夹结构），并复制所选树内的全部图片资产
      * （覆盖 ./xxx.assets/、../shared/ 等任意树内相对引用）。
      * 单个文件失败不中断整体，最终以 [ImportStats] 汇报成功/失败数。
+     *
+     * @param targetFolderId 导入位置：默认为导入库根（惰性创建）；
+     *        可传库内任意文件夹 id 自定义位置，null 表示根目录
      */
     suspend operator fun invoke(
         selected: List<ImportCandidate>,
-        images: List<ImportCandidate> = emptyList()
+        images: List<ImportCandidate> = emptyList(),
+        targetFolderId: String? = FolderRepository.IMPORT_LIBRARY_FOLDER_ID
     ): Result<ImportStats> =
         withContext(Dispatchers.IO) {
             runCatching {
                 if (selected.isEmpty()) return@runCatching ImportStats(0, 0)
 
-                val importRoot = folderRepository.ensureImportLibraryFolder().getOrThrow()
+                val baseFolderId: String? =
+                    if (targetFolderId == FolderRepository.IMPORT_LIBRARY_FOLDER_ID) {
+                        folderRepository.ensureImportLibraryFolder().getOrThrow().id
+                    } else {
+                        targetFolderId
+                    }
 
                 // 路径 -> folderId 缓存，避免为同一子文件夹重复创建
-                val folderIdByPath = HashMap<String, String>()
-                folderIdByPath[""] = importRoot.id
+                val folderIdByPath = HashMap<String, String?>()
+                folderIdByPath[""] = baseFolderId
 
                 var imported = 0
                 var failed = 0
                 for (candidate in selected) {
                     // 单个文件失败（扫描后被删/不可读等）跳过并计数，不让已导入的白做
                     runCatching {
-                        val targetFolderId = resolveFolderPath(
-                            candidate.relativeFolderPath, importRoot.id, folderIdByPath
+                        val candidateFolderId = resolveFolderPath(
+                            candidate.relativeFolderPath, baseFolderId, folderIdByPath
                         )
                         val content = readContent(candidate.uri)
                         val doc = documentRepository
-                            .createDocument(candidate.displayName, targetFolderId)
+                            .createDocument(candidate.displayName, candidateFolderId)
                             .getOrThrow()
                         documentRepository.saveDocument(doc.copy(content = content)).getOrThrow()
                     }.onSuccess { imported++ }.onFailure { failed++ }
@@ -168,20 +177,19 @@ class ImportFolderUseCase @Inject constructor(
             }
         }
 
-    /** 沿相对路径在导入库下逐级 ensure 子文件夹，返回最末层 folderId */
+    /** 沿相对路径在导入位置下逐级 ensure 子文件夹，返回最末层 folderId */
     private suspend fun resolveFolderPath(
         path: List<String>,
-        importRootId: String,
-        cache: HashMap<String, String>
-    ): String {
-        var parentId = importRootId
+        baseFolderId: String?,
+        cache: HashMap<String, String?>
+    ): String? {
+        var parentId: String? = baseFolderId
         val acc = StringBuilder()
         for (segment in path) {
             acc.append('/').append(segment)
             val key = acc.toString()
-            val cached = cache[key]
-            if (cached != null) {
-                parentId = cached
+            if (cache.containsKey(key)) {
+                parentId = cache[key]
                 continue
             }
             // 同名子文件夹已存在则复用，否则新建

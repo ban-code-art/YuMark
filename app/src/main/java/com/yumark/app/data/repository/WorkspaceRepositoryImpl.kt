@@ -1,7 +1,9 @@
 package com.yumark.app.data.repository
 
+import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.yumark.app.data.local.file.ScanEntry
 import com.yumark.app.data.local.file.WorkspaceScanner
@@ -9,7 +11,11 @@ import com.yumark.app.data.local.prefs.WorkspaceDataStore
 import com.yumark.app.domain.model.Workspace
 import com.yumark.app.domain.repository.WorkspaceRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,13 +33,29 @@ class WorkspaceRepositoryImpl @Inject constructor(
     private val _workspace = MutableStateFlow<Workspace?>(null)
     override val workspace: StateFlow<Workspace?> = _workspace.asStateFlow()
 
+    // 启动恢复单飞：Application.onCreate 先行触发扫描（与首帧渲染并行），
+    // 首页 ViewModel 稍后 await 同一结果取错误提示，不重复扫描也无竞态
+    private val restoreScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val restoreDeferred: Deferred<String?> by lazy {
+        restoreScope.async { doRestoreOnLaunch() }
+    }
+
     override suspend fun openWorkspace(treeUri: String): Result<Workspace> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val rootDoc = DocumentFile.fromTreeUri(context, Uri.parse(treeUri))
+                val uri = Uri.parse(treeUri)
+                val rootDoc = DocumentFile.fromTreeUri(context, uri)
                     ?: error("无法访问所选文件夹")
                 if (!rootDoc.canRead()) error("没有该文件夹的读取权限")
-                val result = WorkspaceScanner.scan(DocumentFileEntry(rootDoc))
+                val rootEntry = ContractTreeEntry(
+                    resolver = context.contentResolver,
+                    treeUri = uri,
+                    documentId = DocumentsContract.getTreeDocumentId(uri),
+                    name = rootDoc.name,
+                    mimeType = DocumentsContract.Document.MIME_TYPE_DIR,
+                    lastModified = 0L
+                )
+                val result = WorkspaceScanner.scan(rootEntry)
                 val ws = Workspace(
                     name = rootDoc.name ?: "外部文件夹",
                     treeUri = treeUri,
@@ -57,7 +79,9 @@ class WorkspaceRepositoryImpl @Inject constructor(
         return openWorkspace(current.treeUri)
     }
 
-    override suspend fun restoreOnLaunch(): String? {
+    override suspend fun restoreOnLaunch(): String? = restoreDeferred.await()
+
+    private suspend fun doRestoreOnLaunch(): String? {
         if (_workspace.value != null) return null
         // 优先恢复用户在设置里指定的默认目录；失败时回退到上次会话打开的工作区
         var error: String? = null
@@ -88,6 +112,10 @@ class WorkspaceRepositoryImpl @Inject constructor(
 
     override suspend fun clearDefaultDir() {
         workspaceDataStore.clearDefaultDirUri()
+        // 默认目录打开时也被记成了「上次会话工作区」，必须一并清掉并关闭当前工作区，
+        // 否则下次启动会从 treeUri 回退恢复出同一个目录
+        workspaceDataStore.clearTreeUri()
+        _workspace.value = null
     }
 
     override suspend fun defaultDirName(): String? {
@@ -126,11 +154,55 @@ class WorkspaceRepositoryImpl @Inject constructor(
     }
 }
 
-/** DocumentFile 到 ScanEntry 的适配 */
-private class DocumentFileEntry(private val file: DocumentFile) : ScanEntry {
-    override val name: String? get() = file.name
-    override val isDirectory: Boolean get() = file.isDirectory
-    override val uri: String get() = file.uri.toString()
-    override val lastModified: Long get() = file.lastModified()
-    override fun children(): List<ScanEntry> = file.listFiles().map { DocumentFileEntry(it) }
+/**
+ * 基于 DocumentsContract 子文档批量查询的扫描条目：每个目录一次跨进程查询取回
+ * 全部子项的 id/名称/类型/修改时间。DocumentFile.listFiles() 之后每访问一个属性
+ * 都是单独一趟 ContentProvider 查询，大目录下启动恢复要慢一个数量级。
+ * 子项 URI 用 buildDocumentUriUsingTree 生成，与 DocumentFile 路径下的格式一致。
+ */
+private class ContractTreeEntry(
+    private val resolver: ContentResolver,
+    private val treeUri: Uri,
+    private val documentId: String,
+    override val name: String?,
+    private val mimeType: String?,
+    override val lastModified: Long
+) : ScanEntry {
+
+    override val isDirectory: Boolean
+        get() = mimeType == DocumentsContract.Document.MIME_TYPE_DIR
+
+    override val uri: String
+        get() = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId).toString()
+
+    override fun children(): List<ScanEntry> {
+        if (!isDirectory) return emptyList()
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, documentId)
+        val children = mutableListOf<ScanEntry>()
+        // 单个目录枚举失败（权限/提供器异常）按空目录处理，与 DocumentFile.listFiles 行为一致
+        runCatching {
+            resolver.query(
+                childrenUri,
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    DocumentsContract.Document.COLUMN_LAST_MODIFIED
+                ),
+                null, null, null
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    children += ContractTreeEntry(
+                        resolver = resolver,
+                        treeUri = treeUri,
+                        documentId = cursor.getString(0),
+                        name = cursor.getString(1),
+                        mimeType = cursor.getString(2),
+                        lastModified = if (cursor.isNull(3)) 0L else cursor.getLong(3)
+                    )
+                }
+            }
+        }
+        return children
+    }
 }

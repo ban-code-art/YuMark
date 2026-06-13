@@ -18,6 +18,20 @@ import com.yumark.app.domain.model.Document
 import com.yumark.app.domain.model.Folder
 import com.yumark.app.domain.model.FolderTreeNode
 
+/**
+ * 侧栏文件树的管理动作集合。
+ * 传 null 给 [SidebarFileTree] 表示纯浏览模式（如编辑器内的切换文档侧栏），
+ * 文件夹/文档行都不显示管理菜单。
+ */
+data class SidebarActions(
+    val onCreateDocument: (String?) -> Unit,
+    val onCreateSubfolder: (String?) -> Unit,
+    val onRenameFolder: (String) -> Unit,
+    val onDeleteFolder: (String) -> Unit,
+    val onRenameDocument: (Document) -> Unit,
+    val onDeleteDocument: (Document) -> Unit
+)
+
 @Composable
 fun SidebarFileTree(
     tree: List<FolderTreeNode>,
@@ -26,10 +40,7 @@ fun SidebarFileTree(
     onDocumentClick: (String) -> Unit,
     onFolderExpand: (String) -> Unit,
     onFolderCollapse: (String) -> Unit,
-    onCreateDocument: (String?) -> Unit,
-    onCreateSubfolder: (String?) -> Unit,
-    onRenameFolder: (String) -> Unit,
-    onDeleteFolder: (String) -> Unit,
+    actions: SidebarActions?,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -45,10 +56,7 @@ fun SidebarFileTree(
                 onDocumentClick = onDocumentClick,
                 onFolderExpand = onFolderExpand,
                 onFolderCollapse = onFolderCollapse,
-                onCreateDocument = onCreateDocument,
-                onCreateSubfolder = onCreateSubfolder,
-                onRenameFolder = onRenameFolder,
-                onDeleteFolder = onDeleteFolder
+                actions = actions
             )
         }
     }
@@ -63,10 +71,7 @@ fun FolderTreeItem(
     onDocumentClick: (String) -> Unit,
     onFolderExpand: (String) -> Unit,
     onFolderCollapse: (String) -> Unit,
-    onCreateDocument: (String?) -> Unit,
-    onCreateSubfolder: (String?) -> Unit,
-    onRenameFolder: (String) -> Unit,
-    onDeleteFolder: (String) -> Unit
+    actions: SidebarActions?
 ) {
     Column {
         // 文件夹行
@@ -80,10 +85,7 @@ fun FolderTreeItem(
                     if (isExpanded) onFolderCollapse(folder.id)
                     else onFolderExpand(folder.id)
                 },
-                onCreateDocument = { onCreateDocument(folder.id) },
-                onCreateSubfolder = { onCreateSubfolder(folder.id) },
-                onRename = { onRenameFolder(folder.id) },
-                onDelete = { onDeleteFolder(folder.id) }
+                actions = actions
             )
         }
 
@@ -95,7 +97,9 @@ fun FolderTreeItem(
                     document = doc,
                     level = node.level + 1,
                     isSelected = doc.id == currentDocumentId,
-                    onClick = { onDocumentClick(doc.id) }
+                    onClick = { onDocumentClick(doc.id) },
+                    onRename = actions?.let { { it.onRenameDocument(doc) } },
+                    onDelete = actions?.let { { it.onDeleteDocument(doc) } }
                 )
             }
 
@@ -109,10 +113,7 @@ fun FolderTreeItem(
                     onDocumentClick = onDocumentClick,
                     onFolderExpand = onFolderExpand,
                     onFolderCollapse = onFolderCollapse,
-                    onCreateDocument = onCreateDocument,
-                    onCreateSubfolder = onCreateSubfolder,
-                    onRenameFolder = onRenameFolder,
-                    onDeleteFolder = onDeleteFolder
+                    actions = actions
                 )
             }
         }
@@ -126,10 +127,7 @@ fun FolderRow(
     isExpanded: Boolean,
     hasChildren: Boolean,
     onToggleExpand: () -> Unit,
-    onCreateDocument: () -> Unit,
-    onCreateSubfolder: () -> Unit,
-    onRename: () -> Unit,
-    onDelete: () -> Unit
+    actions: SidebarActions?
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -173,68 +171,70 @@ fun FolderRow(
             overflow = TextOverflow.Ellipsis
         )
 
-        // 更多菜单
-        Box {
-            IconButton(
-                onClick = { showMenu = true },
-                modifier = Modifier.size(32.dp)
-            ) {
-                Icon(
-                    Icons.Default.MoreVert,
-                    contentDescription = stringResource(R.string.menu_file),
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+        // 更多菜单（纯浏览模式不显示）
+        if (actions != null) {
+            Box {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = stringResource(R.string.menu_file),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
 
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false }
-            ) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.create_document)) },
-                    onClick = {
-                        onCreateDocument()
-                        showMenu = false
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.Add, null)
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.create_subfolder)) },
-                    onClick = {
-                        onCreateSubfolder()
-                        showMenu = false
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.CreateNewFolder, null)
-                    }
-                )
-                HorizontalDivider()
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.rename)) },
-                    onClick = {
-                        onRename()
-                        showMenu = false
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.Edit, null)
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.delete_folder)) },
-                    onClick = {
-                        onDelete()
-                        showMenu = false
-                    },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.Delete,
-                            null,
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                )
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.create_document)) },
+                        onClick = {
+                            actions.onCreateDocument(folder.id)
+                            showMenu = false
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.Add, null)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.create_subfolder)) },
+                        onClick = {
+                            actions.onCreateSubfolder(folder.id)
+                            showMenu = false
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.CreateNewFolder, null)
+                        }
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.rename)) },
+                        onClick = {
+                            actions.onRenameFolder(folder.id)
+                            showMenu = false
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.Edit, null)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.delete_folder)) },
+                        onClick = {
+                            actions.onDeleteFolder(folder.id)
+                            showMenu = false
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Delete,
+                                null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    )
+                }
             }
         }
     }
@@ -245,8 +245,12 @@ fun DocumentRow(
     document: Document,
     level: Int,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onRename: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -296,6 +300,7 @@ fun DocumentRow(
             style = MaterialTheme.typography.bodySmall,
             color = if (isSelected) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -309,6 +314,48 @@ fun DocumentRow(
                 modifier = Modifier.size(14.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
+        }
+
+        // 更多菜单（重命名/删除；纯浏览模式不显示）
+        if (onRename != null || onDelete != null) {
+            Box {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = stringResource(R.string.menu_file),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    if (onRename != null) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.rename)) },
+                            onClick = { showMenu = false; onRename() },
+                            leadingIcon = { Icon(Icons.Default.Edit, null) }
+                        )
+                    }
+                    if (onDelete != null) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.delete)) },
+                            onClick = { showMenu = false; onDelete() },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        )
+                    }
+                }
+            }
         }
     }
 }

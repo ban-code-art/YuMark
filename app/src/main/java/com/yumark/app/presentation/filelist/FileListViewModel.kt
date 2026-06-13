@@ -93,22 +93,24 @@ class FileListViewModel @Inject constructor(
     val isImporting: StateFlow<Boolean> = _isImporting.asStateFlow()
 
     /**
-     * 导入选中的单个/多个文件到导入库根。
-     * 走 ImportDocumentUseCase（已有），targetFolderId 传导入库根 ID。
+     * 导入选中的单个/多个文件到指定位置。
+     * @param targetFolderId 导入位置：默认导入库根（惰性创建）；可传任意文件夹 id，null 为根目录
      */
-    fun importFiles(uris: List<Uri>) {
+    fun importFiles(
+        uris: List<Uri>,
+        targetFolderId: String? = FolderRepository.IMPORT_LIBRARY_FOLDER_ID
+    ) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
             _isImporting.value = true
-            val importRoot = folderRepository.ensureImportLibraryFolder().getOrNull()
-            if (importRoot == null) {
+            val resolved = resolveImportTarget(targetFolderId).getOrElse {
                 _actionError.value = "无法创建导入库"
                 _isImporting.value = false
                 return@launch
             }
             var ok = 0
             uris.forEach { uri ->
-                importDocumentUseCase(uri, importRoot.id)
+                importDocumentUseCase(uri, resolved)
                     .onSuccess { ok++ }
                     .onFailure { _actionError.value = it.message ?: "导入失败" }
             }
@@ -116,6 +118,14 @@ class FileListViewModel @Inject constructor(
             if (ok > 0) _importMessage.value = "已导入 $ok 个文件"
         }
     }
+
+    /** 把「导入库」哨兵 id 解析成真实文件夹 id（惰性创建）；其余 id 或 null（根目录）原样返回 */
+    private suspend fun resolveImportTarget(targetFolderId: String?): Result<String?> =
+        if (targetFolderId == FolderRepository.IMPORT_LIBRARY_FOLDER_ID) {
+            folderRepository.ensureImportLibraryFolder().map { it.id }
+        } else {
+            Result.success(targetFolderId)
+        }
 
     /** 扫描待导入文件夹（根授权 + 应用内浏览选定的子路径），得到候选列表供勾选（默认全不选） */
     fun scanImportFolder(treeUri: String, relativePath: List<String> = emptyList()) {
@@ -140,15 +150,18 @@ class FileListViewModel @Inject constructor(
         pendingImportImages = emptyList()
     }
 
-    /** 确认导入勾选的候选文件，复制进导入库（图片资产一并复制）；逐文件容错并汇报成败数 */
-    fun confirmImportFolder(selected: List<ImportCandidate>) {
+    /** 确认导入勾选的候选文件，复制进所选位置（图片资产一并复制）；逐文件容错并汇报成败数 */
+    fun confirmImportFolder(
+        selected: List<ImportCandidate>,
+        targetFolderId: String? = FolderRepository.IMPORT_LIBRARY_FOLDER_ID
+    ) {
         _importCandidates.value = null
         val images = pendingImportImages
         pendingImportImages = emptyList()
         if (selected.isEmpty()) return
         viewModelScope.launch {
             _isImporting.value = true
-            importFolderUseCase(selected, images)
+            importFolderUseCase(selected, images, targetFolderId)
                 .onSuccess { stats ->
                     _importMessage.value = when {
                         stats.failed == 0 -> "已导入 ${stats.imported} 个文件"

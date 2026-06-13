@@ -173,4 +173,12 @@
     <string name="import_browser_up">返回上一级</string>
     <string name="import_browser_empty">没有子文件夹</string>
     <string name="import_browser_confirm">导入此文件夹</string>
+    <string name="import_in_progress">正在导入…</string>
+    <string name="import_target">导入位置</string>
+    <string name="import_target_change">更改</string>
+    <string name="import_target_pick">选择导入位置</string>
+    <string name="import_files_count">将导入 %1$d 个文件</string>
+
+    <!-- 导出 -->
+    <string name="export_markdown">导出为 Markdown</string>
 </resources>

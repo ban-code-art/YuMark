@@ -7,10 +7,14 @@ import com.yumark.app.data.local.file.FileManager
 import com.yumark.app.domain.model.Document
 import com.yumark.app.domain.model.ExportFormat
 import com.yumark.app.domain.model.ExportOptions
+import com.yumark.app.domain.model.FolderTreeNode
 import com.yumark.app.domain.model.OutlineItem
 import com.yumark.app.domain.model.UserSettings
+import com.yumark.app.domain.model.Workspace
+import com.yumark.app.domain.repository.DocumentRepository
 import com.yumark.app.domain.repository.FolderRepository
 import com.yumark.app.domain.repository.WorkspaceRepository
+import com.yumark.app.domain.usecase.GetFolderTreeUseCase
 import com.yumark.app.domain.usecase.LoadDocumentUseCase
 import com.yumark.app.domain.usecase.SaveDocumentUseCase
 import com.yumark.app.domain.usecase.LoadSettingsUseCase
@@ -40,6 +44,8 @@ class EditorViewModel @Inject constructor(
     private val exportDocumentUseCase: ExportDocumentUseCase,
     private val fileManager: FileManager,
     private val folderRepository: FolderRepository,
+    private val getFolderTreeUseCase: GetFolderTreeUseCase,
+    private val documentRepository: DocumentRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -48,6 +54,30 @@ class EditorViewModel @Inject constructor(
 
     /** 是否为外部工作区文档（不支持导出等依赖 Room 的功能） */
     val isExternal: Boolean get() = docUri != null
+
+    /** 当前内部文档 id（侧栏高亮/防重复打开用），外部文档为 null */
+    val currentDocumentId: String? get() = documentId
+
+    /** 当前外部文档 URI（侧栏防重复打开用），内部文档为 null */
+    val currentDocUri: String? get() = docUri
+
+    /** 当前外部工作区（编辑器侧栏文件树用） */
+    val workspace: StateFlow<Workspace?> get() = workspaceRepository.workspace
+
+    /**
+     * 编辑器侧栏的内部库文件树；文档/文件夹变化时自动重建。
+     * Lazily + flow 包裹：侧栏首次展开才开始观察，构造 VM 时不触碰仓库
+     */
+    val folderTree: StateFlow<List<FolderTreeNode>?> = flow {
+        emitAll(
+            combine(
+                documentRepository.observeAllDocuments(),
+                folderRepository.observeFolders()
+            ) { _, _ -> }
+        )
+    }
+        .map { getFolderTreeUseCase().getOrNull() }
+        .stateIn(viewModelScope, SharingStarted.Lazily, null)
 
     private val _uiState = MutableStateFlow<EditorUiState>(EditorUiState.Loading)
     val uiState: StateFlow<EditorUiState> = _uiState.asStateFlow()
@@ -172,20 +202,37 @@ class EditorViewModel @Inject constructor(
     /**
      * 导入库文档：相对图片引用解析到 filesDir/import_assets/ 下的镜像目录。
      * base 为文档在导入库内的文件夹名称链（与导入时复制图片的相对路径一致）。
+     * 自定义导入位置（不在导入库下）的文档：镜像目录仍按「所选文件夹名起始」存放，
+     * 取名称链中与镜像目录能对上的最长后缀作为 base。
      */
     private suspend fun importLibraryImageResolver(doc: Document): ImageResolverConfig? {
         var folderId = doc.folderId ?: return null
         val names = ArrayDeque<String>()
         var guard = 0
-        while (folderId != FolderRepository.IMPORT_LIBRARY_FOLDER_ID) {
+        var reachedImportRoot = false
+        while (true) {
+            if (folderId == FolderRepository.IMPORT_LIBRARY_FOLDER_ID) {
+                reachedImportRoot = true
+                break
+            }
             if (++guard > 64) return null
             val folder = folderRepository.getFolderById(folderId).getOrNull() ?: return null
             names.addFirst(folder.name)
-            folderId = folder.parentId ?: return null
+            folderId = folder.parentId ?: break
+        }
+        val assetsDir = fileManager.getImportAssetsDir()
+        val base = if (reachedImportRoot) {
+            names.joinToString("/")
+        } else {
+            withContext(Dispatchers.IO) {
+                names.indices.asSequence()
+                    .map { i -> names.drop(i).joinToString("/") }
+                    .firstOrNull { it.isNotEmpty() && File(assetsDir, it).isDirectory }
+            } ?: return null
         }
         return ImageResolverConfig(
-            prefix = android.net.Uri.fromFile(fileManager.getImportAssetsDir()).toString() + "/",
-            base = names.joinToString("/"),
+            prefix = android.net.Uri.fromFile(assetsDir).toString() + "/",
+            base = base,
             encodeAll = false
         )
     }
@@ -229,8 +276,8 @@ class EditorViewModel @Inject constructor(
         _saveError.value = null
     }
 
-    /** 导出为 HTML（仅内部文档），成功后通过 exportedFile 通知 UI 弹分享 */
-    fun exportAsHtml() {
+    /** 导出为指定格式（仅内部文档），成功后通过 exportedFile 通知 UI 弹分享 */
+    fun exportAs(format: ExportFormat) {
         val id = documentId ?: return
         viewModelScope.launch {
             doSave()  // 导出读取的是仓库数据，先确保落盘
@@ -240,7 +287,7 @@ class EditorViewModel @Inject constructor(
             }
             exportDocumentUseCase(
                 id,
-                ExportFormat.HTML,
+                format,
                 ExportOptions(outputDir = fileManager.getExportsDir())
             ).onSuccess { file ->
                 _exportedFile.value = file
@@ -283,6 +330,87 @@ class EditorViewModel @Inject constructor(
     override fun onCleared() {
         stopAutoSave()
         super.onCleared()
+    }
+
+    // ===== 侧边栏文件夹/文档操作 =====
+    private var selectedFolderId: String? = null
+
+    fun selectFolderForNewDoc(folderId: String) {
+        selectedFolderId = folderId
+    }
+
+    fun createDocument(name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            documentRepository.createDocument(name, selectedFolderId).onFailure {
+                _saveError.value = "创建文档失败"
+            }
+            selectedFolderId = null
+        }
+    }
+
+    fun createFolder(name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            folderRepository.createFolder(name, null).onFailure {
+                _saveError.value = "创建文件夹失败"
+            }
+        }
+    }
+
+    fun createSubfolder(name: String, parentId: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            folderRepository.createFolder(name, parentId).onFailure {
+                _saveError.value = "创建子文件夹失败"
+            }
+        }
+    }
+
+    fun renameFolder(folderId: String, newName: String) {
+        if (newName.isBlank()) return
+        viewModelScope.launch {
+            folderRepository.renameFolder(folderId, newName).onFailure {
+                _saveError.value = "重命名文件夹失败"
+            }
+        }
+    }
+
+    fun deleteFolder(folderId: String) {
+        viewModelScope.launch {
+            folderRepository.deleteFolder(folderId, deleteContents = true).onFailure {
+                _saveError.value = "删除文件夹失败"
+            }
+        }
+    }
+
+    fun renameDocument(docId: String, newName: String) {
+        if (newName.isBlank()) return
+        viewModelScope.launch {
+            documentRepository.getDocumentById(docId)
+                .onSuccess { doc ->
+                    val renamed = doc.copy(name = newName)
+                    documentRepository.saveDocument(renamed).onSuccess {
+                        // 如果重命名的是当前文档，更新显示
+                        if (docId == documentId) {
+                            _document.value = renamed
+                        }
+                    }.onFailure {
+                        _saveError.value = "重命名文档失败"
+                    }
+                }
+                .onFailure {
+                    _saveError.value = "重命名文档失败"
+                }
+        }
+    }
+
+    fun deleteDocument(docId: String) {
+        viewModelScope.launch {
+            documentRepository.deleteDocument(docId).onFailure {
+                _saveError.value = "删除文档失败"
+            }
+        }
     }
 }
 

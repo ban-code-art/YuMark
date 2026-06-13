@@ -23,7 +23,7 @@ interface WorkspaceRepository {
     /** 设为默认目录（设置界面调用）；同时立即打开为当前工作区 */
     suspend fun setDefaultDir(treeUri: String): Result<Workspace>
 
-    /** 清除默认目录（不影响当前已打开的工作区） */
+    /** 清除默认目录并关闭当前工作区（同时清除上次会话记录，下次启动不再自动打开） */
     suspend fun clearDefaultDir()
 
     /** 默认目录的显示名（去 SAF 前缀），未设置返回 null */

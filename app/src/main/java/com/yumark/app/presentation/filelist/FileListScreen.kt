@@ -25,11 +25,14 @@ import androidx.navigation.NavController
 import com.yumark.app.R
 import com.yumark.app.core.util.SafLocations
 import com.yumark.app.domain.model.Document
+import com.yumark.app.domain.model.Folder
 import com.yumark.app.domain.model.SearchResult
 import com.yumark.app.domain.model.SortOption
+import com.yumark.app.domain.repository.FolderRepository
 import com.yumark.app.domain.usecase.importing.ImportCandidate
 import com.yumark.app.presentation.common.FolderConfirmDialog
 import com.yumark.app.presentation.navigation.Screen
+import com.yumark.app.presentation.sidebar.SidebarActions
 import com.yumark.app.presentation.sidebar.SidebarFileTree
 import com.yumark.app.presentation.sidebar.WorkspaceFileTree
 
@@ -111,7 +114,9 @@ fun FileListScreen(
         }
     }
 
-    // 导入文件：系统多选选择器，仅勾选项被导入（手动选择，非自动导入）
+    // 导入文件：系统多选选择器，仅勾选项被导入（手动选择，非自动导入）；
+    // 选完先弹确认对话框回显文件数与导入位置（默认导入库，可自定义）
+    var pendingImportFiles by remember { mutableStateOf<List<android.net.Uri>?>(null) }
     val importFilesLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
@@ -124,8 +129,20 @@ fun FileListScreen(
                     )
                 }
             }
-            viewModel.importFiles(uris)
+            pendingImportFiles = uris
         }
+    }
+
+    pendingImportFiles?.let { uris ->
+        ImportFilesDialog(
+            fileCount = uris.size,
+            folders = (uiState as? FileListUiState.Success)?.folders ?: emptyList(),
+            onConfirm = { targetFolderId ->
+                viewModel.importFiles(uris, targetFolderId)
+                pendingImportFiles = null
+            },
+            onDismiss = { pendingImportFiles = null }
+        )
     }
 
     // 导入文件夹：系统选择器只负责授权入口文件夹（部分 ROM 点进文件夹即返回，
@@ -156,13 +173,35 @@ fun FileListScreen(
         )
     }
 
-    // 文件夹导入勾选对话框（默认全不选，手动勾）
+    // 文件夹导入勾选对话框（默认全不选，手动勾；可自定义导入位置）
     val importCandidates by viewModel.importCandidates.collectAsState()
     importCandidates?.let { candidates ->
         ImportSelectionDialog(
             candidates = candidates,
-            onConfirm = { viewModel.confirmImportFolder(it) },
+            folders = (uiState as? FileListUiState.Success)?.folders ?: emptyList(),
+            onConfirm = { selected, targetFolderId ->
+                viewModel.confirmImportFolder(selected, targetFolderId)
+            },
             onDismiss = { viewModel.cancelImportFolder() }
+        )
+    }
+
+    // 导入中状态：模态进度提示（扫描/复制期间均显示）
+    val isImporting by viewModel.isImporting.collectAsState()
+    if (isImporting) {
+        AlertDialog(
+            onDismissRequest = { /* 导入中不可取消 */ },
+            confirmButton = {},
+            text = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(28.dp),
+                        strokeWidth = 3.dp
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(stringResource(R.string.import_in_progress))
+                }
+            }
         )
     }
 
@@ -276,22 +315,26 @@ fun FileListScreen(
                             },
                             onFolderExpand = { viewModel.onFolderExpand(it) },
                             onFolderCollapse = { viewModel.onFolderCollapse(it) },
-                            onCreateDocument = { folderId ->
-                                viewModel.onFolderSelected(folderId)
-                                showCreateDialog = true
-                            },
-                            onCreateSubfolder = { parentId ->
-                                showSubfolderDialog = parentId
-                            },
-                            onRenameFolder = { folderId ->
-                                // 找到文件夹名称
-                                s.folders.find { it.id == folderId }?.let { folder ->
-                                    folderToRename = folderId to folder.name
-                                }
-                            },
-                            onDeleteFolder = { folderId ->
-                                folderToDelete = folderId
-                            }
+                            actions = SidebarActions(
+                                onCreateDocument = { folderId ->
+                                    viewModel.onFolderSelected(folderId)
+                                    showCreateDialog = true
+                                },
+                                onCreateSubfolder = { parentId ->
+                                    showSubfolderDialog = parentId
+                                },
+                                onRenameFolder = { folderId ->
+                                    // 找到文件夹名称
+                                    s.folders.find { it.id == folderId }?.let { folder ->
+                                        folderToRename = folderId to folder.name
+                                    }
+                                },
+                                onDeleteFolder = { folderId ->
+                                    folderToDelete = folderId
+                                },
+                                onRenameDocument = { documentToRename = it },
+                                onDeleteDocument = { documentToDelete = it }
+                            )
                         )
                     }
                 } else {
@@ -638,7 +681,6 @@ fun FileListScreen(
     }
 
     // 重命名文档对话框
-    // 重命名文档对话框
     documentToRename?.let { doc ->
         var newName by remember { mutableStateOf(doc.name) }
         AlertDialog(
@@ -820,12 +862,13 @@ private fun formatDate(instant: kotlinx.datetime.Instant): String {
 
 /**
  * 文件夹导入勾选对话框：列出扫描到的候选文件，默认全不选，用户手动勾选要导入的项。
- * 按相对文件夹路径分组，便于在嵌套结构中辨认。
+ * 按相对文件夹路径分组，便于在嵌套结构中辨认。顶部可查看/更改导入位置（默认导入库）。
  */
 @Composable
 private fun ImportSelectionDialog(
     candidates: List<ImportCandidate>,
-    onConfirm: (List<ImportCandidate>) -> Unit,
+    folders: List<Folder>,
+    onConfirm: (List<ImportCandidate>, String?) -> Unit,
     onDismiss: () -> Unit
 ) {
     // 选中状态用候选的 uri 作键（默认全不选）
@@ -833,11 +876,30 @@ private fun ImportSelectionDialog(
     val selectedCount = checked.count { it.value }
     val allSelected = selectedCount == candidates.size && candidates.isNotEmpty()
 
+    var targetFolderId by remember {
+        mutableStateOf<String?>(FolderRepository.IMPORT_LIBRARY_FOLDER_ID)
+    }
+    var showTargetPicker by remember { mutableStateOf(false) }
+    if (showTargetPicker) {
+        ImportTargetPickerDialog(
+            folders = folders,
+            current = targetFolderId,
+            onSelect = { targetFolderId = it; showTargetPicker = false },
+            onDismiss = { showTargetPicker = false }
+        )
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.import_select_folder_files, selectedCount)) },
         text = {
             Column {
+                ImportTargetRow(
+                    targetFolderId = targetFolderId,
+                    folders = folders,
+                    onChange = { showTargetPicker = true }
+                )
+                HorizontalDivider()
                 // 全选/全不选快捷开关
                 Row(
                     modifier = Modifier
@@ -856,7 +918,7 @@ private fun ImportSelectionDialog(
                     Text(stringResource(R.string.import_select_all), style = MaterialTheme.typography.bodyMedium)
                 }
                 HorizontalDivider()
-                LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
                     items(candidates, key = { it.uri }) { candidate ->
                         Row(
                             modifier = Modifier
@@ -895,10 +957,182 @@ private fun ImportSelectionDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(candidates.filter { checked[it.uri] == true }) },
+                onClick = { onConfirm(candidates.filter { checked[it.uri] == true }, targetFolderId) },
                 enabled = selectedCount > 0
             ) { Text(stringResource(R.string.ok)) }
         },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        }
+    )
+}
+
+/** 导入文件确认对话框：回显文件数 + 导入位置（默认导入库，可更改） */
+@Composable
+private fun ImportFilesDialog(
+    fileCount: Int,
+    folders: List<Folder>,
+    onConfirm: (String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var targetFolderId by remember {
+        mutableStateOf<String?>(FolderRepository.IMPORT_LIBRARY_FOLDER_ID)
+    }
+    var showTargetPicker by remember { mutableStateOf(false) }
+    if (showTargetPicker) {
+        ImportTargetPickerDialog(
+            folders = folders,
+            current = targetFolderId,
+            onSelect = { targetFolderId = it; showTargetPicker = false },
+            onDismiss = { showTargetPicker = false }
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.import_file)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.import_files_count, fileCount))
+                Spacer(modifier = Modifier.height(12.dp))
+                ImportTargetRow(
+                    targetFolderId = targetFolderId,
+                    folders = folders,
+                    onChange = { showTargetPicker = true }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(targetFolderId) }) { Text(stringResource(R.string.ok)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        }
+    )
+}
+
+/** 导入位置行：展示当前导入路径 + 更改入口（导入文件/导入文件夹两个对话框共用） */
+@Composable
+private fun ImportTargetRow(
+    targetFolderId: String?,
+    folders: List<Folder>,
+    onChange: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Default.Folder,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                stringResource(R.string.import_target),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                importTargetLabel(targetFolderId, folders),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        TextButton(onClick = onChange) { Text(stringResource(R.string.import_target_change)) }
+    }
+}
+
+/** 导入位置的完整路径文案：沿父链拼出「a / b / c」，根目录与未建的导入库有专名 */
+private fun importTargetLabel(targetFolderId: String?, folders: List<Folder>): String {
+    if (targetFolderId == null) return "根目录"
+    val byId = folders.associateBy { it.id }
+    if (targetFolderId !in byId) return FolderRepository.IMPORT_LIBRARY_FOLDER_NAME
+    val names = ArrayDeque<String>()
+    var cur: String? = targetFolderId
+    var guard = 0
+    while (cur != null && ++guard <= 64) {
+        val folder = byId[cur] ?: break
+        names.addFirst(folder.name)
+        cur = folder.parentId
+    }
+    return names.joinToString(" / ")
+}
+
+/** 导入位置选择器中的一行（平铺后的树节点） */
+private data class ImportTargetOption(val folderId: String?, val label: String, val level: Int)
+
+/**
+ * 导入位置选择对话框：导入库（默认）置顶，其后是根目录与库内全部文件夹的缩进树。
+ * 导入库可能尚未创建（惰性建），所以默认行不依赖 folders 列表。
+ */
+@Composable
+private fun ImportTargetPickerDialog(
+    folders: List<Folder>,
+    current: String?,
+    onSelect: (String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val options = remember(folders) {
+        val result = mutableListOf<ImportTargetOption>()
+        fun addChildren(parentId: String?, level: Int) {
+            folders.filter { it.parentId == parentId && it.id != FolderRepository.IMPORT_LIBRARY_FOLDER_ID }
+                .sortedBy { it.order }
+                .forEach { folder ->
+                    result += ImportTargetOption(folder.id, folder.name, level)
+                    addChildren(folder.id, level + 1)
+                }
+        }
+        result += ImportTargetOption(
+            FolderRepository.IMPORT_LIBRARY_FOLDER_ID,
+            "${FolderRepository.IMPORT_LIBRARY_FOLDER_NAME}（默认）",
+            0
+        )
+        addChildren(FolderRepository.IMPORT_LIBRARY_FOLDER_ID, 1)
+        result += ImportTargetOption(null, "根目录", 0)
+        addChildren(null, 1)
+        result
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.import_target_pick)) },
+        text = {
+            LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                items(options.size) { index ->
+                    val option = options[index]
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(option.folderId) }
+                            .padding(start = (option.level * 16).dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = option.folderId == current,
+                            onClick = { onSelect(option.folderId) }
+                        )
+                        Icon(
+                            Icons.Default.Folder,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            option.label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
