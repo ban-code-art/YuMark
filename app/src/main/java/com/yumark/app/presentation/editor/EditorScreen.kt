@@ -517,24 +517,72 @@ fun EditorScreen(
                                 LaunchedEffect(isPreviewMode) {
                                     if (isPreviewMode) {
                                         // 切换到预览模式：根据编辑器滚动比例计算 WebView 滚动位置
-                                        kotlinx.coroutines.delay(150) // 等待 WebView 渲染和内容加载
-                                        if (scrollState.maxValue > 0 && previewWebView.contentHeight > 0) {
-                                            val editorScrollRatio = scrollState.value.toFloat() / scrollState.maxValue
-                                            val targetWebViewScroll = (previewWebView.contentHeight * editorScrollRatio).toInt()
-                                            previewWebView.scrollTo(0, targetWebViewScroll)
-                                            savedWebViewScrollY = targetWebViewScroll
+                                        kotlinx.coroutines.delay(250) // 增加等待时间，确保 WebView 完全渲染
+
+                                        // 等待 WebView 内容高度更新
+                                        var attempts = 0
+                                        while (previewWebView.contentHeight == 0 && attempts < 15) {
+                                            kotlinx.coroutines.delay(50)
+                                            attempts++
+                                        }
+
+                                        if (previewWebView.contentHeight > 0 && scrollState.maxValue > 0) {
+                                            // 计算编辑器的滚动比例（0.0 到 1.0）
+                                            val editorScrollRatio = if (scrollState.maxValue > 0) {
+                                                scrollState.value.toFloat() / scrollState.maxValue.toFloat()
+                                            } else {
+                                                0f
+                                            }
+
+                                            // WebView 实际可滚动的最大高度
+                                            val webViewScrollableHeight = maxOf(0, previewWebView.contentHeight - previewWebView.height)
+
+                                            // 根据比例计算 WebView 目标滚动位置
+                                            val targetWebViewScroll = (webViewScrollableHeight * editorScrollRatio).toInt()
+
+                                            // 限制在有效范围内
+                                            val finalScroll = targetWebViewScroll.coerceIn(0, webViewScrollableHeight)
+
+                                            previewWebView.scrollTo(0, finalScroll)
+                                            savedWebViewScrollY = finalScroll
+
+                                            android.util.Log.d("ScrollSync",
+                                                "Editor→Preview: ratio=$editorScrollRatio, " +
+                                                "editorScroll=${scrollState.value}/${scrollState.maxValue}, " +
+                                                "webViewScroll=$finalScroll/$webViewScrollableHeight, " +
+                                                "contentHeight=${previewWebView.contentHeight}, " +
+                                                "viewHeight=${previewWebView.height}")
                                         }
                                     } else {
                                         // 切换到编辑模式：保存 WebView 滚动位置，计算编辑器滚动位置
                                         savedWebViewScrollY = previewWebView.scrollY
 
-                                        // 根据 WebView 滚动比例计算编辑器应该滚动的位置
-                                        kotlinx.coroutines.delay(100) // 等待布局完成
-                                        if (previewWebView.contentHeight > 0 && scrollState.maxValue > 0) {
-                                            val webViewScrollRatio = savedWebViewScrollY.toFloat() /
-                                                previewWebView.contentHeight
-                                            val targetScroll = (scrollState.maxValue * webViewScrollRatio).toInt()
-                                            scrollState.scrollTo(targetScroll.coerceIn(0, scrollState.maxValue))
+                                        // 等待编辑器布局完成
+                                        kotlinx.coroutines.delay(200)
+
+                                        if (scrollState.maxValue > 0 && previewWebView.contentHeight > 0) {
+                                            // WebView 实际可滚动的最大高度
+                                            val webViewScrollableHeight = maxOf(0, previewWebView.contentHeight - previewWebView.height)
+
+                                            // 计算 WebView 的滚动比例（0.0 到 1.0）
+                                            val webViewScrollRatio = if (webViewScrollableHeight > 0) {
+                                                savedWebViewScrollY.toFloat() / webViewScrollableHeight.toFloat()
+                                            } else {
+                                                0f
+                                            }
+
+                                            // 根据比例计算编辑器目标滚动位置
+                                            val targetEditorScroll = (scrollState.maxValue * webViewScrollRatio).toInt()
+
+                                            // 限制在有效范围内
+                                            val finalScroll = targetEditorScroll.coerceIn(0, scrollState.maxValue)
+
+                                            scrollState.scrollTo(finalScroll)
+
+                                            android.util.Log.d("ScrollSync",
+                                                "Preview→Editor: ratio=$webViewScrollRatio, " +
+                                                "webViewScroll=$savedWebViewScrollY/$webViewScrollableHeight, " +
+                                                "editorScroll=$finalScroll/${scrollState.maxValue}")
                                         }
                                     }
                                 }
