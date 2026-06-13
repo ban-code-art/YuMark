@@ -32,8 +32,8 @@ class UpdateChecker @Inject constructor(
         }
     }
 
-    // TODO: 替换为你的 GitHub 仓库信息
-    private val githubOwner = "yourusername"
+    // GitHub 仓库信息
+    private val githubOwner = "ban-code-art"
     private val githubRepo = "YuMark"
 
     /**
