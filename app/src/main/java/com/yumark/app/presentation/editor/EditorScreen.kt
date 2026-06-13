@@ -437,16 +437,21 @@ fun EditorScreen(
                                 // 切换模式时同步滚动位置
                                 LaunchedEffect(isPreviewMode) {
                                     if (isPreviewMode) {
-                                        // 切换到预览模式：保存编辑器滚动位置，恢复 WebView 滚动
-                                        kotlinx.coroutines.delay(100) // 等待 WebView 渲染
-                                        previewWebView.scrollY = savedWebViewScrollY
+                                        // 切换到预览模式：根据编辑器滚动比例计算 WebView 滚动位置
+                                        kotlinx.coroutines.delay(150) // 等待 WebView 渲染和内容加载
+                                        if (scrollState.maxValue > 0 && previewWebView.contentHeight > 0) {
+                                            val editorScrollRatio = scrollState.value.toFloat() / scrollState.maxValue
+                                            val targetWebViewScroll = (previewWebView.contentHeight * editorScrollRatio).toInt()
+                                            previewWebView.scrollTo(0, targetWebViewScroll)
+                                            savedWebViewScrollY = targetWebViewScroll
+                                        }
                                     } else {
                                         // 切换到编辑模式：保存 WebView 滚动位置，计算编辑器滚动位置
                                         savedWebViewScrollY = previewWebView.scrollY
 
                                         // 根据 WebView 滚动比例计算编辑器应该滚动的位置
                                         kotlinx.coroutines.delay(100) // 等待布局完成
-                                        if (previewWebView.contentHeight > 0) {
+                                        if (previewWebView.contentHeight > 0 && scrollState.maxValue > 0) {
                                             val webViewScrollRatio = savedWebViewScrollY.toFloat() /
                                                 previewWebView.contentHeight
                                             val targetScroll = (scrollState.maxValue * webViewScrollRatio).toInt()
