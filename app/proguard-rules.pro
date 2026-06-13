@@ -19,6 +19,32 @@
 # Kotlin Serialization
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.AnnotationsKt
+-keepclassmembers class kotlinx.serialization.json.** {
+    *** Companion;
+}
+-keepclasseswithmembers class kotlinx.serialization.json.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+-keep,includedescriptorclasses class com.yumark.app.**$$serializer { *; }
+-keepclassmembers class com.yumark.app.** {
+    *** Companion;
+}
+-keepclasseswithmembers class com.yumark.app.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+
+# Ktor
+-keep class io.ktor.** { *; }
+-keep class kotlinx.coroutines.** { *; }
+-dontwarn org.slf4j.**
+-dontwarn org.conscrypt.**
+-dontwarn org.bouncycastle.**
+-dontwarn org.openjsse.**
+-dontwarn org.slf4j.impl.StaticLoggerBinder
+-dontwarn org.slf4j.impl.StaticMDCBinder
+-dontwarn java.lang.management.ManagementFactory
+-dontwarn java.lang.management.RuntimeMXBean
+-dontwarn javax.naming.**
 
 # Remove logging in release
 -assumenosideeffects class android.util.Log {

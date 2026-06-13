@@ -61,9 +61,26 @@ fun EditorScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val editorFontSize by viewModel.editorFontSize.collectAsState()
 
-    // 统一保存出口：系统返回手势/键共用，防抖避免连退两页
+    // 左侧文件树抽屉：顶栏按钮打开，点文档直接切换（替代旧的返回箭头）
+    val fileDrawerState = rememberDrawerState(DrawerValue.Closed)
+    var fileTreeExpanded by remember { mutableStateOf(setOf<String>()) }
+    val folderTree by viewModel.folderTree.collectAsState()
+    val editorWorkspace by viewModel.workspace.collectAsState()
+
+    // 返回键处理优先级（从高到低）：
+    // 1. 抽屉打开时先收抽屉
+    BackHandler(enabled = fileDrawerState.isOpen) {
+        scope.launch { fileDrawerState.close() }
+    }
+
+    // 2. 预览模式下返回到编辑模式
+    BackHandler(enabled = isPreviewMode) {
+        viewModel.togglePreviewMode()
+    }
+
+    // 3. 编辑模式下返回键退出并保存（防抖避免连退两页）
     var isExiting by remember { mutableStateOf(false) }
-    val saveAndExit: () -> Unit = {
+    BackHandler(enabled = !isPreviewMode && !fileDrawerState.isOpen) {
         if (!isExiting) {
             isExiting = true
             scope.launch {
@@ -71,18 +88,6 @@ fun EditorScreen(
                 navController.navigateUp()
             }
         }
-    }
-    BackHandler(onBack = saveAndExit)
-
-    // 左侧文件树抽屉：顶栏按钮打开，点文档直接切换（替代旧的返回箭头）
-    val fileDrawerState = rememberDrawerState(DrawerValue.Closed)
-    var fileTreeExpanded by remember { mutableStateOf(setOf<String>()) }
-    val folderTree by viewModel.folderTree.collectAsState()
-    val editorWorkspace by viewModel.workspace.collectAsState()
-
-    // 抽屉打开时返回键先收抽屉（声明在 saveAndExit 的 BackHandler 之后，优先生效）
-    BackHandler(enabled = fileDrawerState.isOpen) {
-        scope.launch { fileDrawerState.close() }
     }
 
     // 切换到侧栏点选的文档：先保存当前文档，再用新编辑器替换当前页（返回栈不增长）
@@ -166,6 +171,80 @@ fun EditorScreen(
                 override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage): Boolean {
                     android.util.Log.d("WebView", consoleMessage.message())
                     return true
+                }
+            }
+
+            // 处理链接点击：外部链接用系统浏览器打开，锚点链接在 WebView 内跳转
+            webViewClient = object : android.webkit.WebViewClient() {
+                override fun shouldOverrideUrlLoading(
+                    view: android.webkit.WebView,
+                    request: android.webkit.WebResourceRequest
+                ): Boolean {
+                    val url = request.url.toString()
+                    android.util.Log.d("WebView", "shouldOverrideUrlLoading: $url")
+
+                    // 外部链接（http/https）用系统浏览器打开
+                    if (url.startsWith("http://") || url.startsWith("https://")) {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            android.util.Log.e("WebView", "Failed to open URL: $url", e)
+                        }
+                        return true
+                    }
+
+                    // 锚点链接（以 # 开头）允许 WebView 内部处理
+                    if (url.contains("#")) {
+                        return false
+                    }
+
+                    // 其他所有链接都拦截，防止加载到错误页面
+                    return true
+                }
+
+                @Deprecated("Deprecated in Java")
+                override fun shouldOverrideUrlLoading(view: android.webkit.WebView, url: String): Boolean {
+                    android.util.Log.d("WebView", "shouldOverrideUrlLoading (deprecated): $url")
+
+                    // 兼容旧版 Android
+                    if (url.startsWith("http://") || url.startsWith("https://")) {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            android.util.Log.e("WebView", "Failed to open URL: $url", e)
+                        }
+                        return true
+                    }
+
+                    // 锚点链接允许 WebView 内部处理
+                    if (url.contains("#")) {
+                        return false
+                    }
+
+                    // 其他所有链接都拦截
+                    return true
+                }
+
+                override fun onReceivedError(
+                    view: android.webkit.WebView?,
+                    request: android.webkit.WebResourceRequest?,
+                    error: android.webkit.WebResourceError?
+                ) {
+                    android.util.Log.e("WebView", "onReceivedError: ${request?.url}, error: ${error?.description}")
+                    // 不调用 super，避免显示错误页面
+                }
+
+                @Deprecated("Deprecated in Java")
+                override fun onReceivedError(
+                    view: android.webkit.WebView?,
+                    errorCode: Int,
+                    description: String?,
+                    failingUrl: String?
+                ) {
+                    android.util.Log.e("WebView", "onReceivedError (deprecated): $failingUrl, error: $description")
+                    // 不调用 super，避免显示错误页面
                 }
             }
 
