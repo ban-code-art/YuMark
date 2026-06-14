@@ -573,17 +573,26 @@ private fun DownloadDialog(
     context: Context
 ) {
     val downloader = remember { ApkDownloader(context) }
-    val downloadState by downloader.download(
-        updateInfo.downloadUrl,
-        updateInfo.version
-    ).collectAsState(initial = DownloadState.Idle)
 
-    // 下载成功后自动触发安装
-    LaunchedEffect(downloadState) {
-        if (downloadState is DownloadState.Success) {
-            val filePath = (downloadState as DownloadState.Success).filePath
-            kotlinx.coroutines.delay(1000) // 延迟1秒让用户看到完成状态
-            downloader.installApk(filePath)
+    // 只启动一次下载
+    val downloadFlow = remember(updateInfo.downloadUrl) {
+        downloader.download(updateInfo.downloadUrl, updateInfo.version)
+    }
+
+    val downloadState by downloadFlow.collectAsState(initial = DownloadState.Idle)
+
+    // 安装只触发一次，避免重组导致重复拉起安装界面
+    var installTriggered by remember { mutableStateOf(false) }
+
+    // 下载成功后立即触发安装（使用 LaunchedEffect(Unit) 保证不会因状态变化被取消重启）
+    LaunchedEffect(installTriggered, downloadState) {
+        val state = downloadState
+        if (state is DownloadState.Success && !installTriggered) {
+            installTriggered = true
+            android.util.Log.d("SettingsScreen", "下载成功，准备安装: ${state.filePath}")
+            downloader.installApk(state.filePath)
+            // 留一点时间等安装界面弹出后再关闭对话框
+            kotlinx.coroutines.delay(1500)
             onDismiss()
         }
     }
