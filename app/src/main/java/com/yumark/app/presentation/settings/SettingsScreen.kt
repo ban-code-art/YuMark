@@ -34,11 +34,14 @@ import com.yumark.app.core.update.DownloadState
 import com.yumark.app.core.util.SafLocations
 import com.yumark.app.data.remote.UpdateChecker
 import com.yumark.app.domain.model.CompressionQuality
+import com.yumark.app.domain.model.AiConfig
 import com.yumark.app.domain.model.UpdateInfo
 import com.yumark.app.domain.model.UserSettings
 import com.yumark.app.domain.repository.SettingsRepository
 import com.yumark.app.domain.repository.WorkspaceRepository
+import com.yumark.app.domain.usecase.ai.GetAiConfigUseCase
 import com.yumark.app.presentation.common.FolderConfirmDialog
+import com.yumark.app.presentation.navigation.Screen
 import com.yumark.app.presentation.theme.AppThemes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -49,10 +52,15 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val repo: SettingsRepository,
     private val workspaceRepository: WorkspaceRepository,
-    private val updateChecker: UpdateChecker
+    private val updateChecker: UpdateChecker,
+    getAiConfig: GetAiConfigUseCase
 ) : ViewModel() {
     private val _settings = MutableStateFlow(UserSettings())
     val settings: StateFlow<UserSettings> = _settings.asStateFlow()
+
+    /** AI 配置（用于设置项显示启用状态与 Provider） */
+    val aiConfig: StateFlow<AiConfig> =
+        getAiConfig().stateIn(viewModelScope, SharingStarted.Eagerly, AiConfig())
 
     /** 默认目录显示名，null 表示未设置 */
     private val _defaultDirName = MutableStateFlow<String?>(null)
@@ -158,6 +166,7 @@ fun SettingsScreen(
     val settings by viewModel.settings.collectAsState()
     val defaultDirName by viewModel.defaultDirName.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
+    val aiConfig by viewModel.aiConfig.collectAsState()
     val context = LocalContext.current
 
     // 方案 A：系统选择器返回后，先回显名称让用户确认，确认后才持久授权 + 设为默认目录
@@ -341,6 +350,20 @@ fun SettingsScreen(
                         }
                     }
                 }
+            )
+
+            HorizontalDivider()
+
+            // AI 助手
+            ListItem(
+                headlineContent = { Text("AI 助手") },
+                supportingContent = {
+                    Text(
+                        if (aiConfig.enabled) "已启用 · ${aiConfig.provider.name}"
+                        else "未启用 · 点击配置 API 与模型"
+                    )
+                },
+                modifier = Modifier.clickable { navController.navigate(Screen.AiConfig.route) }
             )
 
             HorizontalDivider()

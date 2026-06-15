@@ -10,4 +10,5 @@ sealed class Screen(val route: String) {
             "editor?docUri=${URLEncoder.encode(docUri, "UTF-8")}"
     }
     data object Settings : Screen("settings")
+    data object AiConfig : Screen("ai_config")
 }

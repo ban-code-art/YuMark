@@ -4,50 +4,71 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.yumark.app.data.local.db.dao.ConversationDao
 import com.yumark.app.data.local.db.dao.DocumentDao
 import com.yumark.app.data.local.db.dao.FolderDao
 import com.yumark.app.data.local.db.dao.ImageDao
+import com.yumark.app.data.local.db.dao.MessageDao
+import com.yumark.app.data.local.db.entity.ConversationEntity
 import com.yumark.app.data.local.db.entity.DocumentEntity
 import com.yumark.app.data.local.db.entity.FolderEntity
 import com.yumark.app.data.local.db.entity.ImageEntity
+import com.yumark.app.data.local.db.entity.MessageEntity
 
 @Database(
-    entities = [DocumentEntity::class, FolderEntity::class, ImageEntity::class],
-    version = 1,
+    entities = [
+        DocumentEntity::class,
+        FolderEntity::class,
+        ImageEntity::class,
+        ConversationEntity::class,
+        MessageEntity::class
+    ],
+    version = 2,
     exportSchema = true  // 启用 schema 导出，支持数据库迁移
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun documentDao(): DocumentDao
     abstract fun folderDao(): FolderDao
     abstract fun imageDao(): ImageDao
+    abstract fun conversationDao(): ConversationDao
+    abstract fun messageDao(): MessageDao
 
     companion object {
         /**
-         * 数据库迁移示例
-         * 当需要升级数据库版本时，添加相应的迁移策略
-         *
-         * 示例：从版本 1 升级到版本 2
+         * 版本 1 → 2：新增 AI 对话功能的 conversations / messages 表。
+         * 不改动既有 documents/folders/images 表，确保用户数据保留。
          */
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                // 示例：添加新列
-                // db.execSQL("ALTER TABLE documents ADD COLUMN tags TEXT NOT NULL DEFAULT ''")
-            }
-        }
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS conversations (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        title TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
 
-        /**
-         * 示例：从版本 2 升级到版本 3
-         */
-        val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                // 示例：创建新表
-                // db.execSQL("""
-                //     CREATE TABLE IF NOT EXISTS tags (
-                //         id TEXT PRIMARY KEY NOT NULL,
-                //         name TEXT NOT NULL,
-                //         color TEXT NOT NULL
-                //     )
-                // """.trimIndent())
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS messages (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        conversationId TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        agentActionJson TEXT,
+                        timestamp INTEGER NOT NULL,
+                        FOREIGN KEY(conversationId) REFERENCES conversations(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_messages_conversationId ON messages(conversationId)"
+                )
             }
         }
 
@@ -56,6 +77,6 @@ abstract class AppDatabase : RoomDatabase() {
          * 在 DatabaseModule 中使用：
          * Room.databaseBuilder(...).addMigrations(*AppDatabase.ALL_MIGRATIONS).build()
          */
-        val ALL_MIGRATIONS = emptyArray<androidx.room.migration.Migration>()
+        val ALL_MIGRATIONS = arrayOf<Migration>(MIGRATION_1_2)
     }
 }
