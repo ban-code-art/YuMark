@@ -455,6 +455,13 @@ fun EditorScreen(
                                     }
                                 }
 
+                                // AI 助手（仅启用时显示）
+                                if (aiEnabled) {
+                                    IconButton(onClick = { showAiSheet = true }) {
+                                        Icon(Icons.Default.AutoAwesome, "AI 助手")
+                                    }
+                                }
+
                                 // 编辑/预览切换（核心功能，始终可见）
                                 IconButton(onClick = { viewModel.togglePreviewMode() }) {
                                     Icon(
@@ -463,7 +470,7 @@ fun EditorScreen(
                                     )
                                 }
 
-                                // 更多菜单（收纳保存、导出、AI、设置）
+                                // 更多菜单（收纳保存、导出、设置）
                                 IconButton(onClick = { showMenu = true }) {
                                     Icon(Icons.Default.MoreVert, "更多选项")
                                 }
@@ -498,16 +505,6 @@ fun EditorScreen(
                                         )
                                     }
 
-                                    // AI 助手（仅启用时显示）
-                                    if (aiEnabled) {
-                                        HorizontalDivider()
-                                        DropdownMenuItem(
-                                            text = { Text("AI 助手") },
-                                            onClick = { showAiSheet = true; showMenu = false },
-                                            leadingIcon = { Icon(Icons.Default.AutoAwesome, null) }
-                                        )
-                                    }
-
                                     // 设置
                                     HorizontalDivider()
                                     DropdownMenuItem(
@@ -528,15 +525,20 @@ fun EditorScreen(
                             is EditorUiState.Success -> {
                                 // 本地编辑状态（含光标/选区），避免依赖异步的 document 状态
                                 var editValue by remember { mutableStateOf(TextFieldValue(document?.content ?: "")) }
+                                // 记录上次从文档加载的内容，用于检测 AI 编辑后的热更新
+                                var lastLoadedContent by remember { mutableStateOf(document?.content ?: "") }
 
                                 // 保存滚动状态，在预览和编辑模式间切换时保持位置
                                 val scrollState = rememberScrollState()
                                 var savedWebViewScrollY by remember { mutableIntStateOf(0) }
 
-                                LaunchedEffect(document?.id) {
+                                // 监听文档内容变化（AI 编辑后的热更新）
+                                LaunchedEffect(document?.id, document?.content) {
                                     document?.content?.let { content ->
-                                        if (editValue.text.isEmpty() && content.isNotEmpty()) {
+                                        // 如果文档内容变化了（AI 编辑），并且用户没有本地未保存的修改
+                                        if (content != lastLoadedContent && content != editValue.text) {
                                             editValue = TextFieldValue(content)
+                                            lastLoadedContent = content
                                         }
                                     }
                                 }

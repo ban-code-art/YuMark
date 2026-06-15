@@ -39,6 +39,13 @@ enum class ConversationType {
     AGENT    // Agent 对话（可操作文档）
 }
 
+/** 对话状态 */
+enum class ConversationStatus {
+    IDLE,       // 空闲
+    WORKING,    // Agent 正在工作
+    COMPLETED   // Agent 已完成工作
+}
+
 /** 对话线程 */
 data class Conversation(
     val id: String = UUID.randomUUID().toString(),
@@ -46,7 +53,10 @@ data class Conversation(
     val type: ConversationType,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val messages: List<Message> = emptyList()
+    val messages: List<Message> = emptyList(),
+    val relatedDocumentId: String? = null,      // 关联的文档 ID
+    val relatedDocumentName: String? = null,    // 关联的文档名称
+    val status: ConversationStatus = ConversationStatus.IDLE  // 对话状态
 )
 
 /** 消息角色 */

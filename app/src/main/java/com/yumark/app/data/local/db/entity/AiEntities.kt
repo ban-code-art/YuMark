@@ -11,7 +11,10 @@ data class ConversationEntity(
     val title: String,
     val type: String,          // ConversationType.name
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val relatedDocumentId: String? = null,     // 关联的文档 ID
+    val relatedDocumentName: String? = null,   // 关联的文档名称
+    val status: String = "IDLE"                // ConversationStatus.name
 )
 
 @Entity(

@@ -23,7 +23,7 @@ import com.yumark.app.data.local.db.entity.MessageEntity
         ConversationEntity::class,
         MessageEntity::class
     ],
-    version = 2,
+    version = 4,
     exportSchema = true  // 启用 schema 导出，支持数据库迁移
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -73,10 +73,31 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * 版本 2 → 3：为 conversations 表添加关联文档信息字段
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 添加新字段（默认值为 NULL）
+                db.execSQL("ALTER TABLE conversations ADD COLUMN relatedDocumentId TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE conversations ADD COLUMN relatedDocumentName TEXT DEFAULT NULL")
+            }
+        }
+
+        /**
+         * 版本 3 → 4：为 conversations 表添加状态字段
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 添加状态字段（默认为 IDLE）
+                db.execSQL("ALTER TABLE conversations ADD COLUMN status TEXT NOT NULL DEFAULT 'IDLE'")
+            }
+        }
+
+        /**
          * 获取所有已定义的迁移
          * 在 DatabaseModule 中使用：
          * Room.databaseBuilder(...).addMigrations(*AppDatabase.ALL_MIGRATIONS).build()
          */
-        val ALL_MIGRATIONS = arrayOf<Migration>(MIGRATION_1_2)
+        val ALL_MIGRATIONS = arrayOf<Migration>(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
     }
 }

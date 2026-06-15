@@ -73,6 +73,23 @@ class AgentChatViewModel @Inject constructor(
         docName = documentName
         docContent = documentContent
         onDocumentUpdated = onUpdated
+
+        // 更新对话的关联文档信息
+        viewModelScope.launch {
+            conversationRepository.observeConversation(id).collect { conversation ->
+                if (conversation != null &&
+                    (conversation.relatedDocumentId != documentId || conversation.relatedDocumentName != documentName)) {
+                    conversationRepository.updateConversation(
+                        conversation.copy(
+                            relatedDocumentId = documentId,
+                            relatedDocumentName = documentName,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                    return@collect  // 只更新一次
+                }
+            }
+        }
     }
 
     fun send(text: String) {

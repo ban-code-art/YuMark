@@ -4,6 +4,7 @@ import com.yumark.app.data.local.db.entity.ConversationEntity
 import com.yumark.app.data.local.db.entity.MessageEntity
 import com.yumark.app.domain.model.AgentAction
 import com.yumark.app.domain.model.Conversation
+import com.yumark.app.domain.model.ConversationStatus
 import com.yumark.app.domain.model.ConversationType
 import com.yumark.app.domain.model.Message
 import com.yumark.app.domain.model.MessageRole
@@ -20,7 +21,10 @@ fun ConversationEntity.toDomain(messages: List<Message> = emptyList()): Conversa
         type = ConversationType.valueOf(type),
         createdAt = createdAt,
         updatedAt = updatedAt,
-        messages = messages
+        messages = messages,
+        relatedDocumentId = relatedDocumentId,
+        relatedDocumentName = relatedDocumentName,
+        status = runCatching { ConversationStatus.valueOf(status) }.getOrElse { ConversationStatus.IDLE }
     )
 
 fun Conversation.toEntity(): ConversationEntity =
@@ -29,7 +33,10 @@ fun Conversation.toEntity(): ConversationEntity =
         title = title,
         type = type.name,
         createdAt = createdAt,
-        updatedAt = updatedAt
+        updatedAt = updatedAt,
+        relatedDocumentId = relatedDocumentId,
+        relatedDocumentName = relatedDocumentName,
+        status = status.name
     )
 
 fun MessageEntity.toDomain(): Message =

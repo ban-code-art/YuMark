@@ -70,7 +70,7 @@ fun MessageBubble(
 
 /**
  * 在 WebView 中渲染 Markdown（用于 AI 助手消息气泡）。
- * 使用轻量级渲染模板，不加载 KaTeX/Mermaid/Prism 以保持性能。
+ * 使用增量渲染策略，流畅输出内容。
  */
 @Composable
 private fun MarkdownRenderedText(
@@ -97,12 +97,8 @@ private fun MarkdownRenderedText(
         )
     }
 
-    // 轻量级 Markdown 渲染模板（仅加载 marked.js）
-    // 使用 Base64 编码避免中文字符问题
-    val markdownBase64 = android.util.Base64.encodeToString(
-        markdown.toByteArray(Charsets.UTF_8),
-        android.util.Base64.NO_WRAP
-    )
+    var webView by remember { mutableStateOf<WebView?>(null) }
+    var isReady by remember { mutableStateOf(false) }
 
     val html = """
         <!DOCTYPE html>
@@ -146,10 +142,7 @@ private fun MarkdownRenderedText(
                     overflow-x: auto;
                     margin: 0.5em 0;
                 }
-                pre code {
-                    background: transparent;
-                    padding: 0;
-                }
+                pre code { background: transparent; padding: 0; }
                 ul, ol { margin: 0.4em 0; padding-left: 1.5em; }
                 li { margin: 0.2em 0; }
                 strong { font-weight: 600; }
@@ -169,25 +162,31 @@ private fun MarkdownRenderedText(
         <body>
             <div id="content"></div>
             <script>
-                (function() {
+                // 全局更新函数，供 Android 调用
+                window.updateContent = function(base64Markdown) {
                     try {
                         if (typeof marked === 'undefined') {
-                            document.getElementById('content').textContent = 'Markdown 渲染失败：marked.js 未加载';
+                            document.getElementById('content').textContent = 'marked.js 未加载';
                             return;
                         }
                         marked.setOptions({ breaks: true, gfm: true });
 
-                        // 使用 decodeURIComponent(escape(...)) 确保正确解码 UTF-8
-                        var base64Str = '$markdownBase64';
-                        var binaryStr = atob(base64Str);
+                        var binaryStr = atob(base64Markdown);
                         var markdown = decodeURIComponent(escape(binaryStr));
 
+                        // 直接渲染为 HTML
                         document.getElementById('content').innerHTML = marked.parse(markdown);
                     } catch(e) {
-                        document.getElementById('content').textContent = 'Markdown 渲染出错: ' + e.message;
                         console.error('Render error:', e);
                     }
-                })();
+                };
+
+                // 通知 Android WebView 已就绪
+                window.onload = function() {
+                    if (window.Android && window.Android.onReady) {
+                        window.Android.onReady();
+                    }
+                };
             </script>
         </body>
         </html>
@@ -202,7 +201,27 @@ private fun MarkdownRenderedText(
                 )
                 settings.javaScriptEnabled = true
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
+
+                // 添加接口供 JavaScript 回调
+                addJavascriptInterface(object {
+                    @android.webkit.JavascriptInterface
+                    fun onReady() {
+                        isReady = true
+                    }
+                }, "Android")
+
                 loadDataWithBaseURL("file:///android_asset/", html, "text/html", "UTF-8", null)
+                webView = this
+            }
+        },
+        update = { view ->
+            // 增量更新：WebView 准备好后直接调用 JavaScript 更新内容
+            if (isReady && markdown.isNotEmpty()) {
+                val markdownBase64 = android.util.Base64.encodeToString(
+                    markdown.toByteArray(Charsets.UTF_8),
+                    android.util.Base64.NO_WRAP
+                )
+                view.evaluateJavascript("window.updateContent('$markdownBase64')", null)
             }
         },
         modifier = Modifier.fillMaxWidth().wrapContentHeight()

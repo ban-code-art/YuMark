@@ -5,6 +5,7 @@ import com.yumark.app.domain.model.AgentActionStatus
 import com.yumark.app.domain.model.AgentActionType
 import com.yumark.app.domain.model.AiRequestConfig
 import com.yumark.app.domain.model.ChatMessage
+import com.yumark.app.domain.model.ConversationStatus
 import com.yumark.app.domain.model.Message
 import com.yumark.app.domain.model.MessageRole
 import com.yumark.app.domain.model.StreamEvent
@@ -45,6 +46,13 @@ class SendAgentMessageUseCase @Inject constructor(
         currentDocumentName: String?,
         currentDocumentContent: String?
     ): Flow<AgentMessageState> = flow {
+        // 设置状态为 WORKING
+        conversationRepository.observeConversation(conversationId).first()?.let { conversation ->
+            conversationRepository.updateConversation(
+                conversation.copy(status = ConversationStatus.WORKING)
+            )
+        }
+
         conversationRepository.addMessage(
             Message(conversationId = conversationId, role = MessageRole.USER, content = userMessage)
         )
@@ -98,6 +106,17 @@ class SendAgentMessageUseCase @Inject constructor(
                         agentAction = action
                     )
                     conversationRepository.updateMessage(finished)
+
+                    // 更新对话的最后活动时间和状态为已完成
+                    conversationRepository.observeConversation(conversationId).first()?.let { conversation ->
+                        conversationRepository.updateConversation(
+                            conversation.copy(
+                                updatedAt = System.currentTimeMillis(),
+                                status = ConversationStatus.COMPLETED
+                            )
+                        )
+                    }
+
                     if (action != null) {
                         emit(AgentMessageState.ActionProposed(assistant.id, action))
                     }
@@ -111,6 +130,14 @@ class SendAgentMessageUseCase @Inject constructor(
                             assistant.copy(content = full.toString(), isStreaming = false)
                         )
                     }
+
+                    // 出错时恢复为 IDLE 状态
+                    conversationRepository.observeConversation(conversationId).first()?.let { conversation ->
+                        conversationRepository.updateConversation(
+                            conversation.copy(status = ConversationStatus.IDLE)
+                        )
+                    }
+
                     emit(AgentMessageState.Error(event.message))
                 }
             }
