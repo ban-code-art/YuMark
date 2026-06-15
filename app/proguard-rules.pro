@@ -46,6 +46,12 @@
 -dontwarn java.lang.management.RuntimeMXBean
 -dontwarn javax.naming.**
 
+# Security Crypto (AndroidX Security)
+-dontwarn com.google.errorprone.annotations.CanIgnoreReturnValue
+-dontwarn com.google.errorprone.annotations.CheckReturnValue
+-dontwarn com.google.errorprone.annotations.Immutable
+-dontwarn com.google.errorprone.annotations.RestrictedApi
+
 # Remove logging in release
 -assumenosideeffects class android.util.Log {
     public static *** d(...);
