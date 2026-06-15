@@ -2,6 +2,8 @@ package com.yumark.app.presentation.settings
 
 import android.content.Context
 import android.content.Intent
+import android.view.ViewGroup
+import android.webkit.WebView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -18,10 +20,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -528,12 +533,10 @@ fun UpdateDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = if (showFullChangelog) 300.dp else 120.dp)
-                        .verticalScroll(rememberScrollState())
                 ) {
-                    Text(
-                        updateInfo.changelog.take(if (showFullChangelog) Int.MAX_VALUE else 200),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    ChangelogMarkdownView(
+                        markdown = if (showFullChangelog) updateInfo.changelog else updateInfo.changelog.take(200),
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
 
@@ -702,4 +705,125 @@ fun DownloadDialog(
             }
         }
     }
+}
+
+/**
+ * 更新日志 Markdown 渲染视图
+ */
+@Composable
+private fun ChangelogMarkdownView(
+    markdown: String,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val isDarkMode = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
+    // 转换颜色为 CSS 格式
+    val bgColor = MaterialTheme.colorScheme.surface
+    val textColor = MaterialTheme.colorScheme.onSurface
+
+    val bgColorHex = bgColor.toArgb().let {
+        "#%02X%02X%02X".format(
+            android.graphics.Color.red(it),
+            android.graphics.Color.green(it),
+            android.graphics.Color.blue(it)
+        )
+    }
+    val textColorHex = textColor.toArgb().let {
+        "#%02X%02X%02X".format(
+            android.graphics.Color.red(it),
+            android.graphics.Color.green(it),
+            android.graphics.Color.blue(it)
+        )
+    }
+
+    // Base64 编码 Markdown 内容
+    val markdownBase64 = android.util.Base64.encodeToString(
+        markdown.toByteArray(Charsets.UTF_8),
+        android.util.Base64.NO_WRAP
+    )
+
+    val html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <script src="file:///android_asset/raw/markedjs.js"></script>
+            <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                    font-size: 14px;
+                    line-height: 1.6;
+                    color: $textColorHex;
+                    background: $bgColorHex;
+                    padding: 8px;
+                }
+                h1, h2, h3, h4 { margin: 0.5em 0 0.3em 0; font-weight: 600; }
+                h1 { font-size: 1.3em; }
+                h2 { font-size: 1.2em; }
+                h3 { font-size: 1.1em; }
+                h4 { font-size: 1.05em; }
+                p { margin: 0.5em 0; }
+                ul, ol { margin: 0.3em 0; padding-left: 1.5em; }
+                li { margin: 0.2em 0; }
+                strong { font-weight: 600; }
+                code {
+                    font-family: 'Courier New', monospace;
+                    background: ${if (isDarkMode) "#2E2E2C" else "#F0F0F0"};
+                    color: ${if (isDarkMode) "#E0DED6" else "#333333"};
+                    padding: 1px 4px;
+                    border-radius: 3px;
+                    font-size: 0.9em;
+                }
+                pre {
+                    background: ${if (isDarkMode) "#2E2E2C" else "#F0F0F0"};
+                    padding: 8px;
+                    border-radius: 4px;
+                    overflow-x: auto;
+                    margin: 0.5em 0;
+                }
+                pre code { background: transparent; padding: 0; }
+            </style>
+        </head>
+        <body>
+            <div id="content"></div>
+            <script>
+                (function() {
+                    try {
+                        if (typeof marked === 'undefined') {
+                            document.getElementById('content').textContent = 'Markdown 渲染失败';
+                            return;
+                        }
+                        marked.setOptions({ breaks: true, gfm: true });
+
+                        var base64Str = '$markdownBase64';
+                        var binaryStr = atob(base64Str);
+                        var markdown = decodeURIComponent(escape(binaryStr));
+
+                        document.getElementById('content').innerHTML = marked.parse(markdown);
+                    } catch(e) {
+                        document.getElementById('content').textContent = 'Markdown 渲染出错: ' + e.message;
+                    }
+                })();
+            </script>
+        </body>
+        </html>
+    """.trimIndent()
+
+    AndroidView(
+        factory = {
+            WebView(context).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                settings.javaScriptEnabled = true
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                loadDataWithBaseURL("file:///android_asset/", html, "text/html", "UTF-8", null)
+            }
+        },
+        modifier = modifier
+    )
 }
