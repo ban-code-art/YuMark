@@ -57,6 +57,10 @@ fun EditorScreen(
     val aiEnabled by viewModel.aiEnabled.collectAsState()
     var showAiSheet by remember { mutableStateOf(false) }
 
+    // 文本选择快捷 AI/Agent 功能
+    var showQuickAiDialog by remember { mutableStateOf(false) }
+    var selectedText by remember { mutableStateOf("") }
+
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
     val outlineDrawerState = rememberDrawerState(DrawerValue.Closed)
@@ -76,14 +80,9 @@ fun EditorScreen(
         scope.launch { fileDrawerState.close() }
     }
 
-    // 2. 预览模式下返回到编辑模式
-    BackHandler(enabled = isPreviewMode) {
-        viewModel.togglePreviewMode()
-    }
-
-    // 3. 编辑模式下返回键退出并保存（防抖避免连退两页）
+    // 2. 预览模式或编辑模式下返回键直接退出并保存（防抖避免连退两页）
     var isExiting by remember { mutableStateOf(false) }
-    BackHandler(enabled = !isPreviewMode && !fileDrawerState.isOpen) {
+    BackHandler(enabled = !fileDrawerState.isOpen) {
         if (!isExiting) {
             isExiting = true
             scope.launch {
@@ -129,6 +128,20 @@ fun EditorScreen(
             onDismiss = { showAiSheet = false }
         )
     }
+
+    // 文本选择快捷 AI/Agent 对话框
+    if (showQuickAiDialog && selectedText.isNotEmpty()) {
+        AiQuickDialog(
+            selectedText = selectedText,
+            onDismiss = { showQuickAiDialog = false },
+            onApplyEdit = { newText ->
+                // Agent 模式下应用修改
+                viewModel.replaceSelectedText(selectedText, newText)
+            },
+            allowEditSelectedText = isPreviewMode  // 预览模式下允许编辑选中文本
+        )
+    }
+
     val previewDarkColors = remember(themeId, isDarkMode) {
         if (!isDarkMode) null else when (themeId) {
             "claude" -> "#262624" to "#F0EEE6"
@@ -173,6 +186,22 @@ fun EditorScreen(
                 }
                 false
             }
+
+            // 添加 JavaScript 接口用于文本选择监听
+            addJavascriptInterface(object {
+                @JavascriptInterface
+                fun onTextSelected(text: String) {
+                    scope.launch {
+                        if (text.isBlank()) {
+                            // 清空选中文本
+                            selectedText = ""
+                        } else if (aiEnabled && text.trim().length > 2) {
+                            // 更新选中文本
+                            selectedText = text
+                        }
+                    }
+                }
+            }, "AndroidSelection")
 
             addJavascriptInterface(object {
                 @JavascriptInterface
@@ -270,6 +299,12 @@ fun EditorScreen(
                 ) {
                     android.util.Log.e("WebView", "onReceivedError (deprecated): $failingUrl, error: $description")
                     // 不调用 super，避免显示错误页面
+                }
+
+                override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    // 注入文本选择监听脚本
+                    view?.evaluateJavascript(textSelectionListenerJs(), null)
                 }
             }
 
@@ -633,15 +668,42 @@ fun EditorScreen(
                                 }
 
                                 if (isPreviewMode) {
-                                    AndroidView(
-                                        factory = {
-                                            // 复用单实例：attach 前先脱离旧 parent
-                                            (previewWebView.parent as? ViewGroup)?.removeView(previewWebView)
-                                            previewWebView
-                                        },
-                                        update = { },
-                                        modifier = Modifier.fillMaxSize()
-                                    )
+                                    Column(modifier = Modifier.fillMaxSize()) {
+                                        AndroidView(
+                                            factory = {
+                                                // 复用单实例：attach 前先脱离旧 parent
+                                                (previewWebView.parent as? ViewGroup)?.removeView(previewWebView)
+                                                previewWebView
+                                            },
+                                            update = { },
+                                            modifier = Modifier.weight(1f).fillMaxWidth()
+                                        )
+
+                                        // 预览模式下的 AI 按钮（仅当有选中文本且 AI 启用时显示）
+                                        if (aiEnabled && selectedText.isNotBlank()) {
+                                            Surface(
+                                                tonalElevation = 2.dp,
+                                                shadowElevation = 4.dp
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                    horizontalArrangement = Arrangement.Center,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    // AI 助手按钮 - 统一入口
+                                                    SuggestionChip(
+                                                        onClick = {
+                                                            showQuickAiDialog = true
+                                                        },
+                                                        label = { Text("AI 助手") },
+                                                        icon = { Text("✨") }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 } else {
                                     // 编辑模式：Typora 式无边框书写区
                                     Column(modifier = Modifier.fillMaxSize()) {
@@ -686,6 +748,20 @@ fun EditorScreen(
                                             onValueChange = { newValue ->
                                                 editValue = newValue
                                                 viewModel.onContentChanged(newValue.text)
+
+                                                // 检测文本选择
+                                                if (aiEnabled) {
+                                                    val selection = newValue.selection
+                                                    if (!selection.collapsed && selection.start < selection.end) {
+                                                        val selected = newValue.text.substring(
+                                                            selection.start,
+                                                            selection.end
+                                                        )
+                                                        if (selected.isNotBlank() && selected.trim().length > 2) {
+                                                            selectedText = selected
+                                                        }
+                                                    }
+                                                }
                                             },
                                             modifier = Modifier
                                                 .weight(1f)
@@ -718,8 +794,25 @@ fun EditorScreen(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .padding(horizontal = 16.dp, vertical = 6.dp),
-                                                horizontalArrangement = Arrangement.End
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
+                                                // 文本选择操作按钮（仅当有选中文本且 AI 启用时显示）
+                                                if (aiEnabled && selectedText.isNotBlank()) {
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                        // AI 助手 - 统一入口
+                                                        SuggestionChip(
+                                                            onClick = {
+                                                                showQuickAiDialog = true
+                                                            },
+                                                            label = { Text("AI 助手", style = MaterialTheme.typography.labelSmall) },
+                                                            icon = { Text("✨") }
+                                                        )
+                                                    }
+                                                } else {
+                                                    Spacer(modifier = Modifier.width(1.dp))
+                                                }
+
                                                 Text(
                                                     "${editValue.text.length} 字符",
                                                     style = MaterialTheme.typography.labelSmall,
@@ -1177,3 +1270,55 @@ private fun darkStyleJs(bg: String, fg: String): String = """
             'a{color:#7FB2E5;}';
     })();
 """.trimIndent()
+
+/**
+ * 文本选择监听脚本：在预览模式 WebView 中监听文本选择，
+ * 选中文本后通过 AndroidSelection 接口回传给 Kotlin
+ */
+private fun textSelectionListenerJs(): String = """
+    (function() {
+        // 避免重复注入
+        if (window.__yumarkSelectionListener) return;
+        window.__yumarkSelectionListener = true;
+
+        var lastSelection = '';
+
+        function notifySelection() {
+            var selection = window.getSelection();
+            var text = selection ? selection.toString().trim() : '';
+
+            // 通知选中文本或清空
+            if (window.AndroidSelection && window.AndroidSelection.onTextSelected) {
+                if (text && text.length > 2) {
+                    if (text !== lastSelection) {
+                        lastSelection = text;
+                        window.AndroidSelection.onTextSelected(text);
+                    }
+                } else {
+                    // 文本清空时也通知
+                    if (lastSelection !== '') {
+                        lastSelection = '';
+                        window.AndroidSelection.onTextSelected('');
+                    }
+                }
+            }
+        }
+
+        // 监听选择变化
+        document.addEventListener('selectionchange', function() {
+            clearTimeout(window.__selectionTimer);
+            window.__selectionTimer = setTimeout(notifySelection, 200);
+        });
+
+        // 触摸结束时检查
+        document.addEventListener('touchend', function() {
+            setTimeout(notifySelection, 100);
+        });
+
+        // 点击空白处取消选择
+        document.addEventListener('click', function(e) {
+            setTimeout(notifySelection, 100);
+        });
+    })();
+""".trimIndent()
+

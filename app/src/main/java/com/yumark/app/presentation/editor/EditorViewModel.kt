@@ -298,6 +298,24 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 替换选中的文本（用于 Agent 快捷编辑）
+     */
+    fun replaceSelectedText(oldText: String, newText: String) {
+        val doc = _document.value ?: return
+        val currentContent = doc.content
+
+        // 替换第一次出现的选中文本
+        val newContent = currentContent.replaceFirst(oldText, newText)
+
+        if (newContent != currentContent) {
+            _document.value = doc.copy(content = newContent)
+            isDocumentDirty = true
+            // 触发自动保存
+            saveDocument()
+        }
+    }
+
     /** 导出为指定格式（仅内部文档），成功后通过 exportedFile 通知 UI 弹分享 */
     fun exportAs(format: ExportFormat) {
         val id = documentId ?: return
