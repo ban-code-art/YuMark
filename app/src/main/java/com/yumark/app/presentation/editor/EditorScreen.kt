@@ -122,6 +122,10 @@ fun EditorScreen(
                     }
                 }
             },
+            onDocumentUpdated = {
+                // AI 编辑完成后刷新当前文档
+                viewModel.reloadDocumentFromRepository()
+            },
             onDismiss = { showAiSheet = false }
         )
     }
@@ -451,7 +455,7 @@ fun EditorScreen(
                                     }
                                 }
 
-                                // 编辑/预览切换
+                                // 编辑/预览切换（核心功能，始终可见）
                                 IconButton(onClick = { viewModel.togglePreviewMode() }) {
                                     Icon(
                                         if (isPreviewMode) Icons.Default.Edit else Icons.Default.Visibility,
@@ -459,24 +463,29 @@ fun EditorScreen(
                                     )
                                 }
 
-                                if (isSaving) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp).padding(end = 8.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                } else {
-                                    IconButton(onClick = { viewModel.saveDocument() }) {
-                                        Icon(Icons.Default.Save, stringResource(R.string.save))
-                                    }
+                                // 更多菜单（收纳保存、导出、AI、设置）
+                                IconButton(onClick = { showMenu = true }) {
+                                    Icon(Icons.Default.MoreVert, "更多选项")
                                 }
 
-                                // 导出（外部工作区文档暂不支持）
-                                if (!viewModel.isExternal) {
-                                    IconButton(onClick = { showMenu = true }) {
-                                        Icon(Icons.Default.MoreVert, stringResource(R.string.menu_file))
-                                    }
+                                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                                    // 保存
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.save)) },
+                                        onClick = { viewModel.saveDocument(); showMenu = false },
+                                        leadingIcon = {
+                                            if (isSaving) {
+                                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                                            } else {
+                                                Icon(Icons.Default.Save, null)
+                                            }
+                                        },
+                                        enabled = !isSaving
+                                    )
 
-                                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                                    // 导出（仅内部文档）
+                                    if (!viewModel.isExternal) {
+                                        HorizontalDivider()
                                         DropdownMenuItem(
                                             text = { Text(stringResource(R.string.export_markdown)) },
                                             onClick = { viewModel.exportAs(ExportFormat.MARKDOWN); showMenu = false },
@@ -488,18 +497,24 @@ fun EditorScreen(
                                             leadingIcon = { Icon(Icons.Default.Download, null) }
                                         )
                                     }
-                                }
 
-                                // AI 助手（仅启用时显示）
-                                if (aiEnabled) {
-                                    IconButton(onClick = { showAiSheet = true }) {
-                                        Icon(Icons.Default.AutoAwesome, "AI 助手")
+                                    // AI 助手（仅启用时显示）
+                                    if (aiEnabled) {
+                                        HorizontalDivider()
+                                        DropdownMenuItem(
+                                            text = { Text("AI 助手") },
+                                            onClick = { showAiSheet = true; showMenu = false },
+                                            leadingIcon = { Icon(Icons.Default.AutoAwesome, null) }
+                                        )
                                     }
-                                }
 
-                                // 设置入口：看文档时也能直接调整字号/主题等
-                                IconButton(onClick = { navController.navigate(Screen.Settings.route) }) {
-                                    Icon(Icons.Default.Settings, stringResource(R.string.settings))
+                                    // 设置
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.settings)) },
+                                        onClick = { navController.navigate(Screen.Settings.route); showMenu = false },
+                                        leadingIcon = { Icon(Icons.Default.Settings, null) }
+                                    )
                                 }
                             }
                         )

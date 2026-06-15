@@ -32,6 +32,7 @@ fun AiAssistantHost(
     currentDocumentName: String?,
     currentDocumentContent: String?,
     onNavigateToDocument: (String) -> Unit,
+    onDocumentUpdated: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -63,6 +64,7 @@ fun AiAssistantHost(
                     onNavigateToDocument(docId)
                     onDismiss()
                 },
+                onDocumentUpdated = onDocumentUpdated,
                 modifier = Modifier.fillMaxWidth().navigationBarsPadding()
             )
         }

@@ -114,6 +114,31 @@ fun FileListScreen(
         }
     }
 
+    // 启动时自动检查更新
+    val autoUpdateInfo by viewModel.autoUpdateInfo.collectAsState()
+    var downloadingUpdate by remember { mutableStateOf<com.yumark.app.domain.model.UpdateInfo?>(null) }
+
+    // 自动更新对话框
+    autoUpdateInfo?.let { updateInfo ->
+        com.yumark.app.presentation.settings.UpdateDialog(
+            updateInfo = updateInfo,
+            onDismiss = { viewModel.dismissAutoUpdate() },
+            onUpdate = { update ->
+                downloadingUpdate = update
+                viewModel.dismissAutoUpdate()
+            }
+        )
+    }
+
+    // 下载对话框
+    downloadingUpdate?.let { updateInfo ->
+        com.yumark.app.presentation.settings.DownloadDialog(
+            updateInfo = updateInfo,
+            onDismiss = { downloadingUpdate = null },
+            context = context
+        )
+    }
+
     // 导入文件：系统多选选择器，仅勾选项被导入（手动选择，非自动导入）；
     // 选完先弹确认对话框回显文件数与导入位置（默认导入库，可自定义）
     var pendingImportFiles by remember { mutableStateOf<List<android.net.Uri>?>(null) }

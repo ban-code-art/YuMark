@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yumark.app.core.validation.FileNameValidator
 import com.yumark.app.core.validation.ValidationResult
+import com.yumark.app.data.remote.UpdateChecker
 import com.yumark.app.domain.model.*
 import com.yumark.app.domain.repository.DocumentRepository
 import com.yumark.app.domain.repository.FolderRepository
@@ -35,7 +36,8 @@ class FileListViewModel @Inject constructor(
     private val getFolderTreeUseCase: GetFolderTreeUseCase,
     private val workspaceRepository: WorkspaceRepository,
     private val importDocumentUseCase: ImportDocumentUseCase,
-    private val importFolderUseCase: ImportFolderUseCase
+    private val importFolderUseCase: ImportFolderUseCase,
+    private val updateChecker: UpdateChecker
 ) : ViewModel() {
 
     private val _currentFolderId = MutableStateFlow<String?>(null)
@@ -67,6 +69,35 @@ class FileListViewModel @Inject constructor(
     /** 操作失败提示（Snackbar 一次性事件），不影响列表 uiState */
     private val _actionError = MutableStateFlow<String?>(null)
     val actionError: StateFlow<String?> = _actionError.asStateFlow()
+
+    /** 启动时自动检查更新的结果 */
+    private val _autoUpdateInfo = MutableStateFlow<UpdateInfo?>(null)
+    val autoUpdateInfo: StateFlow<UpdateInfo?> = _autoUpdateInfo.asStateFlow()
+
+    init {
+        // 启动时自动检查更新（静默，仅在有更新时弹窗）
+        checkUpdateOnStartup()
+    }
+
+    /** 启动时检查更新（静默，不显示"检查中"或"无更新"状态） */
+    private fun checkUpdateOnStartup() {
+        viewModelScope.launch {
+            try {
+                val updateInfo = updateChecker.checkUpdate()
+                if (updateInfo != null) {
+                    _autoUpdateInfo.value = updateInfo
+                }
+            } catch (e: Exception) {
+                // 静默失败，不影响用户体验
+                android.util.Log.w("FileListViewModel", "启动时检查更新失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 关闭自动更新弹窗 */
+    fun dismissAutoUpdate() {
+        _autoUpdateInfo.value = null
+    }
 
     fun clearActionError() {
         _actionError.value = null

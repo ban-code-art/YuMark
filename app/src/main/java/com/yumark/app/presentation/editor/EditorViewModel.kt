@@ -283,6 +283,21 @@ class EditorViewModel @Inject constructor(
         _saveError.value = null
     }
 
+    /**
+     * 重新加载当前文档（用于外部修改后刷新，如 AI 编辑完成）。
+     * 仅内部文档支持（外部文档需要走 SAF 重读，暂不支持）。
+     */
+    fun reloadDocumentFromRepository() {
+        val id = documentId ?: return  // 外部文档不支持
+        viewModelScope.launch {
+            loadDocumentUseCase(id).onSuccess { doc ->
+                _document.value = doc
+                _uiState.value = EditorUiState.Success(doc)
+                isDocumentDirty = false
+            }
+        }
+    }
+
     /** 导出为指定格式（仅内部文档），成功后通过 exportedFile 通知 UI 弹分享 */
     fun exportAs(format: ExportFormat) {
         val id = documentId ?: return

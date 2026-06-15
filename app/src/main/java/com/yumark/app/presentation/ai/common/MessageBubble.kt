@@ -1,16 +1,21 @@
 package com.yumark.app.presentation.ai.common
 
+import android.view.ViewGroup
+import android.webkit.WebView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.yumark.app.domain.model.Message
 import com.yumark.app.domain.model.MessageRole
 
@@ -47,9 +52,159 @@ fun MessageBubble(
         ) {
             val shown = message.content.ifBlank { if (message.isStreaming) "▍" else "" }
             if (shown.isNotEmpty()) {
-                Text(shown, color = textColor, style = MaterialTheme.typography.bodyMedium)
+                // AI 助手消息使用 Markdown 渲染，用户消息保持纯文本
+                if (isUser) {
+                    Text(shown, color = textColor, style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    MarkdownRenderedText(
+                        markdown = shown,
+                        backgroundColor = bubbleColor,
+                        textColor = textColor
+                    )
+                }
             }
             extraContent?.invoke()
         }
     }
+}
+
+/**
+ * 在 WebView 中渲染 Markdown（用于 AI 助手消息气泡）。
+ * 使用轻量级渲染模板，不加载 KaTeX/Mermaid/Prism 以保持性能。
+ */
+@Composable
+private fun MarkdownRenderedText(
+    markdown: String,
+    backgroundColor: androidx.compose.ui.graphics.Color,
+    textColor: androidx.compose.ui.graphics.Color
+) {
+    val context = LocalContext.current
+    val isDarkMode = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
+    // 转换颜色为 CSS 格式
+    val bgColorHex = backgroundColor.toArgb().let {
+        "#%02X%02X%02X".format(
+            android.graphics.Color.red(it),
+            android.graphics.Color.green(it),
+            android.graphics.Color.blue(it)
+        )
+    }
+    val textColorHex = textColor.toArgb().let {
+        "#%02X%02X%02X".format(
+            android.graphics.Color.red(it),
+            android.graphics.Color.green(it),
+            android.graphics.Color.blue(it)
+        )
+    }
+
+    // 轻量级 Markdown 渲染模板（仅加载 marked.js）
+    // 使用 Base64 编码避免中文字符问题
+    val markdownBase64 = android.util.Base64.encodeToString(
+        markdown.toByteArray(Charsets.UTF_8),
+        android.util.Base64.NO_WRAP
+    )
+
+    val html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <script src="file:///android_asset/raw/markedjs.js"></script>
+            <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                    font-size: 14px;
+                    line-height: 1.5;
+                    color: $textColorHex;
+                    background: $bgColorHex;
+                    padding: 0;
+                    word-wrap: break-word;
+                }
+                p { margin: 0.4em 0; }
+                p:first-child { margin-top: 0; }
+                p:last-child { margin-bottom: 0; }
+                h1, h2, h3, h4, h5, h6 { margin: 0.6em 0 0.4em 0; font-weight: 600; }
+                h1 { font-size: 1.4em; }
+                h2 { font-size: 1.3em; }
+                h3 { font-size: 1.2em; }
+                h4, h5, h6 { font-size: 1.1em; }
+                code {
+                    font-family: 'Courier New', monospace;
+                    background: ${if (isDarkMode) "#2E2E2C" else "#F0F0F0"};
+                    color: ${if (isDarkMode) "#E0DED6" else "#333333"};
+                    padding: 1px 4px;
+                    border-radius: 3px;
+                    font-size: 0.9em;
+                }
+                pre {
+                    background: ${if (isDarkMode) "#2E2E2C" else "#F0F0F0"};
+                    color: ${if (isDarkMode) "#E0DED6" else "#333333"};
+                    padding: 8px;
+                    border-radius: 4px;
+                    overflow-x: auto;
+                    margin: 0.5em 0;
+                }
+                pre code {
+                    background: transparent;
+                    padding: 0;
+                }
+                ul, ol { margin: 0.4em 0; padding-left: 1.5em; }
+                li { margin: 0.2em 0; }
+                strong { font-weight: 600; }
+                em { font-style: italic; }
+                a { color: ${if (isDarkMode) "#7FB2E5" else "#0066CC"}; text-decoration: none; }
+                blockquote {
+                    border-left: 3px solid ${if (isDarkMode) "#555" else "#CCC"};
+                    padding-left: 0.8em;
+                    margin: 0.5em 0;
+                    color: ${if (isDarkMode) "#AAA" else "#666"};
+                }
+                table { border-collapse: collapse; width: 100%; margin: 0.5em 0; font-size: 0.9em; }
+                th, td { border: 1px solid ${if (isDarkMode) "#444" else "#DDD"}; padding: 4px 6px; text-align: left; }
+                th { background: ${if (isDarkMode) "#333" else "#F5F5F5"}; font-weight: 600; }
+            </style>
+        </head>
+        <body>
+            <div id="content"></div>
+            <script>
+                (function() {
+                    try {
+                        if (typeof marked === 'undefined') {
+                            document.getElementById('content').textContent = 'Markdown 渲染失败：marked.js 未加载';
+                            return;
+                        }
+                        marked.setOptions({ breaks: true, gfm: true });
+
+                        // 使用 decodeURIComponent(escape(...)) 确保正确解码 UTF-8
+                        var base64Str = '$markdownBase64';
+                        var binaryStr = atob(base64Str);
+                        var markdown = decodeURIComponent(escape(binaryStr));
+
+                        document.getElementById('content').innerHTML = marked.parse(markdown);
+                    } catch(e) {
+                        document.getElementById('content').textContent = 'Markdown 渲染出错: ' + e.message;
+                        console.error('Render error:', e);
+                    }
+                })();
+            </script>
+        </body>
+        </html>
+    """.trimIndent()
+
+    AndroidView(
+        factory = {
+            WebView(context).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                settings.javaScriptEnabled = true
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                loadDataWithBaseURL("file:///android_asset/", html, "text/html", "UTF-8", null)
+            }
+        },
+        modifier = Modifier.fillMaxWidth().wrapContentHeight()
+    )
 }

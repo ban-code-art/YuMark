@@ -428,10 +428,10 @@ private fun ListItem(
 }
 
 /**
- * 更新对话框
+ * 更新对话框（公开，可在其他界面复用）
  */
 @Composable
-private fun UpdateDialog(
+fun UpdateDialog(
     updateInfo: UpdateInfo,
     onDismiss: () -> Unit,
     onUpdate: (UpdateInfo) -> Unit
@@ -587,10 +587,10 @@ private fun formatDate(isoDate: String): String {
 }
 
 /**
- * 下载对话框
+ * 下载对话框（公开，可在其他界面复用）
  */
 @Composable
-private fun DownloadDialog(
+fun DownloadDialog(
     updateInfo: UpdateInfo,
     onDismiss: () -> Unit,
     context: Context

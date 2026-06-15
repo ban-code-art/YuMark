@@ -51,6 +51,7 @@ class AgentChatViewModel @Inject constructor(
     private var docId: String? = null
     private var docName: String? = null
     private var docContent: String? = null
+    private var onDocumentUpdated: (() -> Unit)? = null
 
     val messages: StateFlow<List<Message>> = conversationId
         .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else getConversation(id).map { it?.messages.orEmpty() } }
@@ -66,11 +67,12 @@ class AgentChatViewModel @Inject constructor(
     private val _createdDocumentId = MutableStateFlow<String?>(null)
     val createdDocumentId: StateFlow<String?> = _createdDocumentId.asStateFlow()
 
-    fun bind(id: String, documentId: String?, documentName: String?, documentContent: String?) {
+    fun bind(id: String, documentId: String?, documentName: String?, documentContent: String?, onUpdated: () -> Unit = {}) {
         conversationId.value = id
         docId = documentId
         docName = documentName
         docContent = documentContent
+        onDocumentUpdated = onUpdated
     }
 
     fun send(text: String) {
@@ -96,6 +98,9 @@ class AgentChatViewModel @Inject constructor(
                 .onSuccess { documentId ->
                     if (action.type == com.yumark.app.domain.model.AgentActionType.CREATE_DOCUMENT) {
                         _createdDocumentId.value = documentId
+                    } else if (action.type == com.yumark.app.domain.model.AgentActionType.EDIT_DOCUMENT) {
+                        // 编辑文档完成，触发热更新
+                        onDocumentUpdated?.invoke()
                     }
                 }
                 .onFailure { _error.value = "操作失败：${it.message}" }
@@ -122,11 +127,12 @@ fun AgentContent(
     documentContent: String?,
     onBack: () -> Unit,
     onNavigateToDocument: (String) -> Unit,
+    onDocumentUpdated: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: AgentChatViewModel = hiltViewModel()
 ) {
     LaunchedEffect(conversationId, documentId) {
-        viewModel.bind(conversationId, documentId, documentName, documentContent)
+        viewModel.bind(conversationId, documentId, documentName, documentContent, onDocumentUpdated)
     }
 
     val messages by viewModel.messages.collectAsState()
