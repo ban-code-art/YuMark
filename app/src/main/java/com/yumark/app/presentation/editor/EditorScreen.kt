@@ -36,6 +36,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.yumark.app.R
 import com.yumark.app.domain.model.ExportFormat
+import com.yumark.app.presentation.ai.AiAssistantHost
 import com.yumark.app.presentation.navigation.Screen
 import com.yumark.app.presentation.sidebar.SidebarActions
 import com.yumark.app.presentation.sidebar.SidebarFileTree
@@ -53,6 +54,8 @@ fun EditorScreen(
     val isPreviewMode by viewModel.isPreviewMode.collectAsState()
     val outline by viewModel.outline.collectAsState()
     val saveError by viewModel.saveError.collectAsState()
+    val aiEnabled by viewModel.aiEnabled.collectAsState()
+    var showAiSheet by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
@@ -104,6 +107,24 @@ fun EditorScreen(
     val themeId by viewModel.themeId.collectAsState()
     // 以实际生效的主题亮度判断深浅（兼容设置里手动选择的深色模式）
     val isDarkMode = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
+    // AI 助手 BottomSheet
+    if (showAiSheet) {
+        AiAssistantHost(
+            currentDocumentId = viewModel.currentDocumentId,
+            currentDocumentName = document?.name,
+            currentDocumentContent = document?.content,
+            onNavigateToDocument = { docId ->
+                scope.launch {
+                    viewModel.saveAndWait()
+                    navController.navigate(Screen.Editor.createRoute(docId)) {
+                        popUpTo(Screen.Editor.route) { inclusive = true }
+                    }
+                }
+            },
+            onDismiss = { showAiSheet = false }
+        )
+    }
     val previewDarkColors = remember(themeId, isDarkMode) {
         if (!isDarkMode) null else when (themeId) {
             "claude" -> "#262624" to "#F0EEE6"
@@ -466,6 +487,13 @@ fun EditorScreen(
                                             onClick = { viewModel.exportAs(ExportFormat.HTML); showMenu = false },
                                             leadingIcon = { Icon(Icons.Default.Download, null) }
                                         )
+                                    }
+                                }
+
+                                // AI 助手（仅启用时显示）
+                                if (aiEnabled) {
+                                    IconButton(onClick = { showAiSheet = true }) {
+                                        Icon(Icons.Default.AutoAwesome, "AI 助手")
                                     }
                                 }
 

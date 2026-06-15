@@ -3,9 +3,11 @@ package com.yumark.app.di
 import android.content.Context
 import androidx.room.Room
 import com.yumark.app.data.local.db.AppDatabase
+import com.yumark.app.data.local.db.dao.ConversationDao
 import com.yumark.app.data.local.db.dao.DocumentDao
 import com.yumark.app.data.local.db.dao.FolderDao
 import com.yumark.app.data.local.db.dao.ImageDao
+import com.yumark.app.data.local.db.dao.MessageDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -50,5 +52,17 @@ object DatabaseModule {
     @Singleton
     fun provideImageDao(database: AppDatabase): ImageDao {
         return database.imageDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideConversationDao(database: AppDatabase): ConversationDao {
+        return database.conversationDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideMessageDao(database: AppDatabase): MessageDao {
+        return database.messageDao()
     }
 }

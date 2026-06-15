@@ -123,6 +123,9 @@ dependencies {
     // DataStore
     implementation(libs.datastore.preferences)
 
+    // Security (encrypted storage for AI API keys)
+    implementation(libs.security.crypto)
+
     // Coil
     implementation(libs.coil.compose)
 

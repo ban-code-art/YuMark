@@ -12,6 +12,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.yumark.app.presentation.ai.config.AiConfigScreen
 import com.yumark.app.presentation.editor.EditorScreen
 import com.yumark.app.presentation.filelist.FileListScreen
 import com.yumark.app.presentation.settings.SettingsScreen
@@ -66,6 +67,9 @@ fun YuMarkNavGraph(
         }
         composable(Screen.Settings.route) {
             SettingsScreen(navController = navController)
+        }
+        composable(Screen.AiConfig.route) {
+            AiConfigScreen(navController = navController)
         }
     }
 }

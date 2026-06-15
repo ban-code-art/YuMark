@@ -19,6 +19,7 @@ import com.yumark.app.domain.usecase.LoadDocumentUseCase
 import com.yumark.app.domain.usecase.SaveDocumentUseCase
 import com.yumark.app.domain.usecase.LoadSettingsUseCase
 import com.yumark.app.domain.usecase.export.ExportDocumentUseCase
+import com.yumark.app.domain.usecase.ai.GetAiConfigUseCase
 import com.yumark.app.presentation.theme.AppThemes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -46,11 +47,17 @@ class EditorViewModel @Inject constructor(
     private val folderRepository: FolderRepository,
     private val getFolderTreeUseCase: GetFolderTreeUseCase,
     private val documentRepository: DocumentRepository,
+    getAiConfig: GetAiConfigUseCase,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     private val documentId: String? = savedStateHandle["documentId"]
     private val docUri: String? = savedStateHandle["docUri"]
+
+    /** AI 助手是否启用（控制编辑器 AI 按钮显示） */
+    val aiEnabled: StateFlow<Boolean> = getAiConfig()
+        .map { it.enabled }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /** 是否为外部工作区文档（不支持导出等依赖 Room 的功能） */
     val isExternal: Boolean get() = docUri != null
