@@ -33,7 +33,7 @@
 ### 1.3 约束
 
 - 单个图片最大 5MB
-- 超过 5MB 自动压缩
+- 超过 5MB 时自动压缩（保持质量 85%）
 - 仅支持常见图片格式（JPG、PNG、GIF、WEBP）
 - 附件显示为小缩略图，点击查看大图
 - 附件预览在输入框上方
@@ -478,10 +478,14 @@ class AiQuickViewModel @Inject constructor(...) : ViewModel() {
                 is Result.Success -> {
                     val info = result.data
                     
-                    // 检查大小
+                    // 大于 5MB 时尝试压缩验证
                     if (info.sizeBytes > ImageProcessor.MAX_SIZE_BYTES) {
-                        _attachmentError.value = "图片超过 5MB，请选择更小的图片"
-                        return@launch
+                        // 尝试压缩看是否能降到合理大小
+                        val compressed = imageProcessor.compressIfNeeded(uri)
+                        if (compressed.isFailure) {
+                            _attachmentError.value = "图片过大无法压缩，请选择更小的图片"
+                            return@launch
+                        }
                     }
                     
                     // 生成缩略图
@@ -661,7 +665,7 @@ val cameraPermission = rememberLauncherForActivityResult(
 | 错误场景 | 处理方式 |
 |---------|---------|
 | 图片格式不支持 | 显示 Toast："不支持的图片格式，请选择 JPG、PNG、GIF 或 WEBP" |
-| 图片超过 5MB | 显示 Toast："图片超过 5MB，请选择更小的图片" |
+| 图片超过 5MB | 自动压缩，压缩失败时显示 Toast："图片过大无法压缩，请选择更小的图片" |
 | 附件数量超过 3 个 | 显示 Toast："最多只能添加 3 个附件" |
 | 权限被拒绝 | 显示对话框，引导用户到设置开启权限 |
 | 图片读取失败 | 显示 Toast："图片读取失败，请重试" |
