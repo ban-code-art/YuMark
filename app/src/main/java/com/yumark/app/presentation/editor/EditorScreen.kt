@@ -593,10 +593,13 @@ fun EditorScreen(
                                 // 导航离开时保存WebView滚动位置
                                 DisposableEffect(Unit) {
                                     onDispose {
-                                        previewWebView.post {
-                                            previewWebView.evaluateJavascript("window.getScrollRatio()") { result ->
-                                                val ratio = result?.trim('"')?.toFloatOrNull() ?: 0f
-                                                viewModel.savePreviewScrollRatio(ratio)
+                                        // 验证 WebView 仍然有效再尝试保存滚动位置
+                                        if (previewWebView.parent != null) {
+                                            previewWebView.post {
+                                                previewWebView.evaluateJavascript("window.getScrollRatio()") { result ->
+                                                    val ratio = result?.trim('"')?.toFloatOrNull() ?: 0f
+                                                    viewModel.savePreviewScrollRatio(ratio)
+                                                }
                                             }
                                         }
                                     }
@@ -667,13 +670,16 @@ fun EditorScreen(
                                     } else {
                                         // 切到编辑：异步读回 WebView 当前比例（此时 WebView 仍存活），再定位编辑器
                                         previewWebView.evaluateJavascript("window.getScrollRatio()") { result ->
-                                            val ratio = result?.trim('"')?.toFloatOrNull() ?: 0f
-                                            scope.launch {
-                                                kotlinx.coroutines.delay(160)
-                                                if (scrollState.maxValue > 0) {
-                                                    val target = (scrollState.maxValue * ratio).toInt()
-                                                        .coerceIn(0, scrollState.maxValue)
-                                                    scrollState.scrollTo(target)
+                                            // 验证 scrollState 仍有效（避免 WebView 销毁后回调执行导致崩溃）
+                                            if (scrollState.maxValue >= 0) {
+                                                val ratio = result?.trim('"')?.toFloatOrNull() ?: 0f
+                                                scope.launch {
+                                                    kotlinx.coroutines.delay(160)
+                                                    if (scrollState.maxValue > 0) {
+                                                        val target = (scrollState.maxValue * ratio).toInt()
+                                                            .coerceIn(0, scrollState.maxValue)
+                                                        scrollState.scrollTo(target)
+                                                    }
                                                 }
                                             }
                                         }

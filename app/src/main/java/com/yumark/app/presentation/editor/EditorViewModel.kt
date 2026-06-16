@@ -162,6 +162,8 @@ class EditorViewModel @Inject constructor(
     /** 加载文档（内部 Room 文档 或 外部 SAF 文档）；错误态 Retry 也走这里 */
     fun loadDocument() {
         _uiState.value = EditorUiState.Loading
+        // 清除旧文档的滚动状态，避免不同文档间串用滚动位置
+        _scrollState.value = EditorScrollState()
         viewModelScope.launch {
             val settings = loadSettingsUseCase()
             if (docUri != null) {
