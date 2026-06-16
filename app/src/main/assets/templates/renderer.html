@@ -320,7 +320,9 @@ window.addEventListener('DOMContentLoaded', function() {
         // 排除链接、按钮等可交互元素
         if (e.target.tagName === 'A' ||
             e.target.tagName === 'BUTTON' ||
-            e.target.tagName === 'INPUT') {
+            e.target.tagName === 'INPUT' ||
+            e.target.tagName === 'PRE' ||
+            e.target.tagName === 'CODE') {
             return;
         }
 

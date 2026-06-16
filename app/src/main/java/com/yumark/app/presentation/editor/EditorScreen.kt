@@ -240,8 +240,15 @@ fun EditorScreen(
                     post {
                         // 重置viewport缩放
                         evaluateJavascript("""
-                            document.querySelector('meta[name="viewport"]').content =
-                                'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=3.0, user-scalable=yes';
+                            (function() {
+                                var meta = document.querySelector('meta[name="viewport"]');
+                                if (!meta) {
+                                    meta = document.createElement('meta');
+                                    meta.name = 'viewport';
+                                    document.head.appendChild(meta);
+                                }
+                                meta.content = 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=3.0, user-scalable=yes';
+                            })();
                         """, null)
 
                         // 重置WebView缩放级别
