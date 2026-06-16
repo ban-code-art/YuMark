@@ -251,6 +251,9 @@ window.renderMarkdown = function(markdownText) {
             }
         }
 
+        // 启用代码块横向滚动优化
+        enableCodeBlockScroll();
+
         return true;
     } catch(e) {
         log('ERROR: ' + e.message);
@@ -268,6 +271,59 @@ window.scrollToHeading = function(id) {
     if (el) {
         el.scrollIntoView({behavior: 'smooth', block: 'start'});
     }
+};
+
+/**
+ * 启用代码块横向滚动优化
+ * 解决父容器纵向滚动拦截代码块横向滑动的问题
+ */
+function enableCodeBlockScroll() {
+    const codeBlocks = document.querySelectorAll('pre code');
+    codeBlocks.forEach(function(block) {
+        const pre = block.parentElement;
+        var startX = 0, startY = 0;
+
+        pre.addEventListener('touchstart', function(e) {
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+        }, { passive: true });
+
+        pre.addEventListener('touchmove', function(e) {
+            var deltaX = Math.abs(e.touches[0].clientX - startX);
+            var deltaY = Math.abs(e.touches[0].clientY - startY);
+
+            // 横向滑动距离大于纵向，且超过阈值（10px）
+            if (deltaX > deltaY && deltaX > 10) {
+                // 通知Android禁用父容器滚动
+                if (typeof AndroidTouch !== 'undefined') {
+                    AndroidTouch.requestDisallowInterceptTouchEvent(true);
+                }
+            }
+        }, { passive: true });
+
+        pre.addEventListener('touchend', function() {
+            // 恢复父容器滚动
+            if (typeof AndroidTouch !== 'undefined') {
+                AndroidTouch.requestDisallowInterceptTouchEvent(false);
+            }
+        }, { passive: true });
+    });
+}
+
+// ===== 编辑/预览滚动同步 =====
+// 全部在 JS 内用一致的 CSS px 计算比例（0~1），避免 Kotlin 侧把 contentHeight(CSS px)
+// 与 View 的 height/scrollY(物理 px) 混算导致定位错乱（高密度屏会算成 0 跳顶）。
+window.getScrollRatio = function() {
+    var max = document.documentElement.scrollHeight - window.innerHeight;
+    if (max <= 0) return 0;
+    var r = (window.scrollY || document.documentElement.scrollTop || 0) / max;
+    return r < 0 ? 0 : (r > 1 ? 1 : r);
+};
+window.scrollToRatio = function(r) {
+    var max = document.documentElement.scrollHeight - window.innerHeight;
+    if (max < 0) max = 0;
+    r = r < 0 ? 0 : (r > 1 ? 1 : r);
+    window.scrollTo(0, Math.round(max * r));
 };
 
 console.log('renderMarkdown function defined');

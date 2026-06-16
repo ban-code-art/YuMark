@@ -228,6 +228,16 @@ fun EditorScreen(
                 }
             }, "Android")
 
+            addJavascriptInterface(object {
+                @JavascriptInterface
+                fun requestDisallowInterceptTouchEvent(disallow: Boolean) {
+                    // 在主线程通知父容器
+                    post {
+                        (parent as? ViewGroup)?.requestDisallowInterceptTouchEvent(disallow)
+                    }
+                }
+            }, "AndroidTouch")
+
             webChromeClient = object : android.webkit.WebChromeClient() {
                 override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage): Boolean {
                     android.util.Log.d("WebView", consoleMessage.message())
