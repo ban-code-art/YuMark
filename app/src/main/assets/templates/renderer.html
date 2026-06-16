@@ -310,6 +310,37 @@ function enableCodeBlockScroll() {
     });
 }
 
+/**
+ * 双击恢复原始缩放（排除可交互元素）
+ */
+window.addEventListener('DOMContentLoaded', function() {
+    var lastTapTime = 0;
+
+    document.addEventListener('touchend', function(e) {
+        // 排除链接、按钮等可交互元素
+        if (e.target.tagName === 'A' ||
+            e.target.tagName === 'BUTTON' ||
+            e.target.tagName === 'INPUT') {
+            return;
+        }
+
+        var currentTime = Date.now();
+        var tapGap = currentTime - lastTapTime;
+
+        // 双击判定：300ms内两次点击
+        if (tapGap > 0 && tapGap < 300) {
+            // 通知Android恢复缩放
+            if (typeof Android !== 'undefined' && Android.resetZoom) {
+                Android.resetZoom();
+            }
+            // 防止连续触发
+            lastTapTime = 0;
+        } else {
+            lastTapTime = currentTime;
+        }
+    });
+});
+
 // ===== 编辑/预览滚动同步 =====
 // 全部在 JS 内用一致的 CSS px 计算比例（0~1），避免 Kotlin 侧把 contentHeight(CSS px)
 // 与 View 的 height/scrollY(物理 px) 混算导致定位错乱（高密度屏会算成 0 跳顶）。

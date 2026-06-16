@@ -169,6 +169,13 @@ fun EditorScreen(
                 domStorageEnabled = true
                 allowFileAccess = true
                 allowContentAccess = true
+
+                // 启用缩放功能
+                setSupportZoom(true)
+                builtInZoomControls = true
+                displayZoomControls = false  // 隐藏默认的+/-按钮
+                useWideViewPort = true
+                loadWithOverviewMode = true
             }
             // 不透明背景：透明 WebView 会禁用分块光栅化/合成优化，长文档滚动时持续重绘导致卡顿。
             // 用与渲染页一致的纯色背景，既保持硬件加速滚动流畅，又避免深色模式进预览闪白。
@@ -225,6 +232,21 @@ fun EditorScreen(
                 fun onReady() {
                     // JS 桥回调在 WebView 线程，post 回主线程改 Compose 状态
                     post { rendererReady.value = true }
+                }
+
+                @JavascriptInterface
+                fun resetZoom() {
+                    // 在主线程恢复缩放
+                    post {
+                        // 重置viewport缩放
+                        evaluateJavascript("""
+                            document.querySelector('meta[name="viewport"]').content =
+                                'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=3.0, user-scalable=yes';
+                        """, null)
+
+                        // 重置WebView缩放级别
+                        setInitialScale(100)
+                    }
                 }
             }, "Android")
 
@@ -320,6 +342,18 @@ fun EditorScreen(
 
                 override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    // 设置viewport：最小100%，最大300%
+                    view?.evaluateJavascript("""
+                        (function() {
+                            var meta = document.querySelector('meta[name="viewport"]');
+                            if (!meta) {
+                                meta = document.createElement('meta');
+                                meta.name = 'viewport';
+                                document.head.appendChild(meta);
+                            }
+                            meta.content = 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=3.0, user-scalable=yes';
+                        })();
+                    """, null)
                     // 注入文本选择监听脚本
                     view?.evaluateJavascript(textSelectionListenerJs(), null)
                 }
