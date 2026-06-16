@@ -97,6 +97,7 @@ class SendAgentMessageUseCase @Inject constructor(
                     )
                     emit(AgentMessageState.Streaming(event.text))
                 }
+                is StreamEvent.ToolCallDelta -> Unit  // Agent暂不使用工具调用，留待后续扩展
                 is StreamEvent.Done -> {
                     val text = event.fullText.ifBlank { full.toString() }
                     val action = parseAgentAction(text, currentDocumentId)

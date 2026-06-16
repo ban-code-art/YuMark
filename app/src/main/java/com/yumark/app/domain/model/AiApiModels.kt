@@ -5,6 +5,13 @@ sealed class StreamEvent {
     /** 一个内容增量块 */
     data class Content(val text: String) : StreamEvent()
 
+    /** 工具调用增量 */
+    data class ToolCallDelta(
+        val callId: String,
+        val name: String?,
+        val argumentsDelta: String?
+    ) : StreamEvent()
+
     /** 流式结束，附带完整文本 */
     data class Done(val fullText: String) : StreamEvent()
 
@@ -31,8 +38,10 @@ data class ModelInfo(
 
 /** 发送给适配器的标准化消息 */
 data class ChatMessage(
-    val role: String,  // "user" | "assistant" | "system"
-    val content: String
+    val role: String,                    // "user", "assistant", "tool", "system"
+    val content: String?,
+    val toolCalls: List<ToolCall>? = null,  // assistant发起的工具调用
+    val toolCallId: String? = null          // tool角色响应关联的调用ID
 )
 
 /** 单次请求的参数 */

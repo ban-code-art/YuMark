@@ -103,3 +103,21 @@ data class AgentAction(
     val content: String,
     val status: AgentActionStatus = AgentActionStatus.PENDING
 )
+
+/**
+ * AI工具定义（Function Calling）
+ */
+data class AiTool(
+    val name: String,
+    val description: String,
+    val parameters: Map<String, Any> // JSON Schema
+)
+
+/**
+ * AI发起的工具调用
+ */
+data class ToolCall(
+    val id: String,           // 调用ID（用于关联响应）
+    val name: String,         // 工具名称
+    val arguments: String     // JSON字符串参数
+)

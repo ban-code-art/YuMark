@@ -83,6 +83,7 @@ class SendChatMessageUseCase @Inject constructor(
                     )
                     emit(ChatMessageState.Streaming(event.text))
                 }
+                is StreamEvent.ToolCallDelta -> Unit  // Chat模式暂不使用工具调用
                 is StreamEvent.Done -> {
                     val text = event.fullText.ifBlank { full.toString() }
                     conversationRepository.updateMessage(

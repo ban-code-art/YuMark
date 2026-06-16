@@ -46,6 +46,7 @@ internal suspend fun AiApiAdapter.runConnectionTest(model: String): ModelTestRes
                     if (firstTokenLatency < 0) firstTokenLatency = System.currentTimeMillis() - start
                     gotContent = true
                 }
+                is StreamEvent.ToolCallDelta -> Unit  // 工具调用在连接测试中忽略
                 is StreamEvent.Done -> Unit
                 is StreamEvent.Error -> throw IllegalStateException(event.message)
             }

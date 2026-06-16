@@ -28,8 +28,11 @@ import com.yumark.app.domain.model.MessageRole
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -56,7 +59,7 @@ fun AiQuickDialog(
     selectedText: String,
     initialMode: QuickAiMode = QuickAiMode.AI_QUERY,
     onDismiss: () -> Unit,
-    onApplyEdit: (String) -> Unit,
+    onApplyEdit: (oldText: String, newText: String) -> Unit,
     allowEditSelectedText: Boolean = false,
     viewModel: AiQuickViewModel = hiltViewModel()
 ) {
@@ -70,14 +73,10 @@ fun AiQuickDialog(
     var showExitConfirmDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(Unit) {
-        if (viewModel.shouldRestore(selectedText)) {
-            // 相同的选中文本，恢复之前的状态
-        } else {
-            // 不同的选中文本，重置并设置新的初始模式
-            viewModel.reset()
-            viewModel.setMode(initialMode)
-        }
+    // 打开（或换了新选区）时，由 ViewModel 原子决定恢复上次会话还是重置
+    LaunchedEffect(selectedText) {
+        viewModel.onOpen(selectedText, initialMode)
+        editableSelectedText = selectedText
     }
 
     LaunchedEffect(editableSelectedText) {
@@ -297,7 +296,7 @@ fun AiQuickDialog(
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
                             onClick = {
-                                onApplyEdit(lastAgentMessage.content)
+                                onApplyEdit(editableSelectedText, lastAgentMessage.content)
                                 onDismiss()
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -356,13 +355,9 @@ class AiQuickViewModel @Inject constructor(
     private val _currentMode = MutableStateFlow(QuickAiMode.AI_QUERY)
     val currentMode: StateFlow<QuickAiMode> = _currentMode.asStateFlow()
 
-    val hasMessages: StateFlow<Boolean> = MutableStateFlow(false).apply {
-        viewModelScope.launch {
-            _conversationHistory.collect { history ->
-                value = history.isNotEmpty()
-            }
-        }
-    }.asStateFlow()
+    val hasMessages: StateFlow<Boolean> = _conversationHistory
+        .map { it.isNotEmpty() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     private var selectedText = ""
     private var lastSelectedText = ""
@@ -382,16 +377,22 @@ class AiQuickViewModel @Inject constructor(
         _userInput.value = input
     }
 
-    fun shouldRestore(currentSelectedText: String): Boolean {
-        return currentSelectedText == lastSelectedText && lastSelectedText.isNotEmpty()
-    }
-
-    fun reset() {
-        lastSelectedText = selectedText
-        _userInput.value = ""
-        _conversationHistory.value = emptyList()
-        _isLoading.value = false
-        _error.value = null
+    /**
+     * 对话框打开（或换了新选区）时调用：相同选中文本则保留上次会话（历史+模式），
+     * 否则按新选区重置。原子完成，避免分散在多个 LaunchedEffect 里因执行时序
+     * 导致 lastSelectedText 记成上一次选区。
+     */
+    fun onOpen(currentSelected: String, initialMode: QuickAiMode) {
+        selectedText = currentSelected
+        val sameSelection = currentSelected == lastSelectedText && lastSelectedText.isNotEmpty()
+        if (!sameSelection) {
+            lastSelectedText = currentSelected
+            _userInput.value = ""
+            _conversationHistory.value = emptyList()
+            _isLoading.value = false
+            _error.value = null
+            _currentMode.value = initialMode
+        }
     }
 
     fun send() {
@@ -464,6 +465,7 @@ class AiQuickViewModel @Inject constructor(
                                 )
                             }
                         }
+                        is StreamEvent.ToolCallDelta -> Unit  // Quick Dialog暂不使用工具调用
                         is StreamEvent.Done -> {
                             val finalText = event.fullText.ifBlank { fullResponse.toString() }
                             // 确保最后一条消息是完整的
