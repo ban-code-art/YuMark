@@ -1,6 +1,7 @@
 package com.yumark.app.data.ai
 
 import com.yumark.app.domain.model.AiRequestConfig
+import com.yumark.app.domain.model.AiTool
 import com.yumark.app.domain.model.ChatMessage
 import com.yumark.app.domain.model.ModelInfo
 import com.yumark.app.domain.model.ModelTestResult
@@ -18,10 +19,11 @@ interface AiApiAdapter {
     /** 拉取可用模型列表（部分 Provider 返回预置列表） */
     suspend fun fetchAvailableModels(): List<ModelInfo>
 
-    /** 流式对话，逐块发出 StreamEvent */
+    /** 流式对话，支持工具调用 */
     fun sendChatStream(
         messages: List<ChatMessage>,
-        config: AiRequestConfig
+        config: AiRequestConfig,
+        tools: List<AiTool> = emptyList()  // 新增：可用工具列表
     ): Flow<StreamEvent>
 
     /** 释放适配器私有资源（不关闭共享 HttpClient） */
