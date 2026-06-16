@@ -14,6 +14,7 @@ import com.yumark.app.domain.repository.ConversationRepository
 import com.yumark.app.domain.usecase.CreateDocumentUseCase
 import com.yumark.app.domain.usecase.LoadDocumentUseCase
 import com.yumark.app.domain.usecase.SaveDocumentUseCase
+import com.yumark.app.domain.usecase.ai.DocumentContextTools
 import com.yumark.app.data.ai.AiAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -87,7 +88,8 @@ class SendAgentMessageUseCase @Inject constructor(
                 temperature = config.temperature,
                 maxTokens = config.maxTokens,
                 systemPrompt = buildAgentSystemPrompt(currentDocumentName, currentDocumentContent)
-            )
+            ),
+            tools = DocumentContextTools.getAllTools()  // Task 12: 集成文档上下文工具
         ).collect { event ->
             when (event) {
                 is StreamEvent.Content -> {
@@ -97,7 +99,15 @@ class SendAgentMessageUseCase @Inject constructor(
                     )
                     emit(AgentMessageState.Streaming(event.text))
                 }
-                is StreamEvent.ToolCallDelta -> Unit  // Agent暂不使用工具调用，留待后续扩展
+                is StreamEvent.ToolCallDelta -> {
+                    // TODO(Task 12): 实现完整的工具调用流程
+                    // 1. 累积工具调用片段 (tool_call_id, name, arguments)
+                    // 2. 检测工具调用完成 (event.done == true)
+                    // 3. 解析并执行工具 (ExecuteDocumentToolUseCase)
+                    // 4. 将工具结果追加到上下文 (ChatMessage with role=tool)
+                    // 5. 继续流式请求，让模型基于工具结果生成最终回复
+                    Unit
+                }
                 is StreamEvent.Done -> {
                     val text = event.fullText.ifBlank { full.toString() }
                     val action = parseAgentAction(text, currentDocumentId)
