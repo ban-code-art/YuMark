@@ -1,15 +1,18 @@
 package com.yumark.app.presentation.sidebar
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -17,6 +20,7 @@ import com.yumark.app.R
 import com.yumark.app.domain.model.Document
 import com.yumark.app.domain.model.Folder
 import com.yumark.app.domain.model.FolderTreeNode
+import kotlinx.coroutines.delay
 
 /**
  * 侧栏文件树的管理动作集合。
@@ -41,9 +45,26 @@ fun SidebarFileTree(
     onFolderExpand: (String) -> Unit,
     onFolderCollapse: (String) -> Unit,
     actions: SidebarActions?,
+    scrollToCurrentDocument: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val listState = rememberLazyListState()
+
+    // 自动滚动到当前文档
+    LaunchedEffect(scrollToCurrentDocument, currentDocumentId) {
+        if (scrollToCurrentDocument && currentDocumentId != null) {
+            delay(100) // 等待LazyColumn完成布局
+
+            // 扁平化树结构找到当前文档的索引
+            val index = findDocumentIndex(tree, currentDocumentId, expandedFolders)
+            if (index >= 0) {
+                listState.animateScrollToItem(index)
+            }
+        }
+    }
+
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(vertical = 8.dp)
     ) {
@@ -60,6 +81,44 @@ fun SidebarFileTree(
             )
         }
     }
+}
+
+/**
+ * 扁平化遍历树结构，找到指定文档在LazyColumn中的索引
+ */
+private fun findDocumentIndex(
+    tree: List<FolderTreeNode>,
+    documentId: String,
+    expandedFolders: Set<String>
+): Int {
+    var index = 0
+
+    fun traverse(nodes: List<FolderTreeNode>): Boolean {
+        for (node in nodes) {
+            // 文件夹行占一个索引
+            if (node.folder != null) index++
+
+            // 只遍历展开的节点
+            val isExpanded = node.folder == null || expandedFolders.contains(node.folder.id)
+            if (isExpanded) {
+                // 检查文档列表
+                for (doc in node.documents) {
+                    if (doc.id == documentId) {
+                        return true // 找到目标文档
+                    }
+                    index++
+                }
+
+                // 递归子文件夹
+                if (traverse(node.children)) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    return if (traverse(tree)) index else -1
 }
 
 @Composable
@@ -254,6 +313,13 @@ fun DocumentRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(
+                if (isSelected) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    Color.Transparent
+                }
+            )
             .clickable(onClick = onClick)
             .padding(
                 start = (level * 16 + 24).dp,
@@ -288,7 +354,7 @@ fun DocumentRow(
             imageVector = Icons.Default.Description,
             contentDescription = null,
             modifier = Modifier.size(18.dp),
-            tint = if (isSelected) MaterialTheme.colorScheme.primary
+            tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
             else MaterialTheme.colorScheme.onSurfaceVariant
         )
 
@@ -298,7 +364,7 @@ fun DocumentRow(
         Text(
             text = document.name,
             style = MaterialTheme.typography.bodySmall,
-            color = if (isSelected) MaterialTheme.colorScheme.primary
+            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
             else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
             maxLines = 1,

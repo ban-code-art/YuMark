@@ -438,6 +438,7 @@ fun EditorScreen(
                     onOpenInternal = { id -> openFromSidebar(Screen.Editor.createRoute(id)) },
                     onOpenExternal = { uri -> openFromSidebar(Screen.Editor.createExternalRoute(uri)) },
                     onCloseDrawer = { scope.launch { fileDrawerState.close() } },
+                    fileDrawerState = fileDrawerState,
                     showImportMenu = showImportMenu,
                     onShowImportMenu = { showImportMenu = true },
                     onDismissImportMenu = { showImportMenu = false },
@@ -1110,6 +1111,7 @@ private fun EditorSidebarContent(
     onOpenInternal: (String) -> Unit,
     onOpenExternal: (String) -> Unit,
     onCloseDrawer: () -> Unit,
+    fileDrawerState: DrawerState,
     showImportMenu: Boolean,
     onShowImportMenu: () -> Unit,
     onDismissImportMenu: () -> Unit,
@@ -1221,6 +1223,7 @@ private fun EditorSidebarContent(
                 },
                 onFolderExpand = onToggleFolder,
                 onFolderCollapse = onToggleFolder,
+                scrollToCurrentDocument = fileDrawerState.isOpen,
                 actions = SidebarActions(
                     onCreateDocument = { folderId -> onShowCreateDialog(folderId ?: "") },
                     onCreateSubfolder = { folderId -> folderId?.let { onShowSubfolderDialog(it) } },
