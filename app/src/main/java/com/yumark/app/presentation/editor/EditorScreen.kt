@@ -17,6 +17,8 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
@@ -54,12 +56,15 @@ fun EditorScreen(
     val isPreviewMode by viewModel.isPreviewMode.collectAsState()
     val outline by viewModel.outline.collectAsState()
     val saveError by viewModel.saveError.collectAsState()
+    val applyError by viewModel.applyError.collectAsState()
     val aiEnabled by viewModel.aiEnabled.collectAsState()
     var showAiSheet by remember { mutableStateOf(false) }
 
     // 文本选择快捷 AI/Agent 功能
     var showQuickAiDialog by remember { mutableStateOf(false) }
     var selectedText by remember { mutableStateOf("") }
+    // 编辑模式选区的半开区间 (start, end)，供 Agent 按精确区间替换；预览模式为 null
+    var selectedRange by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
@@ -134,9 +139,9 @@ fun EditorScreen(
         AiQuickDialog(
             selectedText = selectedText,
             onDismiss = { showQuickAiDialog = false },
-            onApplyEdit = { newText ->
-                // Agent 模式下应用修改
-                viewModel.replaceSelectedText(selectedText, newText)
+            onApplyEdit = { oldText, newText ->
+                // Agent 模式下应用修改：编辑模式用精确选区，预览模式按原文匹配
+                viewModel.replaceSelectedText(oldText, newText, selectedRange)
             },
             allowEditSelectedText = isPreviewMode  // 预览模式下允许编辑选中文本
         )
@@ -195,9 +200,11 @@ fun EditorScreen(
                         if (text.isBlank()) {
                             // 清空选中文本
                             selectedText = ""
+                            selectedRange = null
                         } else if (aiEnabled && text.trim().length > 2) {
-                            // 更新选中文本
+                            // 更新选中文本（预览选区来自渲染文本，无可靠源码区间，置 null 走原文匹配）
                             selectedText = text
+                            selectedRange = null
                         }
                     }
                 }
@@ -366,6 +373,14 @@ fun EditorScreen(
         saveError?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.clearSaveError()
+        }
+    }
+
+    // Agent 应用修改失败 Snackbar（无法在原文中定位选中文本）
+    LaunchedEffect(applyError) {
+        applyError?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearApplyError()
         }
     }
 
@@ -565,7 +580,45 @@ fun EditorScreen(
 
                                 // 保存滚动状态，在预览和编辑模式间切换时保持位置
                                 val scrollState = rememberScrollState()
-                                var savedWebViewScrollY by remember { mutableIntStateOf(0) }
+
+                                // 持续保存编辑器滚动位置（防抖避免频繁更新）
+                                LaunchedEffect(Unit) {
+                                    snapshotFlow { scrollState.value }
+                                        .debounce(200)
+                                        .collect { position ->
+                                            viewModel.saveEditScrollPosition(position)
+                                        }
+                                }
+
+                                // 导航离开时保存WebView滚动位置
+                                DisposableEffect(Unit) {
+                                    onDispose {
+                                        previewWebView.post {
+                                            previewWebView.evaluateJavascript("window.getScrollRatio()") { result ->
+                                                val ratio = result?.trim('"')?.toFloatOrNull() ?: 0f
+                                                viewModel.savePreviewScrollRatio(ratio)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 从设置返回后恢复滚动位置
+                                val savedScrollState by viewModel.scrollState.collectAsState()
+                                LaunchedEffect(document?.id, isPreviewMode) {
+                                    // 等待视图渲染完成
+                                    delay(if (isPreviewMode) 250 else 150)
+
+                                    if (isPreviewMode && savedScrollState.previewScrollRatio > 0f) {
+                                        // 恢复预览滚动
+                                        previewWebView.evaluateJavascript(
+                                            "window.scrollToRatio(${savedScrollState.previewScrollRatio})",
+                                            null
+                                        )
+                                    } else if (!isPreviewMode && savedScrollState.editScrollPosition > 0) {
+                                        // 恢复编辑器滚动
+                                        scrollState.scrollTo(savedScrollState.editScrollPosition)
+                                    }
+                                }
 
                                 // 监听文档内容变化（AI 编辑后的热更新）
                                 LaunchedEffect(document?.id, document?.content) {
@@ -593,76 +646,36 @@ fun EditorScreen(
                                     }
                                 }
 
-                                // 切换模式时同步滚动位置
+                                // 切换模式时同步滚动位置：统一用 JS 内的 CSS px 比例
+                                // (renderer 的 getScrollRatio/scrollToRatio)，避免 contentHeight(CSS px)
+                                // 与 WebView 物理 px 混算——后者在高密度屏会算成 0 而跳到顶部。
                                 LaunchedEffect(isPreviewMode) {
                                     if (isPreviewMode) {
-                                        // 切换到预览模式：根据编辑器滚动比例计算 WebView 滚动位置
-                                        kotlinx.coroutines.delay(250) // 增加等待时间，确保 WebView 完全渲染
-
-                                        // 等待 WebView 内容高度更新
+                                        // 切到预览：等内容渲染就绪后，按编辑器滚动比例定位 WebView
+                                        kotlinx.coroutines.delay(180)
                                         var attempts = 0
-                                        while (previewWebView.contentHeight == 0 && attempts < 15) {
-                                            kotlinx.coroutines.delay(50)
+                                        while (previewWebView.contentHeight == 0 && attempts < 20) {
+                                            kotlinx.coroutines.delay(40)
                                             attempts++
                                         }
-
-                                        if (previewWebView.contentHeight > 0 && scrollState.maxValue > 0) {
-                                            // 计算编辑器的滚动比例（0.0 到 1.0）
-                                            val editorScrollRatio = if (scrollState.maxValue > 0) {
-                                                scrollState.value.toFloat() / scrollState.maxValue.toFloat()
-                                            } else {
-                                                0f
-                                            }
-
-                                            // WebView 实际可滚动的最大高度
-                                            val webViewScrollableHeight = maxOf(0, previewWebView.contentHeight - previewWebView.height)
-
-                                            // 根据比例计算 WebView 目标滚动位置
-                                            val targetWebViewScroll = (webViewScrollableHeight * editorScrollRatio).toInt()
-
-                                            // 限制在有效范围内
-                                            val finalScroll = targetWebViewScroll.coerceIn(0, webViewScrollableHeight)
-
-                                            previewWebView.scrollTo(0, finalScroll)
-                                            savedWebViewScrollY = finalScroll
-
-                                            android.util.Log.d("ScrollSync",
-                                                "Editor→Preview: ratio=$editorScrollRatio, " +
-                                                "editorScroll=${scrollState.value}/${scrollState.maxValue}, " +
-                                                "webViewScroll=$finalScroll/$webViewScrollableHeight, " +
-                                                "contentHeight=${previewWebView.contentHeight}, " +
-                                                "viewHeight=${previewWebView.height}")
-                                        }
+                                        val ratio = if (scrollState.maxValue > 0) {
+                                            scrollState.value.toFloat() / scrollState.maxValue.toFloat()
+                                        } else 0f
+                                        previewWebView.evaluateJavascript(
+                                            "window.scrollToRatio($ratio)", null
+                                        )
                                     } else {
-                                        // 切换到编辑模式：保存 WebView 滚动位置，计算编辑器滚动位置
-                                        savedWebViewScrollY = previewWebView.scrollY
-
-                                        // 等待编辑器布局完成
-                                        kotlinx.coroutines.delay(200)
-
-                                        if (scrollState.maxValue > 0 && previewWebView.contentHeight > 0) {
-                                            // WebView 实际可滚动的最大高度
-                                            val webViewScrollableHeight = maxOf(0, previewWebView.contentHeight - previewWebView.height)
-
-                                            // 计算 WebView 的滚动比例（0.0 到 1.0）
-                                            val webViewScrollRatio = if (webViewScrollableHeight > 0) {
-                                                savedWebViewScrollY.toFloat() / webViewScrollableHeight.toFloat()
-                                            } else {
-                                                0f
+                                        // 切到编辑：异步读回 WebView 当前比例（此时 WebView 仍存活），再定位编辑器
+                                        previewWebView.evaluateJavascript("window.getScrollRatio()") { result ->
+                                            val ratio = result?.trim('"')?.toFloatOrNull() ?: 0f
+                                            scope.launch {
+                                                kotlinx.coroutines.delay(160)
+                                                if (scrollState.maxValue > 0) {
+                                                    val target = (scrollState.maxValue * ratio).toInt()
+                                                        .coerceIn(0, scrollState.maxValue)
+                                                    scrollState.scrollTo(target)
+                                                }
                                             }
-
-                                            // 根据比例计算编辑器目标滚动位置
-                                            val targetEditorScroll = (scrollState.maxValue * webViewScrollRatio).toInt()
-
-                                            // 限制在有效范围内
-                                            val finalScroll = targetEditorScroll.coerceIn(0, scrollState.maxValue)
-
-                                            scrollState.scrollTo(finalScroll)
-
-                                            android.util.Log.d("ScrollSync",
-                                                "Preview→Editor: ratio=$webViewScrollRatio, " +
-                                                "webViewScroll=$savedWebViewScrollY/$webViewScrollableHeight, " +
-                                                "editorScroll=$finalScroll/${scrollState.maxValue}")
                                         }
                                     }
                                 }
@@ -749,17 +762,20 @@ fun EditorScreen(
                                                 editValue = newValue
                                                 viewModel.onContentChanged(newValue.text)
 
-                                                // 检测文本选择
+                                                // 检测文本选择（记录精确区间供 Agent 替换；折叠时清空避免 chip 带过期文本）
                                                 if (aiEnabled) {
-                                                    val selection = newValue.selection
-                                                    if (!selection.collapsed && selection.start < selection.end) {
-                                                        val selected = newValue.text.substring(
-                                                            selection.start,
-                                                            selection.end
-                                                        )
+                                                    val sel = newValue.selection
+                                                    if (!sel.collapsed) {
+                                                        val s = minOf(sel.start, sel.end).coerceIn(0, newValue.text.length)
+                                                        val e = maxOf(sel.start, sel.end).coerceIn(0, newValue.text.length)
+                                                        val selected = newValue.text.substring(s, e)
                                                         if (selected.isNotBlank() && selected.trim().length > 2) {
                                                             selectedText = selected
+                                                            selectedRange = s to e
                                                         }
+                                                    } else if (selectedText.isNotEmpty()) {
+                                                        selectedText = ""
+                                                        selectedRange = null
                                                     }
                                                 }
                                             },

@@ -104,6 +104,21 @@ class EditorViewModel @Inject constructor(
     private val _saveError = MutableStateFlow<String?>(null)
     val saveError: StateFlow<String?> = _saveError.asStateFlow()
 
+    /** Agent 应用修改失败提示（无法在原文中定位选中文本时），UI 收到后弹 Snackbar */
+    private val _applyError = MutableStateFlow<String?>(null)
+    val applyError: StateFlow<String?> = _applyError.asStateFlow()
+
+    private val _scrollState = MutableStateFlow(EditorScrollState())
+    val scrollState: StateFlow<EditorScrollState> = _scrollState.asStateFlow()
+
+    fun saveEditScrollPosition(position: Int) {
+        _scrollState.update { it.copy(editScrollPosition = position) }
+    }
+
+    fun savePreviewScrollRatio(ratio: Float) {
+        _scrollState.update { it.copy(previewScrollRatio = ratio) }
+    }
+
     /** 导出成功的文件（UI 收到后弹分享） */
     private val _exportedFile = MutableStateFlow<File?>(null)
     val exportedFile: StateFlow<File?> = _exportedFile.asStateFlow()
@@ -283,6 +298,10 @@ class EditorViewModel @Inject constructor(
         _saveError.value = null
     }
 
+    fun clearApplyError() {
+        _applyError.value = null
+    }
+
     /**
      * 重新加载当前文档（用于外部修改后刷新，如 AI 编辑完成）。
      * 仅内部文档支持（外部文档需要走 SAF 重读，暂不支持）。
@@ -299,21 +318,52 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * 替换选中的文本（用于 Agent 快捷编辑）
+     * 替换选中的文本（用于 Agent 快捷编辑）。
+     *
+     * 选区文本可能来自渲染后的预览（去 Markdown 语法、被 trim、甚至用户手动改过），
+     * 直接 replaceFirst 源码常匹配不上而静默失效。这里按可靠度依次尝试：
+     *  1. 编辑模式传入的精确选区 [start,end)（校验区间内容与 oldText 一致，最可靠）；
+     *  2. 源码中精确匹配第一处；
+     *  3. trim 后再匹配（兜底预览选区的首尾空白差异）。
+     * 全部失败时写入 applyError 并返回 false——不再静默丢弃。
+     *
+     * @param range 编辑模式选区的半开区间 (start, end)，预览模式传 null。
      */
-    fun replaceSelectedText(oldText: String, newText: String) {
-        val doc = _document.value ?: return
-        val currentContent = doc.content
+    fun replaceSelectedText(oldText: String, newText: String, range: Pair<Int, Int>? = null): Boolean {
+        val doc = _document.value ?: return false
+        val content = doc.content
 
-        // 替换第一次出现的选中文本
-        val newContent = currentContent.replaceFirst(oldText, newText)
+        val newContent: String? = when {
+            // 1. 编辑模式：精确选区替换（防止文本已变动导致错位）
+            range != null &&
+                range.first in 0..content.length &&
+                range.second in range.first..content.length &&
+                content.substring(range.first, range.second) == oldText ->
+                content.substring(0, range.first) + newText + content.substring(range.second)
 
-        if (newContent != currentContent) {
-            _document.value = doc.copy(content = newContent)
-            isDocumentDirty = true
-            // 触发自动保存
-            saveDocument()
+            // 2. 源码精确匹配第一处
+            oldText.isNotEmpty() && content.contains(oldText) ->
+                content.replaceFirst(oldText, newText)
+
+            // 3. 兜底：trim 后匹配
+            else -> {
+                val trimmed = oldText.trim()
+                if (trimmed.isNotEmpty() && content.contains(trimmed))
+                    content.replaceFirst(trimmed, newText)
+                else null
+            }
         }
+
+        if (newContent == null || newContent == content) {
+            _applyError.value = "无法在原文中定位选中文本，请切换到编辑模式后再用 Agent 修改"
+            return false
+        }
+
+        _document.value = doc.copy(content = newContent)
+        isDocumentDirty = true
+        // 触发自动保存
+        saveDocument()
+        return true
     }
 
     /** 导出为指定格式（仅内部文档），成功后通过 exportedFile 通知 UI 弹分享 */
@@ -459,6 +509,14 @@ sealed class EditorUiState {
     data class Success(val document: Document) : EditorUiState()
     data class Error(val message: String) : EditorUiState()
 }
+
+/**
+ * 编辑器滚动状态（用于保持跨页面导航的滚动位置）
+ */
+data class EditorScrollState(
+    val editScrollPosition: Int = 0,      // 编辑器滚动位置（像素）
+    val previewScrollRatio: Float = 0f    // 预览滚动比例（0-1）
+)
 
 /**
  * 预览图片相对路径解析配置（序列化成 JSON 传给 renderer.html 的 setImageResolver）。
