@@ -44,8 +44,13 @@ class ClaudeAdapter(
 
     override fun sendChatStream(
         messages: List<ChatMessage>,
-        config: AiRequestConfig
+        config: AiRequestConfig,
+        tools: List<com.yumark.app.domain.model.AiTool>
     ): Flow<StreamEvent> = flow {
+        // TODO: Implement tool calling support
+        //  - Convert AiTool list to Claude tools format
+        //  - Handle tool_use events in SSE stream
+        //  - Emit ToolCallDelta events
         val body = buildJsonObject {
             put("model", config.model)
             put("max_tokens", config.maxTokens)

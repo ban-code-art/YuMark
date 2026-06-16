@@ -49,8 +49,13 @@ class OpenAiAdapter(
 
     override fun sendChatStream(
         messages: List<ChatMessage>,
-        config: AiRequestConfig
+        config: AiRequestConfig,
+        tools: List<com.yumark.app.domain.model.AiTool>
     ): Flow<StreamEvent> = flow {
+        // TODO: Implement tool calling support
+        //  - Convert AiTool list to OpenAI tools format
+        //  - Handle tool_calls in delta parsing
+        //  - Emit ToolCallDelta events
         val body = buildJsonObject {
             put("model", config.model)
             put("temperature", config.temperature)

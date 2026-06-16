@@ -47,8 +47,13 @@ class GeminiAdapter(
 
     override fun sendChatStream(
         messages: List<ChatMessage>,
-        config: AiRequestConfig
+        config: AiRequestConfig,
+        tools: List<com.yumark.app.domain.model.AiTool>
     ): Flow<StreamEvent> = flow {
+        // TODO: Implement tool calling support
+        //  - Convert AiTool list to Gemini function declarations
+        //  - Handle functionCall parts in streaming response
+        //  - Emit ToolCallDelta events
         val url = "${baseUrl.trimEnd('/')}/models/${config.model}:streamGenerateContent?alt=sse&key=$apiKey"
         val body = buildJsonObject {
             config.systemPrompt?.let { sp ->
