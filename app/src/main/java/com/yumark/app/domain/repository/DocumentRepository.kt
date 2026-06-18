@@ -15,6 +15,9 @@ interface DocumentRepository {
     suspend fun searchDocuments(query: String): Result<List<Document>>
     suspend fun createDocument(name: String, folderId: String?): Result<Document>
     suspend fun saveDocument(document: Document): Result<Unit>
+
+    /** 把文档移动到目标文件夹(null 为根目录),仅更新归属,不重写正文文件。 */
+    suspend fun moveDocument(id: String, targetFolderId: String?): Result<Unit>
     suspend fun deleteDocument(id: String): Result<Unit>
     suspend fun toggleFavorite(id: String): Result<Unit>
 }

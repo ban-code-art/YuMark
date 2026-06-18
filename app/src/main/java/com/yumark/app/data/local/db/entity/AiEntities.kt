@@ -35,5 +35,7 @@ data class MessageEntity(
     val role: String,              // MessageRole.name
     val content: String,
     val agentActionJson: String?,  // JSON 序列化的 AgentAction
-    val timestamp: Long
+    val timestamp: Long,
+    val stepsJson: String? = null,        // JSON 序列化的 List<AgentStep>（P3.1）
+    val attachmentsJson: String? = null   // 预留给 attachment Phase 2（D2：合并到同一迁移版本）
 )

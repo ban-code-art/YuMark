@@ -20,11 +20,15 @@ class FileManager @Inject constructor(
     // 导入库的图片资产：按导入时的相对目录结构镜像存放，供预览解析相对路径引用
     private val importAssetsDir = File(context.filesDir, "import_assets")
 
+    // AI 视觉附件：用户在 Agent 对话里上传的图片（已下采样），与文档 images 分开
+    private val aiAttachmentsDir = File(context.filesDir, "ai_attachments")
+
     init {
         documentsDir.mkdirs()
         imagesDir.mkdirs()
         exportsDir.mkdirs()
         importAssetsDir.mkdirs()
+        aiAttachmentsDir.mkdirs()
     }
 
     /**
@@ -125,6 +129,7 @@ class FileManager @Inject constructor(
     fun getImagesDir(): File = imagesDir
     fun getExportsDir(): File = exportsDir
     fun getImportAssetsDir(): File = importAssetsDir
+    fun getAiAttachmentsDir(): File = aiAttachmentsDir
 
     companion object {
         /**

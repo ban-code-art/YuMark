@@ -76,30 +76,31 @@ class ExecuteDocumentToolUseCase @Inject constructor(
             ?: throw IllegalArgumentException("缺少参数: query")
         val maxResults = args["max_results"]?.jsonPrimitive?.intOrNull ?: 5
 
+        val tokens = SearchRanker.tokenize(query)
+        if (tokens.isEmpty()) return "搜索词为空。"
+
         val allDocs = documentRepository.getAllDocuments().getOrElse {
             throw IllegalArgumentException("无法获取所有文档")
         }
-        val results = mutableListOf<Pair<com.yumark.app.domain.model.Document, List<Pair<Int, String>>>>()
 
-        for (doc in allDocs) {
+        data class Ranked(
+            val doc: com.yumark.app.domain.model.Document,
+            val score: Int,
+            val snippets: List<Pair<Int, String>>
+        )
+
+        val ranked = allDocs.mapNotNull { doc ->
             val content = fileManager.loadDocumentContent(doc.id).getOrElse { "" }
-            val lines = content.lines()
-            val matches = lines.withIndex()
-                .filter { it.value.contains(query, ignoreCase = true) }
-                .take(maxResults)
-                .map { it.index to it.value }
-                .toList()
+            val s = SearchRanker.score(doc.name, content, tokens)
+            if (s <= 0) null
+            else Ranked(doc, s, SearchRanker.snippets(content, tokens, maxResults))
+        }.sortedByDescending { it.score }.take(10)
 
-            if (matches.isNotEmpty()) {
-                results.add(doc to matches)
-            }
-        }
-
-        return if (results.isEmpty()) {
-            "未找到包含\"$query\"的文档。"
+        return if (ranked.isEmpty()) {
+            "未找到与\"$query\"相关的文档。"
         } else {
-            "搜索结果（关键词：\"$query\"）：\n\n" + results.joinToString("\n\n") { (doc, matches) ->
-                "【${doc.name}】\n" + matches.joinToString("\n") { (index, line) ->
+            "搜索结果（关键词：\"$query\"，按相关度排序）：\n\n" + ranked.joinToString("\n\n") { r ->
+                "【${r.doc.name}】(相关度 ${r.score})\n" + r.snippets.joinToString("\n") { (index, line) ->
                     "  第${index + 1}行: ${line.trim()}"
                 }
             }

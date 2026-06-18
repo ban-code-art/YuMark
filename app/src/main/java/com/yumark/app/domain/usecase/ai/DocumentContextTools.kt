@@ -57,12 +57,54 @@ object DocumentContextTools {
         )
     )
 
+    val CREATE_DOCUMENT = AiTool(
+        name = "create_document",
+        description = "创建一篇新的 Markdown 文档。仅在用户确实需要新建文档时调用；" +
+            "调用后会向用户展示待创建内容并请其确认，无需你再追加 [[ACTION]] 文本块。",
+        parameters = mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "title" to mapOf(
+                    "type" to "string",
+                    "description" to "文档标题；留空则自动命名"
+                ),
+                "content" to mapOf(
+                    "type" to "string",
+                    "description" to "完整可用的 Markdown 正文（不要省略）"
+                )
+            ),
+            "required" to listOf("content")
+        )
+    )
+
+    val EDIT_DOCUMENT = AiTool(
+        name = "edit_document",
+        description = "用新内容整体替换某文档。仅在用户确需修改文档时调用；" +
+            "调用后用户会逐块审阅 diff 并确认，无需你再追加 [[ACTION]] 文本块。",
+        parameters = mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "document_id" to mapOf(
+                    "type" to "string",
+                    "description" to "目标文档 ID；省略则默认当前打开的文档"
+                ),
+                "new_content" to mapOf(
+                    "type" to "string",
+                    "description" to "替换后的完整 Markdown 正文（不要省略）"
+                )
+            ),
+            "required" to listOf("new_content")
+        )
+    )
+
     /**
      * 获取所有可用工具
      */
     fun getAllTools(): List<AiTool> = listOf(
         READ_DOCUMENT,
         LIST_DOCUMENTS,
-        SEARCH_IN_PROJECT
+        SEARCH_IN_PROJECT,
+        CREATE_DOCUMENT,
+        EDIT_DOCUMENT
     )
 }

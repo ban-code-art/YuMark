@@ -124,6 +124,11 @@ class DocumentRepositoryImpl @Inject constructor(
         fileManager.deleteDocumentFile(id).getOrThrow()
     }
 
+    override suspend fun moveDocument(id: String, targetFolderId: String?): Result<Unit> = runCatching {
+        // 仅改归属(folder_id),正文文件不动;顺带刷新 updated_at
+        documentDao.moveToFolder(id, targetFolderId, System.currentTimeMillis())
+    }
+
     override suspend fun toggleFavorite(id: String): Result<Unit> = runCatching {
         documentDao.toggleFavorite(id)
     }

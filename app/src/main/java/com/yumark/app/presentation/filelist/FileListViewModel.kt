@@ -386,6 +386,22 @@ class FileListViewModel @Inject constructor(
         }
     }
 
+    /** 把文档移动到目标文件夹(null 为根目录)。 */
+    fun moveDocument(docId: String, targetFolderId: String?) {
+        viewModelScope.launch {
+            documentRepository.moveDocument(docId, targetFolderId)
+                .onFailure { setError(it.message ?: "移动文档失败") }
+        }
+    }
+
+    /** 把文件夹移动到目标父文件夹(null 为根目录);防环由仓库保证。 */
+    fun moveFolder(folderId: String, targetParentId: String?) {
+        viewModelScope.launch {
+            manageFoldersUseCase.moveFolder(folderId, targetParentId)
+                .onFailure { setError(it.message ?: "移动文件夹失败") }
+        }
+    }
+
     fun renameDocument(id: String, newName: String) {
         viewModelScope.launch {
             when (val result = FileNameValidator.validate(newName)) {

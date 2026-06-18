@@ -4,11 +4,15 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.yumark.app.data.local.db.dao.AgentTaskDao
 import com.yumark.app.data.local.db.dao.ConversationDao
 import com.yumark.app.data.local.db.dao.DocumentDao
 import com.yumark.app.data.local.db.dao.FolderDao
 import com.yumark.app.data.local.db.dao.ImageDao
 import com.yumark.app.data.local.db.dao.MessageDao
+import com.yumark.app.data.local.db.entity.AgentEvidenceEntity
+import com.yumark.app.data.local.db.entity.AgentTaskEntity
+import com.yumark.app.data.local.db.entity.AgentTaskStepEntity
 import com.yumark.app.data.local.db.entity.ConversationEntity
 import com.yumark.app.data.local.db.entity.DocumentEntity
 import com.yumark.app.data.local.db.entity.FolderEntity
@@ -21,9 +25,12 @@ import com.yumark.app.data.local.db.entity.MessageEntity
         FolderEntity::class,
         ImageEntity::class,
         ConversationEntity::class,
-        MessageEntity::class
+        MessageEntity::class,
+        AgentTaskEntity::class,
+        AgentTaskStepEntity::class,
+        AgentEvidenceEntity::class
     ],
-    version = 4,
+    version = 6,
     exportSchema = true  // 启用 schema 导出，支持数据库迁移
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -32,6 +39,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun imageDao(): ImageDao
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
+    abstract fun agentTaskDao(): AgentTaskDao
 
     companion object {
         /**
@@ -94,10 +102,93 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * 版本 4 → 5：messages 表加 agent 步骤(stepsJson) 与附件(attachmentsJson) 列。
+         * attachmentsJson 为 attachment Phase 2 预留（D2：两项 schema 变更合并到同一迁移版本）。
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN stepsJson TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE messages ADD COLUMN attachmentsJson TEXT DEFAULT NULL")
+            }
+        }
+
+        /**
+         * 版本 5 -> 6：新增 Agent 任务、步骤和证据表。
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS agent_tasks (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        conversation_id TEXT NOT NULL,
+                        goal TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        current_step_id TEXT,
+                        plan_version INTEGER NOT NULL,
+                        final_summary TEXT,
+                        blocking_reason TEXT,
+                        FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_agent_tasks_conversation_id ON agent_tasks(conversation_id)"
+                )
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS agent_task_steps (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        task_id TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        step_order INTEGER NOT NULL,
+                        depends_on_step_ids_json TEXT NOT NULL,
+                        completion_criteria TEXT NOT NULL,
+                        result_summary TEXT,
+                        tool_hints_json TEXT NOT NULL,
+                        FOREIGN KEY(task_id) REFERENCES agent_tasks(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_agent_task_steps_task_id ON agent_task_steps(task_id)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_agent_task_steps_task_id_step_order ON agent_task_steps(task_id, step_order)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS agent_evidence (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        task_id TEXT NOT NULL,
+                        step_id TEXT,
+                        type TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        source_tool TEXT,
+                        created_at INTEGER NOT NULL,
+                        FOREIGN KEY(task_id) REFERENCES agent_tasks(id) ON DELETE CASCADE,
+                        FOREIGN KEY(step_id) REFERENCES agent_task_steps(id) ON DELETE SET NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_agent_evidence_task_id ON agent_evidence(task_id)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_agent_evidence_step_id ON agent_evidence(step_id)")
+            }
+        }
+
+        /**
          * 获取所有已定义的迁移
          * 在 DatabaseModule 中使用：
          * Room.databaseBuilder(...).addMigrations(*AppDatabase.ALL_MIGRATIONS).build()
          */
-        val ALL_MIGRATIONS = arrayOf<Migration>(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+        val ALL_MIGRATIONS = arrayOf<Migration>(
+            MIGRATION_1_2,
+            MIGRATION_2_3,
+            MIGRATION_3_4,
+            MIGRATION_4_5,
+            MIGRATION_5_6
+        )
     }
 }

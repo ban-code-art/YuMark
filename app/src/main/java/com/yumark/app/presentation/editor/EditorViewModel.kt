@@ -7,6 +7,7 @@ import com.yumark.app.data.local.file.FileManager
 import com.yumark.app.domain.model.Document
 import com.yumark.app.domain.model.ExportFormat
 import com.yumark.app.domain.model.ExportOptions
+import com.yumark.app.domain.model.Folder
 import com.yumark.app.domain.model.FolderTreeNode
 import com.yumark.app.domain.model.OutlineItem
 import com.yumark.app.domain.model.UserSettings
@@ -85,6 +86,10 @@ class EditorViewModel @Inject constructor(
     }
         .map { getFolderTreeUseCase().getOrNull() }
         .stateIn(viewModelScope, SharingStarted.Lazily, null)
+
+    /** 扁平内部文件夹列表（给「移动到…」选择器用） */
+    val folders: StateFlow<List<Folder>> = folderRepository.observeFolders()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     private val _uiState = MutableStateFlow<EditorUiState>(EditorUiState.Loading)
     val uiState: StateFlow<EditorUiState> = _uiState.asStateFlow()
@@ -501,6 +506,24 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch {
             documentRepository.deleteDocument(docId).onFailure {
                 _saveError.value = "删除文档失败"
+            }
+        }
+    }
+
+    /** 把文档移动到目标文件夹(null 为根目录)。 */
+    fun moveDocument(docId: String, targetFolderId: String?) {
+        viewModelScope.launch {
+            documentRepository.moveDocument(docId, targetFolderId).onFailure {
+                _saveError.value = it.message ?: "移动文档失败"
+            }
+        }
+    }
+
+    /** 把文件夹移动到目标父文件夹(null 为根目录);防环由仓库保证。 */
+    fun moveFolder(folderId: String, targetParentId: String?) {
+        viewModelScope.launch {
+            folderRepository.moveFolder(folderId, targetParentId).onFailure {
+                _saveError.value = it.message ?: "移动文件夹失败"
             }
         }
     }

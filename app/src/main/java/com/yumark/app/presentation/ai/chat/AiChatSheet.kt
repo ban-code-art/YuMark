@@ -21,6 +21,7 @@ import com.yumark.app.domain.usecase.ai.chat.ChatMessageState
 import com.yumark.app.domain.usecase.ai.chat.SendChatMessageUseCase
 import com.yumark.app.domain.usecase.ai.conversation.GetConversationUseCase
 import com.yumark.app.presentation.ai.common.MessageBubble
+import com.yumark.app.presentation.common.isNearBottom
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -95,8 +96,11 @@ fun ChatContent(
     val listState = rememberLazyListState()
     val snackbar = remember { SnackbarHostState() }
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(messages.size, messages.lastOrNull()?.content) {
+        // 瞬时滚动(避免流式每个 token 重启动画)+ 仅在底部附近跟随(用户向上翻阅时不被拽回)
+        if (messages.isNotEmpty() && listState.isNearBottom()) {
+            listState.scrollToItem(listState.layoutInfo.totalItemsCount - 1)
+        }
     }
     LaunchedEffect(error) {
         error?.let { snackbar.showSnackbar(it); viewModel.clearError() }

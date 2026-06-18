@@ -32,6 +32,9 @@ interface DocumentDao {
     @Query("DELETE FROM documents WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    @Query("UPDATE documents SET folder_id = :folderId, updated_at = :updatedAt WHERE id = :id")
+    suspend fun moveToFolder(id: String, folderId: String?, updatedAt: Long)
+
     @Query("UPDATE documents SET is_favorite = NOT is_favorite WHERE id = :id")
     suspend fun toggleFavorite(id: String)
 }

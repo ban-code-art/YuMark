@@ -3,6 +3,7 @@ package com.yumark.app.di
 import android.content.Context
 import androidx.room.Room
 import com.yumark.app.data.local.db.AppDatabase
+import com.yumark.app.data.local.db.dao.AgentTaskDao
 import com.yumark.app.data.local.db.dao.ConversationDao
 import com.yumark.app.data.local.db.dao.DocumentDao
 import com.yumark.app.data.local.db.dao.FolderDao
@@ -64,5 +65,11 @@ object DatabaseModule {
     @Singleton
     fun provideMessageDao(database: AppDatabase): MessageDao {
         return database.messageDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideAgentTaskDao(database: AppDatabase): AgentTaskDao {
+        return database.agentTaskDao()
     }
 }

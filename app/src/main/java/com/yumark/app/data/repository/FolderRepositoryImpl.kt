@@ -153,7 +153,29 @@ class FolderRepositoryImpl @Inject constructor(
 
     override suspend fun moveFolder(id: String, targetParentId: String?): Result<Unit> = runCatching {
         val entity = folderDao.getById(id) ?: throw Exception("Folder not found: $id")
-        folderDao.update(entity.copy(parentId = targetParentId))
+        // 防环:不能移动到自身,也不能移动到自己的子孙(否则子树脱离根、构建树时死循环)
+        if (targetParentId == id) throw IllegalArgumentException("不能移动到自身")
+        if (targetParentId != null && isDescendant(targetParentId, ancestorId = id)) {
+            throw IllegalArgumentException("不能移动到自己的子文件夹")
+        }
+        // 追加到目标文件夹末尾,避免与目标内既有 order 冲突
+        val newOrder = folderDao.getByParent(targetParentId).size
+        folderDao.update(entity.copy(parentId = targetParentId, order = newOrder))
+    }
+
+    /** folderId 是否是 ancestorId 的后代(沿 parentId 链上溯,带深度/循环 guard)。 */
+    private suspend fun isDescendant(folderId: String, ancestorId: String): Boolean {
+        var current: String? = folderId
+        val visited = mutableSetOf<String>()
+        var depth = 0
+        while (current != null) {
+            if (current == ancestorId) return true
+            if (current in visited || depth > MAX_FOLDER_DEPTH) return false
+            visited.add(current)
+            current = folderDao.getById(current)?.parentId
+            depth++
+        }
+        return false
     }
 
     /**

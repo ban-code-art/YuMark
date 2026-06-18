@@ -1,6 +1,7 @@
 package com.yumark.app.di
 
 import com.yumark.app.data.repository.AiConfigRepositoryImpl
+import com.yumark.app.data.repository.AgentTaskRepositoryImpl
 import com.yumark.app.data.repository.ConversationRepositoryImpl
 import com.yumark.app.data.repository.DocumentRepositoryImpl
 import com.yumark.app.data.repository.FolderRepositoryImpl
@@ -8,6 +9,7 @@ import com.yumark.app.data.repository.ImageRepositoryImpl
 import com.yumark.app.data.repository.SettingsRepositoryImpl
 import com.yumark.app.data.repository.WorkspaceRepositoryImpl
 import com.yumark.app.domain.repository.AiConfigRepository
+import com.yumark.app.domain.repository.AgentTaskRepository
 import com.yumark.app.domain.repository.ConversationRepository
 import com.yumark.app.domain.repository.DocumentRepository
 import com.yumark.app.domain.repository.FolderRepository
@@ -44,4 +46,7 @@ abstract class RepositoryModule {
 
     @Binds @Singleton
     abstract fun bindConversationRepository(impl: ConversationRepositoryImpl): ConversationRepository
+
+    @Binds @Singleton
+    abstract fun bindAgentTaskRepository(impl: AgentTaskRepositoryImpl): AgentTaskRepository
 }

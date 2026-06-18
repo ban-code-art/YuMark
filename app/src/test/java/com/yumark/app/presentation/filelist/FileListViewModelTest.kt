@@ -7,6 +7,7 @@ import com.yumark.app.domain.model.Folder
 import com.yumark.app.domain.model.SortOption
 import com.yumark.app.domain.repository.DocumentRepository
 import com.yumark.app.domain.repository.FolderRepository
+import com.yumark.app.data.remote.UpdateChecker
 import com.yumark.app.domain.repository.WorkspaceRepository
 import com.yumark.app.domain.usecase.*
 import io.mockk.*
@@ -33,6 +34,7 @@ class FileListViewModelTest {
     private val workspaceRepository: WorkspaceRepository = mockk(relaxed = true)
     private val importDocumentUseCase: com.yumark.app.domain.usecase.importing.ImportDocumentUseCase = mockk(relaxed = true)
     private val importFolderUseCase: com.yumark.app.domain.usecase.importing.ImportFolderUseCase = mockk(relaxed = true)
+    private val updateChecker: UpdateChecker = mockk(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -57,7 +59,7 @@ class FileListViewModelTest {
     private fun createViewModel() = FileListViewModel(
         documentRepository, folderRepository, createDocumentUseCase,
         deleteDocumentUseCase, searchUseCase, manageFoldersUseCase, getFolderTreeUseCase,
-        workspaceRepository, importDocumentUseCase, importFolderUseCase
+        workspaceRepository, importDocumentUseCase, importFolderUseCase, updateChecker
     )
 
     @Test

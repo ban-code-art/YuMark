@@ -42,6 +42,8 @@ import com.yumark.app.presentation.ai.AiAssistantHost
 import com.yumark.app.presentation.navigation.Screen
 import com.yumark.app.presentation.sidebar.SidebarActions
 import com.yumark.app.presentation.sidebar.SidebarFileTree
+import com.yumark.app.presentation.sidebar.MoveToFolderDialog
+import com.yumark.app.presentation.sidebar.selfAndDescendantFolderIds
 import com.yumark.app.presentation.sidebar.WorkspaceFileTree
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,6 +80,7 @@ fun EditorScreen(
     var fileTreeExpanded by remember { mutableStateOf(setOf<String>()) }
     val folderTree by viewModel.folderTree.collectAsState()
     val editorWorkspace by viewModel.workspace.collectAsState()
+    val folders by viewModel.folders.collectAsState()
 
     // 返回键处理优先级（从高到低）：
     // 1. 抽屉打开时先收抽屉
@@ -143,7 +146,9 @@ fun EditorScreen(
                 // Agent 模式下应用修改：编辑模式用精确选区，预览模式按原文匹配
                 viewModel.replaceSelectedText(oldText, newText, selectedRange)
             },
-            allowEditSelectedText = isPreviewMode  // 预览模式下允许编辑选中文本
+            allowEditSelectedText = isPreviewMode,  // 预览模式下允许编辑选中文本
+            documentName = document?.name,
+            documentContent = document?.content   // 整篇文档作为「询问/处理」的上下文
         )
     }
 
@@ -464,6 +469,8 @@ fun EditorScreen(
     var folderToDelete by remember { mutableStateOf<String?>(null) }
     var documentToRename by remember { mutableStateOf<com.yumark.app.domain.model.Document?>(null) }
     var documentToDelete by remember { mutableStateOf<com.yumark.app.domain.model.Document?>(null) }
+    var documentToMove by remember { mutableStateOf<com.yumark.app.domain.model.Document?>(null) }
+    var folderToMove by remember { mutableStateOf<String?>(null) }
     var showImportMenu by remember { mutableStateOf(false) }
 
     // 外层左侧文件树抽屉（LTR）；内层沿用 RTL 包裹的右侧大纲抽屉
@@ -486,6 +493,9 @@ fun EditorScreen(
                         fileTreeExpanded = if (key in fileTreeExpanded) fileTreeExpanded - key
                         else fileTreeExpanded + key
                     },
+                    onEnsureFoldersExpanded = { ids ->
+                        fileTreeExpanded = fileTreeExpanded + ids
+                    },
                     onOpenInternal = { id -> openFromSidebar(Screen.Editor.createRoute(id)) },
                     onOpenExternal = { uri -> openFromSidebar(Screen.Editor.createExternalRoute(uri)) },
                     onCloseDrawer = { scope.launch { fileDrawerState.close() } },
@@ -502,7 +512,11 @@ fun EditorScreen(
                     onRenameFolder = { folderId, name -> folderToRename = folderId to name },
                     onDeleteFolder = { folderToDelete = it },
                     onRenameDocument = { documentToRename = it },
-                    onDeleteDocument = { documentToDelete = it }
+                    onDeleteDocument = { documentToDelete = it },
+                    onMoveDocument = { documentToMove = it },
+                    onMoveFolder = { folderToMove = it },
+                    onMoveDocumentTo = { id, target -> viewModel.moveDocument(id, target) },
+                    onMoveFolderTo = { id, target -> viewModel.moveFolder(id, target) }
                 )
             }
         }
@@ -622,7 +636,16 @@ fun EditorScreen(
                     Box(modifier = Modifier.fillMaxSize().padding(padding)) {
                         when (val state = uiState) {
                             is EditorUiState.Loading -> {
-                                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                                // 延迟显示加载指示器：快速加载（绝大多数情况）不闪 spinner，内容直接出现；
+                                // 仅当加载确实较慢（>200ms）才显示，消除「先 loading 再显示」的不适感。
+                                var showSpinner by remember { mutableStateOf(false) }
+                                LaunchedEffect(Unit) {
+                                    delay(200)
+                                    showSpinner = true
+                                }
+                                if (showSpinner) {
+                                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                                }
                             }
                             is EditorUiState.Success -> {
                                 // 本地编辑状态（含光标/选区），避免依赖异步的 document 状态
@@ -642,6 +665,24 @@ fun EditorScreen(
                                         }
                                 }
 
+                                // 预览模式持续保存滚动比例（镜像上面的编辑器持续保存）。
+                                // onDispose 里的保存会与 WebView 销毁竞速、常常存不进；这里周期性落库，
+                                // 保证导航离开前 VM 里已有最新比例可供返回时恢复。
+                                LaunchedEffect(isPreviewMode, rendererReady.value) {
+                                    if (isPreviewMode && rendererReady.value) {
+                                        while (true) {
+                                            delay(350)
+                                            if (previewWebView.contentHeight > 0) {
+                                                previewWebView.evaluateJavascript("window.getScrollRatio()") { result ->
+                                                    result?.trim('"')?.toFloatOrNull()?.let {
+                                                        viewModel.savePreviewScrollRatio(it)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 // 导航离开时保存WebView滚动位置
                                 DisposableEffect(Unit) {
                                     onDispose {
@@ -657,21 +698,35 @@ fun EditorScreen(
                                     }
                                 }
 
-                                // 从设置返回后恢复滚动位置
+                                // 从设置返回后恢复滚动位置。
+                                // 只按 document?.id 触发（重进 composition 即重跑一次）；不再带 isPreviewMode，
+                                // 避免与下方「模式切换同步」effect 在每次切换时互相打架。
                                 val savedScrollState by viewModel.scrollState.collectAsState()
-                                LaunchedEffect(document?.id, isPreviewMode) {
-                                    // 等待视图渲染完成
-                                    delay(if (isPreviewMode) 250 else 150)
+                                LaunchedEffect(document?.id) {
+                                    // 先把目标位置抓进局部变量：此后编辑/预览的「持续保存」会把 VM 里的值
+                                    // 刷成新视图的 0，但恢复用的是这里抓到的旧值，不受影响。
+                                    val targetRatio = savedScrollState.previewScrollRatio
+                                    val targetPos = savedScrollState.editScrollPosition
 
-                                    if (isPreviewMode && savedScrollState.previewScrollRatio > 0f) {
-                                        // 恢复预览滚动
+                                    if (isPreviewMode && targetRatio > 0f) {
+                                        // 等渲染器就绪且内容已有高度，再按比例定位（布局完成前滚动会被钳到顶部）
+                                        var attempts = 0
+                                        while ((!rendererReady.value || previewWebView.contentHeight == 0) && attempts < 50) {
+                                            delay(40)
+                                            attempts++
+                                        }
+                                        delay(80)  // 留一帧让布局稳定
                                         previewWebView.evaluateJavascript(
-                                            "window.scrollToRatio(${savedScrollState.previewScrollRatio})",
-                                            null
+                                            "window.scrollToRatio($targetRatio)", null
                                         )
-                                    } else if (!isPreviewMode && savedScrollState.editScrollPosition > 0) {
-                                        // 恢复编辑器滚动
-                                        scrollState.scrollTo(savedScrollState.editScrollPosition)
+                                    } else if (!isPreviewMode && targetPos > 0) {
+                                        // 等编辑器内容布局完成（maxValue 就绪）再滚动，否则会被钳到 0
+                                        var attempts = 0
+                                        while (scrollState.maxValue == 0 && attempts < 50) {
+                                            delay(40)
+                                            attempts++
+                                        }
+                                        scrollState.scrollTo(targetPos)
                                     }
                                 }
 
@@ -1119,6 +1174,34 @@ fun EditorScreen(
     }
 
     // 删除文档
+    // 移动文档到其他文件夹
+    documentToMove?.let { doc ->
+        MoveToFolderDialog(
+            title = "移动「${doc.name}」到",
+            folders = folders,
+            onDismiss = { documentToMove = null },
+            onPick = { target ->
+                viewModel.moveDocument(doc.id, target)
+                documentToMove = null
+            }
+        )
+    }
+
+    // 移动文件夹到其他文件夹
+    folderToMove?.let { folderId ->
+        val name = folders.find { it.id == folderId }?.name ?: ""
+        MoveToFolderDialog(
+            title = "移动「$name」到",
+            folders = folders,
+            disabledFolderIds = selfAndDescendantFolderIds(folders, folderId),
+            onDismiss = { folderToMove = null },
+            onPick = { target ->
+                viewModel.moveFolder(folderId, target)
+                folderToMove = null
+            }
+        )
+    }
+
     documentToDelete?.let { doc ->
         AlertDialog(
             onDismissRequest = { documentToDelete = null },
@@ -1159,6 +1242,7 @@ private fun EditorSidebarContent(
     currentDocUri: String?,
     expandedFolders: Set<String>,
     onToggleFolder: (String) -> Unit,
+    onEnsureFoldersExpanded: (List<String>) -> Unit,
     onOpenInternal: (String) -> Unit,
     onOpenExternal: (String) -> Unit,
     onCloseDrawer: () -> Unit,
@@ -1172,7 +1256,11 @@ private fun EditorSidebarContent(
     onRenameFolder: (String, String) -> Unit,
     onDeleteFolder: (String) -> Unit,
     onRenameDocument: (com.yumark.app.domain.model.Document) -> Unit,
-    onDeleteDocument: (com.yumark.app.domain.model.Document) -> Unit
+    onDeleteDocument: (com.yumark.app.domain.model.Document) -> Unit,
+    onMoveDocument: (com.yumark.app.domain.model.Document) -> Unit,
+    onMoveFolder: (String) -> Unit,
+    onMoveDocumentTo: (String, String?) -> Unit,
+    onMoveFolderTo: (String, String?) -> Unit
 ) {
     if (isExternal) {
         val ws = workspace
@@ -1275,6 +1363,8 @@ private fun EditorSidebarContent(
                 onFolderExpand = onToggleFolder,
                 onFolderCollapse = onToggleFolder,
                 scrollToCurrentDocument = fileDrawerState.isOpen,
+                // 自动展开深处当前文档的祖先文件夹链(并集语义)，使其在侧栏可见并可定位
+                onEnsureFoldersExpanded = onEnsureFoldersExpanded,
                 actions = SidebarActions(
                     onCreateDocument = { folderId -> onShowCreateDialog(folderId ?: "") },
                     onCreateSubfolder = { folderId -> folderId?.let { onShowSubfolderDialog(it) } },
@@ -1285,7 +1375,11 @@ private fun EditorSidebarContent(
                     },
                     onDeleteFolder = onDeleteFolder,
                     onRenameDocument = onRenameDocument,
-                    onDeleteDocument = onDeleteDocument
+                    onDeleteDocument = onDeleteDocument,
+                    onMoveDocument = onMoveDocument,
+                    onMoveFolder = onMoveFolder,
+                    onMoveDocumentTo = onMoveDocumentTo,
+                    onMoveFolderTo = onMoveFolderTo
                 )
             )
         }

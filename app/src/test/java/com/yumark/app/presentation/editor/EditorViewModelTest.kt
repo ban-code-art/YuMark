@@ -44,6 +44,8 @@ class EditorViewModelTest {
         every { loadSettingsUseCase.observe() } returns flowOf(settings)
         coEvery { loadSettingsUseCase() } returns settings
         every { getAiConfigUseCase() } returns flowOf(com.yumark.app.domain.model.AiConfig())
+        every { folderRepository.observeFolders() } returns flowOf(emptyList())
+        every { documentRepository.observeAllDocuments() } returns flowOf(emptyList())
     }
 
     @AfterEach

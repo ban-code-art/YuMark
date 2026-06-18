@@ -72,7 +72,22 @@ data class Message(
     val content: String,
     val agentAction: AgentAction? = null,
     val timestamp: Long = System.currentTimeMillis(),
-    val isStreaming: Boolean = false
+    val isStreaming: Boolean = false,
+    val steps: List<AgentStep> = emptyList(),
+    val attachments: List<MessageAttachment> = emptyList()
+)
+
+/**
+ * 消息附件的持久化引用（存盘文件路径 + 元信息，**不含 Base64**）。
+ * 序列化进 [Message] 的 attachmentsJson 列；显示时用 path 经 Coil 加载，
+ * 发送时由 ImageProcessor 现读文件编码为 [MessageContent.Image]。
+ */
+@Serializable
+data class MessageAttachment(
+    val path: String,            // 应用私有目录相对路径，如 ai_attachments/<uuid>.jpg
+    val mimeType: String,        // image/jpeg | image/png | image/gif | image/webp
+    val width: Int? = null,
+    val height: Int? = null
 )
 
 /** Agent 操作类型 */

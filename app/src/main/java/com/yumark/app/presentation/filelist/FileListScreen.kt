@@ -30,10 +30,13 @@ import com.yumark.app.domain.model.SearchResult
 import com.yumark.app.domain.model.SortOption
 import com.yumark.app.domain.repository.FolderRepository
 import com.yumark.app.domain.usecase.importing.ImportCandidate
+import com.yumark.app.presentation.ai.AiAssistantHost
 import com.yumark.app.presentation.common.FolderConfirmDialog
 import com.yumark.app.presentation.navigation.Screen
 import com.yumark.app.presentation.sidebar.SidebarActions
 import com.yumark.app.presentation.sidebar.SidebarFileTree
+import com.yumark.app.presentation.sidebar.MoveToFolderDialog
+import com.yumark.app.presentation.sidebar.selfAndDescendantFolderIds
 import com.yumark.app.presentation.sidebar.WorkspaceFileTree
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -55,7 +58,10 @@ fun FileListScreen(
     var isSearchActive by remember { mutableStateOf(false) }
     var documentToRename by remember { mutableStateOf<Document?>(null) }
     var documentToDelete by remember { mutableStateOf<Document?>(null) }
+    var documentToMove by remember { mutableStateOf<Document?>(null) }
+    var folderToMove by remember { mutableStateOf<String?>(null) }
     var showImportMenu by remember { mutableStateOf(false) }
+    var showAiSheet by remember { mutableStateOf(false) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -102,6 +108,19 @@ fun FileListScreen(
                 pendingWorkspaceDir = null
             },
             onDismiss = { pendingWorkspaceDir = null }
+        )
+    }
+
+    // 文件列表（未进入文档）也提供 AI 助手入口；无文档时 Agent 仍可经工具操作任意文档
+    if (showAiSheet) {
+        AiAssistantHost(
+            currentDocumentId = null,
+            currentDocumentName = null,
+            currentDocumentContent = null,
+            onNavigateToDocument = { docId ->
+                navController.navigate(Screen.Editor.createRoute(docId))
+            },
+            onDismiss = { showAiSheet = false }
         )
     }
 
@@ -358,7 +377,11 @@ fun FileListScreen(
                                     folderToDelete = folderId
                                 },
                                 onRenameDocument = { documentToRename = it },
-                                onDeleteDocument = { documentToDelete = it }
+                                onDeleteDocument = { documentToDelete = it },
+                                onMoveDocument = { documentToMove = it },
+                                onMoveFolder = { folderToMove = it },
+                                onMoveDocumentTo = { id, target -> viewModel.moveDocument(id, target) },
+                                onMoveFolderTo = { id, target -> viewModel.moveFolder(id, target) }
                             )
                         )
                     }
@@ -474,6 +497,9 @@ fun FileListScreen(
                                 IconButton(onClick = { showSortMenu = true }) {
                                     Icon(Icons.AutoMirrored.Filled.Sort, stringResource(R.string.sort))
                                 }
+                            }
+                            IconButton(onClick = { showAiSheet = true }) {
+                                Icon(Icons.Default.AutoAwesome, "AI 助手")
                             }
                             IconButton(onClick = { navController.navigate("settings") }) {
                                 Icon(Icons.Default.Settings, stringResource(R.string.settings))
@@ -736,6 +762,42 @@ fun FileListScreen(
     }
 
     // 删除文档确认对话框
+    // 移动文档到其他文件夹
+    documentToMove?.let { doc ->
+        val moveFolders = (uiState as? FileListUiState.Success)?.folders ?: emptyList()
+        // 禁选文档当前所在位置(重选等同 no-op，仍会刷新 updated_at/重排)：
+        // 在某文件夹内 → 禁该文件夹；在根目录 → 禁根目录行。
+        MoveToFolderDialog(
+            title = "移动「${doc.name}」到",
+            folders = moveFolders,
+            disabledFolderIds = setOfNotNull(doc.folderId),
+            rootEnabled = doc.folderId != null,
+            onDismiss = { documentToMove = null },
+            onPick = { target ->
+                viewModel.moveDocument(doc.id, target)
+                documentToMove = null
+            }
+        )
+    }
+
+    // 移动文件夹到其他文件夹
+    folderToMove?.let { folderId ->
+        val moveFolders = (uiState as? FileListUiState.Success)?.folders ?: emptyList()
+        val name = moveFolders.find { it.id == folderId }?.name ?: ""
+        val folderParentId = moveFolders.find { it.id == folderId }?.parentId
+        MoveToFolderDialog(
+            title = "移动「$name」到",
+            folders = moveFolders,
+            disabledFolderIds = selfAndDescendantFolderIds(moveFolders, folderId),
+            rootEnabled = folderParentId != null,
+            onDismiss = { folderToMove = null },
+            onPick = { target ->
+                viewModel.moveFolder(folderId, target)
+                folderToMove = null
+            }
+        )
+    }
+
     documentToDelete?.let { doc ->
         AlertDialog(
             onDismissRequest = { documentToDelete = null },

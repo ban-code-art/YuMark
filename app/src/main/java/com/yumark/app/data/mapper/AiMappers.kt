@@ -3,10 +3,12 @@ package com.yumark.app.data.mapper
 import com.yumark.app.data.local.db.entity.ConversationEntity
 import com.yumark.app.data.local.db.entity.MessageEntity
 import com.yumark.app.domain.model.AgentAction
+import com.yumark.app.domain.model.AgentStep
 import com.yumark.app.domain.model.Conversation
 import com.yumark.app.domain.model.ConversationStatus
 import com.yumark.app.domain.model.ConversationType
 import com.yumark.app.domain.model.Message
+import com.yumark.app.domain.model.MessageAttachment
 import com.yumark.app.domain.model.MessageRole
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -48,7 +50,13 @@ fun MessageEntity.toDomain(): Message =
         agentAction = agentActionJson?.let {
             runCatching { aiJson.decodeFromString<AgentAction>(it) }.getOrNull()
         },
-        timestamp = timestamp
+        timestamp = timestamp,
+        steps = stepsJson?.let {
+            runCatching { aiJson.decodeFromString<List<AgentStep>>(it) }.getOrNull()
+        } ?: emptyList(),
+        attachments = attachmentsJson?.let {
+            runCatching { aiJson.decodeFromString<List<MessageAttachment>>(it) }.getOrNull()
+        } ?: emptyList()
     )
 
 fun Message.toEntity(): MessageEntity =
@@ -58,5 +66,7 @@ fun Message.toEntity(): MessageEntity =
         role = role.name,
         content = content,
         agentActionJson = agentAction?.let { aiJson.encodeToString(it) },
-        timestamp = timestamp
+        timestamp = timestamp,
+        stepsJson = if (steps.isEmpty()) null else aiJson.encodeToString(steps),
+        attachmentsJson = if (attachments.isEmpty()) null else aiJson.encodeToString(attachments)
     )
