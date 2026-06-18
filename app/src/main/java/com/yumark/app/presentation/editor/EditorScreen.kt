@@ -5,6 +5,7 @@ import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,14 +53,14 @@ fun EditorScreen(
     navController: NavController,
     viewModel: EditorViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val document by viewModel.document.collectAsState()
-    val isSaving by viewModel.isSaving.collectAsState()
-    val isPreviewMode by viewModel.isPreviewMode.collectAsState()
-    val outline by viewModel.outline.collectAsState()
-    val saveError by viewModel.saveError.collectAsState()
-    val applyError by viewModel.applyError.collectAsState()
-    val aiEnabled by viewModel.aiEnabled.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val document by viewModel.document.collectAsStateWithLifecycle()
+    val isSaving by viewModel.isSaving.collectAsStateWithLifecycle()
+    val isPreviewMode by viewModel.isPreviewMode.collectAsStateWithLifecycle()
+    val outline by viewModel.outline.collectAsStateWithLifecycle()
+    val saveError by viewModel.saveError.collectAsStateWithLifecycle()
+    val applyError by viewModel.applyError.collectAsStateWithLifecycle()
+    val aiEnabled by viewModel.aiEnabled.collectAsStateWithLifecycle()
     var showAiSheet by remember { mutableStateOf(false) }
 
     // 文本选择快捷 AI/Agent 功能
@@ -73,14 +74,14 @@ fun EditorScreen(
     val outlineDrawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val editorFontSize by viewModel.editorFontSize.collectAsState()
+    val editorFontSize by viewModel.editorFontSize.collectAsStateWithLifecycle()
 
     // 左侧文件树抽屉：顶栏按钮打开，点文档直接切换（替代旧的返回箭头）
     val fileDrawerState = rememberDrawerState(DrawerValue.Closed)
     var fileTreeExpanded by remember { mutableStateOf(setOf<String>()) }
-    val folderTree by viewModel.folderTree.collectAsState()
-    val editorWorkspace by viewModel.workspace.collectAsState()
-    val folders by viewModel.folders.collectAsState()
+    val folderTree by viewModel.folderTree.collectAsStateWithLifecycle()
+    val editorWorkspace by viewModel.workspace.collectAsStateWithLifecycle()
+    val folders by viewModel.folders.collectAsStateWithLifecycle()
 
     // 返回键处理优先级（从高到低）：
     // 1. 抽屉打开时先收抽屉
@@ -111,7 +112,7 @@ fun EditorScreen(
         }
     }
 
-    val themeId by viewModel.themeId.collectAsState()
+    val themeId by viewModel.themeId.collectAsStateWithLifecycle()
     // 以实际生效的主题亮度判断深浅（兼容设置里手动选择的深色模式）
     val isDarkMode = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
@@ -379,7 +380,10 @@ fun EditorScreen(
 
     DisposableEffect(Unit) {
         onDispose {
+            // 移除全部三个 JS interface，避免 WebView 销毁后仍持有指向宿主的接口引用。
             previewWebView.removeJavascriptInterface("Android")
+            previewWebView.removeJavascriptInterface("AndroidSelection")
+            previewWebView.removeJavascriptInterface("AndroidTouch")
             previewWebView.destroy()
         }
     }
@@ -393,7 +397,7 @@ fun EditorScreen(
     }
 
     // 相对路径图片解析基址（导入库/外部工作区文档）：就绪即注入，渲染前后到达均生效
-    val imageResolver by viewModel.imageResolver.collectAsState()
+    val imageResolver by viewModel.imageResolver.collectAsStateWithLifecycle()
     LaunchedEffect(rendererReady.value, imageResolver) {
         if (rendererReady.value && imageResolver != null) {
             val json = kotlinx.serialization.json.Json.encodeToString(
@@ -441,7 +445,7 @@ fun EditorScreen(
     }
 
     // 导出成功 → 系统分享（mime 按导出文件实际格式）
-    val exportedFile by viewModel.exportedFile.collectAsState()
+    val exportedFile by viewModel.exportedFile.collectAsStateWithLifecycle()
     LaunchedEffect(exportedFile) {
         exportedFile?.let { file ->
             val uri = FileProvider.getUriForFile(
@@ -534,8 +538,10 @@ fun EditorScreen(
                         OutlinePanel(
                             outline = outline,
                             onItemClick = { item ->
+                                // 参数化传参，避免 anchorId 含单引号/反斜杠时拼进 JS 字符串造成注入。
                                 previewWebView.evaluateJavascript(
-                                    "window.scrollToHeading('${item.anchorId}')", null
+                                    "(function(id){ if(window.scrollToHeading) window.scrollToHeading(id); })(\"${item.anchorId.replace("\\", "\\\\").replace("\"", "\\\"")}\")",
+                                    null
                                 )
                                 scope.launch { outlineDrawerState.close() }
                             }
@@ -701,7 +707,7 @@ fun EditorScreen(
                                 // 从设置返回后恢复滚动位置。
                                 // 只按 document?.id 触发（重进 composition 即重跑一次）；不再带 isPreviewMode，
                                 // 避免与下方「模式切换同步」effect 在每次切换时互相打架。
-                                val savedScrollState by viewModel.scrollState.collectAsState()
+                                val savedScrollState by viewModel.scrollState.collectAsStateWithLifecycle()
                                 LaunchedEffect(document?.id) {
                                     // 先把目标位置抓进局部变量：此后编辑/预览的「持续保存」会把 VM 里的值
                                     // 刷成新视图的 0，但恢复用的是这里抓到的旧值，不受影响。

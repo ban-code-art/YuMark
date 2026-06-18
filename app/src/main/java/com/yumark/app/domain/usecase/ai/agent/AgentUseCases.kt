@@ -30,10 +30,12 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
 
@@ -58,8 +60,7 @@ class SendAgentMessageUseCase @Inject constructor(
     private val imageProcessor: com.yumark.app.core.image.ImageProcessor,
     private val agentTaskRepository: AgentTaskRepository,
     private val planAgentTask: PlanAgentTaskUseCase,
-    private val executeAgentTask: ExecuteAgentTaskUseCase,
-    private val evaluateTaskCompletion: EvaluateTaskCompletionUseCase
+    private val executeAgentTask: ExecuteAgentTaskUseCase
 ) {
     operator fun invoke(
         conversationId: String,
@@ -157,10 +158,16 @@ class SendAgentMessageUseCase @Inject constructor(
         val agentSteps = ArrayList<AgentStep>()
         var lastToolSignature: String? = null
 
+        // 整个 ReAct 循环包 try/finally：异常/取消/未捕获错误时兜底终态化任务与会话，
+        // 避免任务卡 EXECUTING、会话卡 WORKING、活跃步骤卡 RUNNING（循环体未重新缩进，Kotlin 不依赖缩进）。
+        try {
         for (step in 1..MAX_STEPS) {
             full.clear()
             var pendingCalls: List<ToolCall>? = null
             var errored = false
+            // 本轮活跃的规划步骤：写作/工具执行都会推进它的状态。
+            val activeTaskStep = persistedSteps.getOrNull((step - 1).coerceAtMost(persistedSteps.lastIndex))
+            var stepMarkedRunning = false
 
             adapter.sendChatStream(
                 workingMessages,
@@ -174,13 +181,26 @@ class SendAgentMessageUseCase @Inject constructor(
             ).collect { event ->
                 when (event) {
                     is StreamEvent.Content -> {
+                        // 首个内容增量到达即把活跃步骤标 RUNNING，让面板实时反映"正在生成"。
+                        if (!stepMarkedRunning && activeTaskStep != null) {
+                            stepMarkedRunning = true
+                            persistedSteps = persistedSteps.replaceStep(activeTaskStep.id) {
+                                it.copy(status = AgentTaskStepStatus.RUNNING)
+                            }
+                            persistedTask = persistedTask.copy(
+                                updatedAt = System.currentTimeMillis(),
+                                currentStepId = activeTaskStep.id
+                            )
+                            agentTaskRepository.markStepStatus(activeTaskStep.id, AgentTaskStepStatus.RUNNING)
+                            agentTaskRepository.updateTask(persistedTask)
+                        }
                         full.append(event.text)
                         conversationRepository.updateMessage(
                             assistant.copy(content = full.toString(), isStreaming = true)
                         )
                         emit(AgentMessageState.Streaming(event.text))
                     }
-                    is StreamEvent.ToolCallComplete -> pendingCalls = event.calls
+                    is StreamEvent.ToolCallComplete -> pendingCalls = (pendingCalls ?: emptyList()) + event.calls
                     is StreamEvent.ToolCallDelta -> Unit  // 增量仅供 UI 粗提示，循环依赖 ToolCallComplete
                     is StreamEvent.Done -> Unit           // 本轮流结束
                     is StreamEvent.Error -> {
@@ -199,22 +219,32 @@ class SendAgentMessageUseCase @Inject constructor(
             if (errored) return@flow
 
             val calls = pendingCalls
-            val activeTaskStep = persistedSteps.getOrNull((step - 1).coerceAtMost(persistedSteps.lastIndex))
             if (calls.isNullOrEmpty()) {
                 // 收敛：最终回答（仍兼容第一波 [[ACTION]] + diff 闸门）
                 val text = full.toString()
+                // 解析写意图，优先级：[[ACTION]] 文本协议 → 弱模型"把全文吐在回复里"的隐式识别。
+                // 第三条路（写工具调用 create/edit_document）已在上面循环里拦截转为 proposedAction，不会走到收敛分支。
                 val action = parseAgentAction(text, currentDocumentId)
+                    ?: extractImplicitWriteAction(text, effectiveUserMessage, currentDocumentId, currentDocumentName)
+                // 收敛即完成活跃步骤
+                if (activeTaskStep != null) {
+                    persistedSteps = persistedSteps.replaceStep(activeTaskStep.id) {
+                        it.copy(status = AgentTaskStepStatus.DONE, resultSummary = text.take(80))
+                    }
+                    agentTaskRepository.markStepStatus(
+                        activeTaskStep.id,
+                        AgentTaskStepStatus.DONE,
+                        text.take(80)
+                    )
+                }
                 conversationRepository.updateMessage(
                     assistant.copy(content = text, isStreaming = false, agentAction = action, steps = agentSteps.toList())
                 )
-                persistedTask = finalizeTaskWithJudge(
-                    adapter = adapter,
-                    config = config,
+                // 直接终态化为 COMPLETED——不再额外跑 completion judge 判定（避免结束后加载与爆红）。
+                persistedTask = finalizeTaskDirectly(
                     task = persistedTask,
-                    steps = persistedSteps,
-                    finalText = text,
-                    action = action,
-                    agentSteps = agentSteps
+                    status = AgentTaskStatus.COMPLETED,
+                    summary = action?.description ?: text.take(80).ifBlank { "已完成" }
                 )
                 markCompleted(conversationId)
                 if (action != null) emit(AgentMessageState.ActionProposed(assistant.id, action))
@@ -353,20 +383,16 @@ class SendAgentMessageUseCase @Inject constructor(
                         resultSummary = "write proposal ready"
                     )
                 }
-                val nextStep = persistedSteps.firstOrNull { it.order > activeTaskStep.order }
-                persistedTask = persistedTask.copy(
-                    updatedAt = System.currentTimeMillis(),
-                    currentStepId = nextStep?.id
+                agentTaskRepository.markStepStatus(
+                    activeTaskStep.id,
+                    AgentTaskStepStatus.DONE,
+                    "write proposal ready"
                 )
-                agentTaskRepository.updateTask(persistedTask)
-                persistedTask = finalizeTaskWithJudge(
-                    adapter = adapter,
-                    config = config,
+                // 写操作提议即完成本轮任务——直接终态化 COMPLETED，不再跑 completion judge。
+                persistedTask = finalizeTaskDirectly(
                     task = persistedTask,
-                    steps = persistedSteps,
-                    finalText = text,
-                    action = writeAction,
-                    agentSteps = agentSteps
+                    status = AgentTaskStatus.COMPLETED,
+                    summary = writeAction.description.ifBlank { "已生成待确认的文档改动" }
                 )
                 markCompleted(conversationId)
                 emit(AgentMessageState.ActionProposed(assistant.id, writeAction))
@@ -406,6 +432,26 @@ class SendAgentMessageUseCase @Inject constructor(
         )
         markCompleted(conversationId)
         emit(AgentMessageState.Completed(text))
+        } finally {
+            // 兜底：若任务仍处 EXECUTING（Error 分支未终态化 / 抛异常 / 协程取消），
+            // 强制收束，防任务、会话、活跃步骤卡中间态。NonCancellable 保证取消时清理仍执行。
+            if (persistedTask.status == AgentTaskStatus.EXECUTING) {
+                withContext(NonCancellable) {
+                    persistedTask.currentStepId?.let { stepId ->
+                        runCatching { agentTaskRepository.markStepStatus(stepId, AgentTaskStepStatus.BLOCKED) }
+                    }
+                    persistedTask = finalizeTaskDirectly(
+                        task = persistedTask,
+                        status = AgentTaskStatus.FAILED,
+                        summary = "任务被中断",
+                        blockingReason = "任务被中断（取消或异常）"
+                    )
+                    conversationRepository.observeConversation(conversationId).first()?.let {
+                        conversationRepository.updateConversation(it.copy(status = ConversationStatus.IDLE))
+                    }
+                }
+            }
+        }
     }.flowOn(Dispatchers.IO)
 
     private suspend fun markCompleted(conversationId: String) {
@@ -444,63 +490,6 @@ class SendAgentMessageUseCase @Inject constructor(
         return planAgentTask(rawPlan.toString()).getOrElse {
             fallbackPlan(userMessage)
         }
-    }
-
-    private suspend fun finalizeTaskWithJudge(
-        adapter: com.yumark.app.data.ai.AiApiAdapter,
-        config: com.yumark.app.domain.model.AiConfig,
-        task: AgentTask,
-        steps: List<com.yumark.app.domain.model.AgentTaskStep>,
-        finalText: String,
-        action: AgentAction?,
-        agentSteps: List<AgentStep>
-    ): AgentTask {
-        val rawDecision = StringBuilder()
-        adapter.sendChatStream(
-            messages = listOf(
-                ChatMessage(
-                    role = "user",
-                    content = buildCompletionJudgeInput(
-                        task = task,
-                        steps = steps,
-                        finalText = finalText,
-                        action = action,
-                        agentSteps = agentSteps
-                    )
-                )
-            ),
-            config = AiRequestConfig(
-                model = config.modelName,
-                temperature = 0f,
-                maxTokens = minOf(config.maxTokens, 800),
-                systemPrompt = buildCompletionSystemPrompt()
-            ),
-            tools = emptyList()
-        ).collect { event ->
-            when (event) {
-                is StreamEvent.Content -> rawDecision.append(event.text)
-                is StreamEvent.Done -> if (rawDecision.isBlank()) rawDecision.append(event.fullText)
-                else -> Unit
-            }
-        }
-
-        val decision = evaluateTaskCompletion(rawDecision.toString()).getOrElse {
-            TaskCompletionDecision(
-                outcome = TaskCompletionOutcome.COMPLETED,
-                summary = finalText.ifBlank { "Agent response completed" }
-            )
-        }
-        val status = when (decision.outcome) {
-            TaskCompletionOutcome.COMPLETED -> AgentTaskStatus.COMPLETED
-            TaskCompletionOutcome.BLOCKED -> AgentTaskStatus.BLOCKED
-            TaskCompletionOutcome.FAILED -> AgentTaskStatus.FAILED
-        }
-        return finalizeTaskDirectly(
-            task = task,
-            status = status,
-            summary = decision.summary,
-            blockingReason = decision.blockingReason
-        )
     }
 
     private suspend fun finalizeTaskDirectly(
@@ -652,54 +641,6 @@ internal fun buildPlannerSystemPrompt(documentName: String?, documentContent: St
     """.trimIndent()
 }
 
-internal fun buildCompletionSystemPrompt(): String =
-    """
-        You are the completion judge for YuMark's document agent.
-        Decide whether the task is complete based on the task goal, success criteria, observed steps, final response, and pending action proposal.
-        Return only one JSON object with this schema:
-        {
-          "outcome": "COMPLETED" | "BLOCKED" | "FAILED",
-          "summary": "short factual summary",
-          "blocking_reason": "reason when BLOCKED or FAILED, otherwise omit"
-        }
-        Use COMPLETED when the agent answered the user or produced a write proposal that awaits normal user approval.
-        Use BLOCKED when more user input or missing project content prevents completion.
-        Use FAILED when the runtime stopped because of repeated failures or exhausted limits.
-    """.trimIndent()
-
-private fun buildCompletionJudgeInput(
-    task: AgentTask,
-    steps: List<com.yumark.app.domain.model.AgentTaskStep>,
-    finalText: String,
-    action: AgentAction?,
-    agentSteps: List<AgentStep>
-): String {
-    val plannedSteps = steps.joinToString("\n") { step ->
-        "- [${step.status}] ${step.title}: ${step.completionCriteria}" +
-            (step.resultSummary?.let { " result=$it" } ?: "")
-    }
-    val observedSteps = agentSteps.joinToString("\n") { "- $it" }.ifBlank { "- no tool steps" }
-    val actionSummary = action?.let {
-        "${it.type}: ${it.description.ifBlank { "pending document write" }}"
-    } ?: "none"
-    return """
-        Task goal:
-        ${task.goal}
-
-        Planned success criteria and step state:
-        $plannedSteps
-
-        Observed execution:
-        $observedSteps
-
-        Pending action proposal:
-        $actionSummary
-
-        Final agent response:
-        ${finalText.ifBlank { "(blank)" }}
-    """.trimIndent()
-}
-
 private inline fun List<com.yumark.app.domain.model.AgentTaskStep>.replaceStep(
     stepId: String,
     transform: (com.yumark.app.domain.model.AgentTaskStep) -> com.yumark.app.domain.model.AgentTaskStep
@@ -756,6 +697,12 @@ internal fun buildAgentSystemPrompt(documentName: String?, documentContent: Stri
         [[/ACTION]]
 
         两种方式二选一、一次最多一个操作；无论哪种，用户都会先看到改动预览并确认后才生效。
+
+        # 弱工具调用模型的兜底约定
+        如果你不确定能否成功发起工具调用（例如所用端点的 function calling 不可靠），
+        可以直接输出完整可用的 Markdown 正文作为回复，系统会据此生成一个待确认的创建/编辑提议，
+        用户仍会先预览并确认后才落库。**但仅当用户确实要创建或改写文档时才输出全文正文，
+        普通问答/解释不要整篇输出。**
 
         # 安全与规范
         - 修改用户已有文档前，用户会看到逐行改动并逐块确认；请确保改动完整、准确。
@@ -826,3 +773,88 @@ internal fun parseWriteToolCall(call: ToolCall, currentDocumentId: String?): Age
         else -> null
     }
 }
+
+/**
+ * 弱工具调用模型的兜底识别：当模型既未发 `create_document`/`edit_document` 工具调用、
+ * 也未按 `[[ACTION]]` 协议输出，而是**直接把完整 Markdown 正文写在回复里**时，
+ * 把这段正文识别为一个待批准的 [AgentAction]，复用 diff/批准闸门（不绕过审批、不直接落库）。
+ *
+ * 仅在满足以下条件时识别，避免把普通问答误判为写操作：
+ * - 用户本轮是"创建文档"或"改写文档"意图；
+ * - 文本里没有 `[[ACTION]]` 块（已有 [parseAgentAction] 负责那条路）；
+ * - 文本达到一定长度或含 Markdown 结构特征（标题/列表），排除"我建议你这样写…"之类的短建议。
+ *
+ * 返回 null 表示确属普通问答，不当写操作处理。
+ */
+internal fun extractImplicitWriteAction(
+    text: String,
+    userMessage: String,
+    currentDocumentId: String?,
+    currentDocumentName: String?
+): AgentAction? {
+    if (text.isBlank()) return null
+    // 已含 [[ACTION]] 块的由 parseAgentAction 处理，这里不重复识别
+    if (text.contains("[[ACTION]]")) return null
+
+    val createIntent = isDocumentCreationRequest(userMessage)
+    val editIntent = currentDocumentId != null && isDocumentEditRequest(userMessage)
+    if (!createIntent && !editIntent) return null
+
+    // 文本需像"文档正文"而非短回复：长度达标 或 含 Markdown 结构
+    val looksLikeDocument = text.length >= IMPLICIT_DOC_MIN_CHARS || hasDocumentStructure(text)
+    if (!looksLikeDocument) return null
+
+    return if (editIntent && currentDocumentId != null) {
+        AgentAction(
+            type = AgentActionType.EDIT_DOCUMENT,
+            description = "编辑文档${currentDocumentName?.let { "：$it" }.orEmpty()}",
+            targetDocumentId = currentDocumentId,
+            content = text.trim()
+        )
+    } else {
+        // 创建：标题取首行 Markdown 标题或文本首行，否则用默认
+        val title = implicitDocumentTitle(text)
+        AgentAction(
+            type = AgentActionType.CREATE_DOCUMENT,
+            description = title,
+            content = text.trim()
+        )
+    }
+}
+
+/** 判断用户本轮是否为"改写/编辑既有文档"意图（需配合 currentDocumentId 使用）。 */
+private fun isDocumentEditRequest(userMessage: String): Boolean {
+    val normalized = userMessage.lowercase()
+    val editVerb = listOf("改写", "修改", "重写", "补充", "润色", "续写", "修订", "优化", "rewrite", "revise", "polish", "edit")
+        .any { normalized.contains(it) }
+    val docNoun = listOf("文档", "笔记", "这篇", "当前", "本文", "内容", "document", "note", "this")
+        .any { normalized.contains(it) }
+    // 负向条件：明显是"解释/说明/提问"类请求时不当编辑处理，避免把长解释误识别为整篇覆写提议。
+    // 例如"详细解释一下这段内容"、"说明一下为什么这样写"。
+    val isQuestionOrExplanation = listOf(
+        "解释", "说明", "什么是", "为什么", "介绍一下", "讲解", "？", "?"
+    ).any { normalized.contains(it) }
+    return editVerb && docNoun && !isQuestionOrExplanation
+}
+
+/** 文本是否含 Markdown 文档结构特征（标题/列表/代码块/表格）。 */
+private fun hasDocumentStructure(text: String): Boolean {
+    return text.lineSequence().any { line ->
+        val t = line.trimStart()
+        t.startsWith("#") ||                      // 标题
+            t.startsWith("- ") || t.startsWith("* ") || t.startsWith("+ ") ||  // 无序列表
+            (t.firstOrNull()?.isDigit() == true && t.contains(". ")) ||        // 有序列表
+            t.startsWith("```") ||                // 代码块
+            t.startsWith("|")                     // 表格
+    }
+}
+
+/** 从文本推断文档标题：首行 Markdown 标题去符号；否则首行非空文本；否则默认。 */
+private fun implicitDocumentTitle(text: String): String {
+    val firstLine = text.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: return "AI 生成文档"
+    val heading = Regex("^#{1,6}\\s+(.+)").find(firstLine)?.groupValues?.get(1)?.trim()
+    return (heading ?: firstLine).take(50).ifBlank { "AI 生成文档" }
+}
+
+/** 隐式识别为文档所需的最小文本长度。短于此且无结构特征 → 视为普通回复，不提取。 */
+private const val IMPLICIT_DOC_MIN_CHARS = 200

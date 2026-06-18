@@ -35,10 +35,17 @@ object NetworkModule {
             json(Json { ignoreUnknownKeys = true; isLenient = true })
         }
         install(HttpTimeout) {
-            connectTimeoutMillis = 10_000
-            requestTimeoutMillis = 120_000
-            socketTimeoutMillis = 120_000
+            connectTimeoutMillis = AiHttpTimeouts.CONNECT_TIMEOUT_MILLIS
+            // requestTimeout 覆盖整个请求含流式 body 读取；流式输出可能持续很久，
+            // 用 Ktor 的无限超时标记，改靠 socketTimeout 探测死连接，避免慢流被中途切断。
+            requestTimeoutMillis = AiHttpTimeouts.REQUEST_TIMEOUT_MILLIS
+            socketTimeoutMillis = AiHttpTimeouts.SOCKET_TIMEOUT_MILLIS
         }
     }
 }
 
+internal object AiHttpTimeouts {
+    const val CONNECT_TIMEOUT_MILLIS: Long = 10_000
+    val REQUEST_TIMEOUT_MILLIS: Long = HttpTimeout.INFINITE_TIMEOUT_MS
+    const val SOCKET_TIMEOUT_MILLIS: Long = 120_000
+}

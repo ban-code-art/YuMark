@@ -61,11 +61,13 @@ class OpenAiAdapter(
         tools: List<AiTool>
     ): Flow<StreamEvent> = flow {
         val full = StringBuilder()
-        val toolAcc = OpenAiToolCallAccumulator()
 
         // 一次完整请求：构建 body(可选 tools) → 请求 → 解析 SSE → emit。失败抛异常交由守护处理。
         suspend fun runOnce(emit: suspend (StreamEvent) -> Unit, includeTools: Boolean) {
             full.clear()
+            // 每次请求新建累积器，避免主路径/兜底重试时残留上一轮的 tool_calls delta
+            // 导致向模型回填陈旧或重复的工具调用。
+            val toolAcc = OpenAiToolCallAccumulator()
             val body = buildBody(messages, config, if (includeTools) tools else emptyList())
             client.preparePost("${baseUrl.trimEnd('/')}/chat/completions") {
                 header(HttpHeaders.Authorization, "Bearer $apiKey")

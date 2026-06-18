@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
@@ -168,10 +169,10 @@ fun SettingsScreen(
     navController: NavController,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
-    val settings by viewModel.settings.collectAsState()
-    val defaultDirName by viewModel.defaultDirName.collectAsState()
-    val updateState by viewModel.updateState.collectAsState()
-    val aiConfig by viewModel.aiConfig.collectAsState()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val defaultDirName by viewModel.defaultDirName.collectAsStateWithLifecycle()
+    val updateState by viewModel.updateState.collectAsStateWithLifecycle()
+    val aiConfig by viewModel.aiConfig.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // 方案 A：系统选择器返回后，先回显名称让用户确认，确认后才持久授权 + 设为默认目录

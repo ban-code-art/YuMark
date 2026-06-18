@@ -47,7 +47,8 @@ class FolderRepositoryImpl @Inject constructor(
 
     override suspend fun createFolder(name: String, parentId: String?): Result<Folder> = runCatching {
         val id = UUID.randomUUID().toString()
-        val order = folderDao.getByParent(parentId).size
+        // order 取 MAX(order)+1，避免并发创建同父文件夹时 size 竞态导致 order 重复
+        val order = folderDao.maxOrder(parentId) + 1
         val folder = Folder.create(id, name, parentId, order)
         folderDao.insert(mapper.toEntity(folder))
         folder
@@ -159,7 +160,7 @@ class FolderRepositoryImpl @Inject constructor(
             throw IllegalArgumentException("不能移动到自己的子文件夹")
         }
         // 追加到目标文件夹末尾,避免与目标内既有 order 冲突
-        val newOrder = folderDao.getByParent(targetParentId).size
+        val newOrder = folderDao.maxOrder(targetParentId) + 1
         folderDao.update(entity.copy(parentId = targetParentId, order = newOrder))
     }
 

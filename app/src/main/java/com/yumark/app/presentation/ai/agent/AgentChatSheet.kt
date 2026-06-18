@@ -19,6 +19,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
@@ -33,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yumark.app.domain.model.AgentAction
@@ -77,7 +80,8 @@ class AgentChatViewModel @Inject constructor(
     private val loadDocumentUseCase: LoadDocumentUseCase,
     private val conversationRepository: ConversationRepository,
     private val agentTaskRepository: AgentTaskRepository,
-    private val imageProcessor: com.yumark.app.core.image.ImageProcessor
+    private val imageProcessor: com.yumark.app.core.image.ImageProcessor,
+    private val agentUiPrefs: com.yumark.app.data.local.prefs.AgentUiPrefsDataStore
 ) : ViewModel() {
 
     private val conversationId = MutableStateFlow<String?>(null)
@@ -103,6 +107,14 @@ class AgentChatViewModel @Inject constructor(
             else agentTaskRepository.observeTaskByConversation(id).map { it?.toUiStateOrNull() }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** 任务执行流程面板是否收起（持久化偏好，跨会话/跨新 Agent 保持）。 */
+    val taskPanelCollapsed: StateFlow<Boolean> = agentUiPrefs.taskPanelCollapsedFlow
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setTaskPanelCollapsed(collapsed: Boolean) {
+        viewModelScope.launch { agentUiPrefs.setTaskPanelCollapsed(collapsed) }
+    }
 
     private val _isStreaming = MutableStateFlow(false)
     val isStreaming: StateFlow<Boolean> = _isStreaming.asStateFlow()
@@ -306,8 +318,7 @@ data class TaskProgressStepUiState(
 )
 
 private fun AgentTaskAggregate.toUiStateOrNull(): TaskProgressUiState? {
-    if (task.status == AgentTaskStatus.COMPLETED) return null
-
+    // 已完成也生成面板（默认收起、仅显示结果摘要），让用户可回看；折叠头由 UI 控制。
     val orderedSteps = steps.sortedBy { it.order }
     val activeStep = task.currentStepId?.let { id -> orderedSteps.firstOrNull { it.id == id } }
         ?: orderedSteps.firstOrNull { it.status == AgentTaskStepStatus.RUNNING }
@@ -366,6 +377,8 @@ private fun narrateTool(tool: String): String = when (tool) {
 @Composable
 private fun AgentTaskProgressPanel(
     progress: TaskProgressUiState,
+    collapsed: Boolean,
+    onToggleCollapse: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val containerColor = when (progress.status) {
@@ -393,8 +406,9 @@ private fun AgentTaskProgressPanel(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            // 折叠头：点击切换展开/收起。收起时只显示这一行。
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().clickable(onClick = onToggleCollapse),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -407,7 +421,7 @@ private fun AgentTaskProgressPanel(
                     progress.goal,
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
@@ -415,40 +429,50 @@ private fun AgentTaskProgressPanel(
                     style = MaterialTheme.typography.labelSmall,
                     color = contentColor
                 )
-            }
-            progress.activeStepTitle?.let { activeStep ->
-                Text(
-                    "当前：$activeStep",
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                Icon(
+                    imageVector = if (collapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+                    contentDescription = if (collapsed) "展开执行流程" else "收起执行流程",
+                    modifier = Modifier.size(18.dp)
                 )
             }
-            progress.blockingReason?.let { reason ->
-                Text(
-                    "阻塞：$reason",
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            progress.finalSummary?.let { summary ->
-                Text(
-                    "结果：$summary",
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            if (progress.steps.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    progress.steps.take(4).forEach { step ->
+            // 展开时才显示明细；收起时折叠到只剩标题行。
+            AnimatedVisibility(visible = !collapsed) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    progress.activeStepTitle?.let { activeStep ->
                         Text(
-                            "${step.order + 1}. ${step.title} · ${step.status.label()}",
-                            style = MaterialTheme.typography.labelSmall,
+                            "当前：$activeStep",
+                            style = MaterialTheme.typography.bodySmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                    }
+                    progress.blockingReason?.let { reason ->
+                        Text(
+                            "阻塞：$reason",
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    progress.finalSummary?.let { summary ->
+                        Text(
+                            "结果：$summary",
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (progress.steps.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            progress.steps.take(4).forEach { step ->
+                                Text(
+                                    "${step.order + 1}. ${step.title} · ${step.status.label()}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -472,14 +496,15 @@ fun AgentContent(
         viewModel.bind(conversationId, documentId, documentName, documentContent, onDocumentUpdated)
     }
 
-    val messages by viewModel.messages.collectAsState()
-    val isStreaming by viewModel.isStreaming.collectAsState()
-    val error by viewModel.error.collectAsState()
-    val createdDoc by viewModel.createdDocumentId.collectAsState()
-    val steps by viewModel.steps.collectAsState()
-    val taskProgress by viewModel.taskProgress.collectAsState()
-    val attachments by viewModel.attachments.collectAsState()
-    val attachmentError by viewModel.attachmentError.collectAsState()
+    val messages by viewModel.messages.collectAsStateWithLifecycle()
+    val isStreaming by viewModel.isStreaming.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    val createdDoc by viewModel.createdDocumentId.collectAsStateWithLifecycle()
+    val steps by viewModel.steps.collectAsStateWithLifecycle()
+    val taskProgress by viewModel.taskProgress.collectAsStateWithLifecycle()
+    val taskPanelCollapsed by viewModel.taskPanelCollapsed.collectAsStateWithLifecycle()
+    val attachments by viewModel.attachments.collectAsStateWithLifecycle()
+    val attachmentError by viewModel.attachmentError.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var enlarged by remember { mutableStateOf<Any?>(null) }
     val pickMedia = rememberLauncherForActivityResult(
@@ -549,7 +574,15 @@ fun AgentContent(
         }
         if (isStreaming) LinearProgressIndicator(Modifier.fillMaxWidth())
         taskProgress?.let { progress ->
-            AgentTaskProgressPanel(progress)
+            AgentTaskProgressPanel(
+                progress = progress,
+                // 已完成/失败等终态默认收起（仅显示结果摘要），进行中沿用用户偏好
+                collapsed = if (progress.status == AgentTaskStatus.EXECUTING ||
+                    progress.status == AgentTaskStatus.REPLANNING ||
+                    progress.status == AgentTaskStatus.PLANNING
+                ) taskPanelCollapsed else true,
+                onToggleCollapse = { viewModel.setTaskPanelCollapsed(!taskPanelCollapsed) }
+            )
         }
         if (isStreaming && steps.isNotEmpty()) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {

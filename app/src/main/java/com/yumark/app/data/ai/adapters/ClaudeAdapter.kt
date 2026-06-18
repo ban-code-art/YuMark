@@ -53,10 +53,11 @@ class ClaudeAdapter(
         tools: List<AiTool>
     ): Flow<StreamEvent> = flow {
         val body = buildClaudeBody(messages, config, tools)
-        val full = StringBuilder()
-        val toolCalls = ClaudeToolCallAccumulator()
 
         withRetryAndEmissionGuard(flowEmit = { e -> emit(e) }) { flowEmit ->
+            // 每次请求（含重试）新建累积态，避免上一轮未发完就失败时残留 tool_use 块。
+            val full = StringBuilder()
+            val toolCalls = ClaudeToolCallAccumulator()
             client.preparePost("${baseUrl.trimEnd('/')}/messages") {
                 header("x-api-key", apiKey)
                 header("anthropic-version", "2023-06-01")

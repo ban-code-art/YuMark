@@ -20,7 +20,7 @@ fun ConversationEntity.toDomain(messages: List<Message> = emptyList()): Conversa
     Conversation(
         id = id,
         title = title,
-        type = ConversationType.valueOf(type),
+        type = runCatching { ConversationType.valueOf(type) }.getOrElse { ConversationType.CHAT },
         createdAt = createdAt,
         updatedAt = updatedAt,
         messages = messages,
@@ -45,7 +45,7 @@ fun MessageEntity.toDomain(): Message =
     Message(
         id = id,
         conversationId = conversationId,
-        role = MessageRole.valueOf(role),
+        role = runCatching { MessageRole.valueOf(role) }.getOrElse { MessageRole.ASSISTANT },
         content = content,
         agentAction = agentActionJson?.let {
             runCatching { aiJson.decodeFromString<AgentAction>(it) }.getOrNull()

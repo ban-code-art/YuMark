@@ -5,7 +5,8 @@ import java.net.URLEncoder
 sealed class Screen(val route: String) {
     data object FileList : Screen("files")
     data object Editor : Screen("editor?documentId={documentId}&docUri={docUri}") {
-        fun createRoute(documentId: String) = "editor?documentId=$documentId"
+        fun createRoute(documentId: String) =
+            "editor?documentId=${URLEncoder.encode(documentId, "UTF-8")}"
         fun createExternalRoute(docUri: String) =
             "editor?docUri=${URLEncoder.encode(docUri, "UTF-8")}"
     }

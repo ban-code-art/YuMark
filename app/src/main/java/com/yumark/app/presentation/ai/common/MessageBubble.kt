@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yumark.app.domain.model.Message
 import com.yumark.app.domain.model.MessageRole
+import kotlinx.coroutines.delay
 
 /** 聊天/Agent 通用消息气泡。 */
 @Composable
@@ -58,6 +59,7 @@ fun MessageBubble(
                 } else {
                     MarkdownRenderedText(
                         markdown = shown,
+                        isStreaming = message.isStreaming,
                         backgroundColor = bubbleColor,
                         textColor = textColor
                     )
@@ -70,11 +72,16 @@ fun MessageBubble(
 
 /**
  * 在 WebView 中渲染 Markdown（用于 AI 助手消息气泡）。
- * 使用增量渲染策略，流畅输出内容。
+ *
+ * 渲染节流：流式期间每个 token 都会改变 [markdown]，若每次都全量 `evaluateJavascript`
+ * 重新 `innerHTML`，WebView 会整块闪烁。改为：流式中按固定间隔（~120ms）合并渲染一次，
+ * 流式结束后强制再渲染一次最终全文，保证内容完整。marked.js 无增量 patch 能力，
+ * 单帧仍是全量替换，但频率降到肉眼不闪。
  */
 @Composable
 private fun MarkdownRenderedText(
     markdown: String,
+    isStreaming: Boolean,
     backgroundColor: androidx.compose.ui.graphics.Color,
     textColor: androidx.compose.ui.graphics.Color
 ) {
@@ -99,6 +106,8 @@ private fun MarkdownRenderedText(
 
     var webView by remember { mutableStateOf<WebView?>(null) }
     var isReady by remember { mutableStateOf(false) }
+    // 上次已渲染的内容，避免对相同 markdown 重复 evaluateJavascript
+    var lastRendered by remember { mutableStateOf("") }
 
     val html = """
         <!DOCTYPE html>
@@ -192,6 +201,16 @@ private fun MarkdownRenderedText(
         </html>
     """.trimIndent()
 
+    // 把内容渲染到 WebView 的唯一入口：base64 编码后调 JS 更新 innerHTML。
+    fun renderTo(view: WebView, content: String) {
+        val markdownBase64 = android.util.Base64.encodeToString(
+            content.toByteArray(Charsets.UTF_8),
+            android.util.Base64.NO_WRAP
+        )
+        view.evaluateJavascript("window.updateContent('$markdownBase64')", null)
+        lastRendered = content
+    }
+
     AndroidView(
         factory = {
             WebView(context).apply {
@@ -215,15 +234,43 @@ private fun MarkdownRenderedText(
             }
         },
         update = { view ->
-            // 增量更新：WebView 准备好后直接调用 JavaScript 更新内容
-            if (isReady && markdown.isNotEmpty()) {
-                val markdownBase64 = android.util.Base64.encodeToString(
-                    markdown.toByteArray(Charsets.UTF_8),
-                    android.util.Base64.NO_WRAP
-                )
-                view.evaluateJavascript("window.updateContent('$markdownBase64')", null)
+            // WebView 就绪后，若有未渲染内容（如首帧或 isReady 刚翻为 true）立即渲染一次。
+            if (isReady && markdown.isNotEmpty() && lastRendered != markdown) {
+                renderTo(view, markdown)
             }
+        },
+        onRelease = { view ->
+            // 离开组合时销毁 WebView，防止长会话累积几十个 WebView 常驻内存。
+            view.removeJavascriptInterface("Android")
+            view.destroy()
+            webView = null
+            isReady = false
         },
         modifier = Modifier.fillMaxWidth().wrapContentHeight()
     )
+
+    // 流式期间节流渲染：合并高频 token 为约每 120ms 一帧；流式结束强制渲染最终全文。
+    // 非流式（历史消息直接展示）由上面的 update 块一次性渲染，不走节流。
+    if (isStreaming) {
+        LaunchedEffect(markdown, isReady) {
+            if (!isReady || markdown.isEmpty()) return@LaunchedEffect
+            delay(STREAM_RENDER_THROTTLE_MS)
+            // delay 期间 markdown 可能已更新；以最新值为准渲染
+            val current = markdown
+            if (lastRendered != current) {
+                webView?.let { renderTo(it, current) }
+            }
+        }
+    } else {
+        // 流式刚结束：确保最终全文已渲染（节流可能漏掉最后一帧）
+        LaunchedEffect(markdown, isReady) {
+            if (!isReady || markdown.isEmpty()) return@LaunchedEffect
+            if (lastRendered != markdown) {
+                webView?.let { renderTo(it, markdown) }
+            }
+        }
+    }
 }
+
+/** 流式渲染节流间隔（毫秒）。低于此间隔的多次 token 合并为一帧。 */
+private const val STREAM_RENDER_THROTTLE_MS = 120L

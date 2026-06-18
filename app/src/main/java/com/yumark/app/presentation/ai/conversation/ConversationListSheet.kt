@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yumark.app.domain.model.Conversation
@@ -74,10 +75,11 @@ class ConversationListViewModel @Inject constructor(
 @Composable
 fun ConversationListContent(
     onOpen: (Conversation) -> Unit,
+    @Suppress("UNUSED_PARAMETER")
     onCreate: (ConversationType) -> Unit,
     viewModel: ConversationListViewModel = hiltViewModel()
 ) {
-    val conversations by viewModel.conversations.collectAsState()
+    val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     var pendingDelete by remember { mutableStateOf<Conversation?>(null) }
     var pendingRename by remember { mutableStateOf<Conversation?>(null) }
     var renameText by remember { mutableStateOf("") }

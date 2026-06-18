@@ -30,7 +30,7 @@ class StreamRetryTest {
     @Test
     fun `emits friendly error after exhausting retries on http status`() = runTest {
         val events = mutableListOf<StreamEvent>()
-        val result = withRetryAndEmissionGuard<String>(flowEmit = { events += it }) { emit ->
+        val result = withRetryAndEmissionGuard<String>(flowEmit = { events += it }) { _ ->
             throw HttpResponseException(503, "busy")
         }
         assertThat(result).isNull()
@@ -43,7 +43,7 @@ class StreamRetryTest {
     fun `non-retryable http status emits error immediately without retry`() = runTest {
         var calls = 0
         val events = mutableListOf<StreamEvent>()
-        withRetryAndEmissionGuard(flowEmit = { events += it }) { emit ->
+        withRetryAndEmissionGuard<String>(flowEmit = { events += it }) { _ ->
             calls++
             throw HttpResponseException(401, "nope")
         }
@@ -66,7 +66,7 @@ class StreamRetryTest {
     fun `does not retry after content already emitted`() = runTest {
         var calls = 0
         val events = mutableListOf<StreamEvent>()
-        withRetryAndEmissionGuard(flowEmit = { events += it }) { emit ->
+        withRetryAndEmissionGuard<String>(flowEmit = { events += it }) { emit ->
             calls++
             emit(StreamEvent.Content("partial"))
             throw IOException("mid-stream drop")
@@ -84,7 +84,7 @@ class StreamRetryTest {
         var caught: Throwable? = null
         val events = mutableListOf<StreamEvent>()
         try {
-            withRetryAndEmissionGuard(flowEmit = { events += it }) { emit ->
+            withRetryAndEmissionGuard<String>(flowEmit = { events += it }) { _ ->
                 throw CancellationException("user-cancelled")
             }
         } catch (e: Throwable) {

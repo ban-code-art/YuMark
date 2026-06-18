@@ -14,6 +14,7 @@ import com.yumark.app.domain.model.StreamEvent
 import com.yumark.app.domain.model.ToolCall
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
@@ -52,12 +53,14 @@ class GeminiAdapter(
         config: AiRequestConfig,
         tools: List<AiTool>
     ): Flow<StreamEvent> = flow {
-        val url = "${baseUrl.trimEnd('/')}/models/${config.model}:streamGenerateContent?alt=sse&key=$apiKey"
+        // API key 走请求头而非 URL 查询串，避免被代理/CDN/访问日志捕获。
+        val url = "${baseUrl.trimEnd('/')}/models/${config.model}:streamGenerateContent?alt=sse"
         val body = buildGeminiBody(messages, config, tools)
         val full = StringBuilder()
 
         withRetryAndEmissionGuard(flowEmit = { e -> emit(e) }) { flowEmit ->
             client.preparePost(url) {
+                header("x-goog-api-key", apiKey)
                 contentType(ContentType.Application.Json)
                 setBody(body.toString())
             }.execute { response ->
@@ -105,7 +108,9 @@ class GeminiAdapter(
     }.flowOn(Dispatchers.IO)
 
     override suspend fun fetchAvailableModels(): List<ModelInfo> {
-        val resp = client.get("${baseUrl.trimEnd('/')}/models?key=$apiKey")
+        val resp = client.get("${baseUrl.trimEnd('/')}/models") {
+            header("x-goog-api-key", apiKey)
+        }
         val arr = runCatching {
             json.parseToJsonElement(resp.bodyAsText()).jsonObject["models"]?.jsonArray
         }.getOrNull() ?: return emptyList()

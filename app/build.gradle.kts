@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -30,12 +32,19 @@ android {
         }
     }
 
+    // 签名配置从根目录 keystore.properties 读取（该文件不入库，见 .gitignore）。
+    // 绝不在构建脚本中硬编码 keystore 密码。
+    val keystorePropsFile = rootProject.file("keystore.properties")
+    val keystoreProps = Properties()
+    if (keystorePropsFile.exists()) {
+        keystoreProps.load(keystorePropsFile.inputStream())
+    }
     signingConfigs {
         create("release") {
-            storeFile = file("../release.keystore")
-            storePassword = "***REMOVED***"
-            keyAlias = "yumark"
-            keyPassword = "***REMOVED***"
+            storeFile = file(keystoreProps.getProperty("storeFile", "../release.keystore"))
+            storePassword = keystoreProps.getProperty("storePassword", "")
+            keyAlias = keystoreProps.getProperty("keyAlias", "")
+            keyPassword = keystoreProps.getProperty("keyPassword", "")
         }
     }
 
@@ -97,6 +106,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.documentfile)
 

@@ -48,6 +48,7 @@ class AgentChatViewModelTest {
     private val conversationRepository: ConversationRepository = mockk(relaxed = true)
     private val agentTaskRepository: AgentTaskRepository = mockk(relaxed = true)
     private val imageProcessor: com.yumark.app.core.image.ImageProcessor = mockk(relaxed = true)
+    private val agentUiPrefs: com.yumark.app.data.local.prefs.AgentUiPrefsDataStore = mockk(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -55,6 +56,7 @@ class AgentChatViewModelTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         every { agentTaskRepository.observeTaskByConversation(any()) } returns flowOf(null)
+        every { agentUiPrefs.taskPanelCollapsedFlow } returns flowOf(false)
     }
 
     @AfterEach
@@ -83,7 +85,7 @@ class AgentChatViewModelTest {
             awaitCancellation()
         }
 
-        val vm = AgentChatViewModel(getConversation, sendAgentMessage, executeAgentAction, loadDocumentUseCase, conversationRepository, agentTaskRepository, imageProcessor)
+        val vm = AgentChatViewModel(getConversation, sendAgentMessage, executeAgentAction, loadDocumentUseCase, conversationRepository, agentTaskRepository, imageProcessor, agentUiPrefs)
         vm.bind("c1", null, null, null)
         vm.send("hi")
         advanceUntilIdle()
@@ -110,7 +112,7 @@ class AgentChatViewModelTest {
         every { getConversation("c1") } returns flowOf(conversation)
         every { conversationRepository.observeConversation("c1") } returns flowOf(conversation)
 
-        val vm = AgentChatViewModel(getConversation, sendAgentMessage, executeAgentAction, loadDocumentUseCase, conversationRepository, agentTaskRepository, imageProcessor)
+        val vm = AgentChatViewModel(getConversation, sendAgentMessage, executeAgentAction, loadDocumentUseCase, conversationRepository, agentTaskRepository, imageProcessor, agentUiPrefs)
         vm.bind("c1", "doc-1", "Doc", "old")
         vm.bind("c1", "doc-1", "Doc", "new")
         advanceUntilIdle()
@@ -131,7 +133,7 @@ class AgentChatViewModelTest {
         every { getConversation("c1") } returns conversationFlow
         every { conversationRepository.observeConversation("c1") } returns conversationFlow
 
-        val vm = AgentChatViewModel(getConversation, sendAgentMessage, executeAgentAction, loadDocumentUseCase, conversationRepository, agentTaskRepository, imageProcessor)
+        val vm = AgentChatViewModel(getConversation, sendAgentMessage, executeAgentAction, loadDocumentUseCase, conversationRepository, agentTaskRepository, imageProcessor, agentUiPrefs)
         vm.bind("c1", "doc-1", "Doc 1", "one")
         advanceUntilIdle()
         vm.bind("c1", "doc-2", "Doc 2", "two")
@@ -157,7 +159,7 @@ class AgentChatViewModelTest {
         every { conversationRepository.observeConversation("c1") } returns flowOf(conversation)
         every { agentTaskRepository.observeTaskByConversation("c1") } returns taskFlow
 
-        val vm = AgentChatViewModel(getConversation, sendAgentMessage, executeAgentAction, loadDocumentUseCase, conversationRepository, agentTaskRepository, imageProcessor)
+        val vm = AgentChatViewModel(getConversation, sendAgentMessage, executeAgentAction, loadDocumentUseCase, conversationRepository, agentTaskRepository, imageProcessor, agentUiPrefs)
         vm.bind("c1", null, null, null)
         advanceUntilIdle()
 
@@ -171,7 +173,7 @@ class AgentChatViewModelTest {
     }
 
     @Test
-    fun `completed task progress is hidden from persistent top panel`() = runTest(testDispatcher) {
+    fun `completed task progress stays visible but collapsed for review`() = runTest(testDispatcher) {
         val conversation = Conversation(id = "c1", title = "t", type = ConversationType.AGENT)
         every { getConversation("c1") } returns flowOf(conversation)
         every { conversationRepository.observeConversation("c1") } returns flowOf(conversation)
@@ -179,11 +181,13 @@ class AgentChatViewModelTest {
             aggregate(AgentTaskStatus.COMPLETED, finalSummary = "summary ready")
         )
 
-        val vm = AgentChatViewModel(getConversation, sendAgentMessage, executeAgentAction, loadDocumentUseCase, conversationRepository, agentTaskRepository, imageProcessor)
+        val vm = AgentChatViewModel(getConversation, sendAgentMessage, executeAgentAction, loadDocumentUseCase, conversationRepository, agentTaskRepository, imageProcessor, agentUiPrefs)
         vm.bind("c1", null, null, null)
         advanceUntilIdle()
 
-        assertThat(vm.taskProgress.value).isNull()
+        // 已完成的面板保留可见（默认收起、仅显示结果摘要），不再隐藏
+        assertThat(vm.taskProgress.value?.status).isEqualTo(AgentTaskStatus.COMPLETED)
+        assertThat(vm.taskProgress.value?.finalSummary).isEqualTo("summary ready")
     }
 
     private fun aggregate(

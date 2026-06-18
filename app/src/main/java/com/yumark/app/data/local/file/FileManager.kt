@@ -77,7 +77,18 @@ class FileManager @Inject constructor(
                 // 验证文件路径在允许的目录内
                 validatePathInDirectory(file, documentsDir)
 
-                file.writeText(content)
+                // 原子写：先写临时文件，再 rename 覆盖目标。
+                // 直接 writeText 写一半若进程崩溃/断电会留下截断文件；rename 在文件系统层是原子的。
+                val tmp = File(documentsDir, "$id.md.tmp")
+                tmp.writeText(content)
+                if (!tmp.renameTo(file)) {
+                    // 某些文件系统跨卷 rename 可能失败，回退到删除+重命名
+                    file.delete()
+                    if (!tmp.renameTo(file)) {
+                        tmp.delete()
+                        throw java.io.IOException("Failed to save document $id")
+                    }
+                }
                 Result.success(Unit)
             } catch (e: SecurityException) {
                 Result.failure(e)

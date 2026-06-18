@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yumark.app.domain.model.Message
@@ -88,10 +89,10 @@ fun ChatContent(
 ) {
     LaunchedEffect(conversationId) { viewModel.bind(conversationId) }
 
-    val title by viewModel.title.collectAsState()
-    val messages by viewModel.messages.collectAsState()
-    val isStreaming by viewModel.isStreaming.collectAsState()
-    val error by viewModel.error.collectAsState()
+    val title by viewModel.title.collectAsStateWithLifecycle()
+    val messages by viewModel.messages.collectAsStateWithLifecycle()
+    val isStreaming by viewModel.isStreaming.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val snackbar = remember { SnackbarHostState() }

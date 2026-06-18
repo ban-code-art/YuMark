@@ -81,7 +81,7 @@ D:\CCguiPlay\Typora\YuMark\YuMark-v1.1.2.apk  (3.8 MB)
 ### 密钥库（不要分享）
 ```
 D:\CCguiPlay\Typora\YuMark\release.keystore
-密码: ***REMOVED***
+密码: 已移除，禁止写入仓库
 ```
 
 ### 文档

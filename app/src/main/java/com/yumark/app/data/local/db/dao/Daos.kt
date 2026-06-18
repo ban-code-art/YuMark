@@ -53,6 +53,10 @@ interface FolderDao {
     @Query("SELECT * FROM folders WHERE parent_id = :parentId ORDER BY `order` ASC, name ASC")
     suspend fun getByParent(parentId: String?): List<FolderEntity>
 
+    // 同父文件夹下最大 order，用于新建/移动时取 MAX(order)+1，避免并发创建时 size 竞态导致 order 重复
+    @Query("SELECT COALESCE(MAX(`order`), -1) FROM folders WHERE parent_id IS :parentId")
+    suspend fun maxOrder(parentId: String?): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(folder: FolderEntity)
 

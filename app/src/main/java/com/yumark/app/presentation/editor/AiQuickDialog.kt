@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yumark.app.domain.model.AgentAction
@@ -75,12 +76,12 @@ fun AiQuickDialog(
     documentContent: String? = null,
     viewModel: AiQuickViewModel = hiltViewModel()
 ) {
-    val userInput by viewModel.userInput.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
-    val error by viewModel.error.collectAsState()
-    val currentMode by viewModel.currentMode.collectAsState()
-    val conversationHistory by viewModel.conversationHistory.collectAsState()
-    val hasMessages by viewModel.hasMessages.collectAsState()
+    val userInput by viewModel.userInput.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    val currentMode by viewModel.currentMode.collectAsStateWithLifecycle()
+    val conversationHistory by viewModel.conversationHistory.collectAsStateWithLifecycle()
+    val hasMessages by viewModel.hasMessages.collectAsStateWithLifecycle()
     var editableSelectedText by remember { mutableStateOf(selectedText) }
     var showExitConfirmDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()

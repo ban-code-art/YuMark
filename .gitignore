@@ -22,3 +22,6 @@ captures/
 *.aab
 output-metadata.json
 release.keystore
+
+# 签名密钥配置（含密码，绝不入库）
+keystore.properties

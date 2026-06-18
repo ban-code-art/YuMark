@@ -48,8 +48,29 @@ class ImageRepositoryImpl @Inject constructor(
             val inputStream = context.contentResolver.openInputStream(uri)
                 ?: return@withContext Result.failure(Exception("Cannot open image"))
 
-            originalBitmap = BitmapFactory.decodeStream(inputStream)
+            // 两步解码：先量尺寸再按需下采样，避免超大图解码阶段就占满内存导致 OOM。
+            val settings = if (compress) settingsRepository.getSettings() else null
+            val targetMaxWidth = settings?.takeIf { it.autoCompressImages }?.maxImageWidth
+
+            val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeStream(inputStream, null, boundsOptions)
             inputStream.close()
+
+            val sampleSize = if (targetMaxWidth != null && boundsOptions.outWidth > targetMaxWidth) {
+                // inSampleSize 向下取整为 2 的幂；按宽度比例粗略计算即可，后续再精确缩放
+                var sample = 1
+                while (boundsOptions.outWidth / sample / 2 >= targetMaxWidth) sample *= 2
+                sample
+            } else 1
+
+            val decodeInputStream = context.contentResolver.openInputStream(uri)
+                ?: return@withContext Result.failure(Exception("Cannot open image"))
+            originalBitmap = BitmapFactory.decodeStream(
+                decodeInputStream,
+                null,
+                BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            )
+            decodeInputStream.close()
 
             if (originalBitmap == null) {
                 return@withContext Result.failure(Exception("Cannot decode image"))
@@ -59,8 +80,8 @@ class ImageRepositoryImpl @Inject constructor(
             processedBitmap = originalBitmap
 
             if (compress) {
-                val settings = settingsRepository.getSettings()
-                if (settings.autoCompressImages && originalBitmap.width > settings.maxImageWidth) {
+                // settings 已在上方读取一次，这里复用，避免重复读
+                if (settings != null && settings.autoCompressImages && originalBitmap.width > settings.maxImageWidth) {
                     val ratio = settings.maxImageWidth.toFloat() / originalBitmap.width
                     val newH = (originalBitmap.height * ratio).toInt()
 
@@ -86,7 +107,7 @@ class ImageRepositoryImpl @Inject constructor(
             FileOutputStream(file).use { out ->
                 val format = if (extension == "png") Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
                 val quality = if (compress) {
-                    settingsRepository.getSettings().imageCompressionQuality.value.coerceIn(0, 100)
+                    settings?.imageCompressionQuality?.value?.coerceIn(0, 100) ?: 90
                 } else {
                     90
                 }

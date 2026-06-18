@@ -3,6 +3,7 @@ package com.yumark.app.presentation.filelist
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -45,8 +46,8 @@ fun FileListScreen(
     navController: NavController,
     viewModel: FileListViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val expandedFolders by viewModel.expandedFolders.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val expandedFolders by viewModel.expandedFolders.collectAsStateWithLifecycle()
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var showFolderDialog by remember { mutableStateOf(false) }
@@ -65,15 +66,15 @@ fun FileListScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    val workspace by viewModel.workspace.collectAsState()
-    val workspaceError by viewModel.workspaceError.collectAsState()
-    val defaultDirRestoreFailed by viewModel.defaultDirRestoreFailed.collectAsState()
-    val isWorkspaceLoading by viewModel.isWorkspaceLoading.collectAsState()
+    val workspace by viewModel.workspace.collectAsStateWithLifecycle()
+    val workspaceError by viewModel.workspaceError.collectAsStateWithLifecycle()
+    val defaultDirRestoreFailed by viewModel.defaultDirRestoreFailed.collectAsStateWithLifecycle()
+    val isWorkspaceLoading by viewModel.isWorkspaceLoading.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     // 操作失败提示（删除/重命名/创建失败等），不影响列表
-    val actionError by viewModel.actionError.collectAsState()
+    val actionError by viewModel.actionError.collectAsStateWithLifecycle()
     LaunchedEffect(actionError) {
         actionError?.let {
             snackbarHostState.showSnackbar(it)
@@ -125,7 +126,7 @@ fun FileListScreen(
     }
 
     // 导入成功提示
-    val importMessage by viewModel.importMessage.collectAsState()
+    val importMessage by viewModel.importMessage.collectAsStateWithLifecycle()
     LaunchedEffect(importMessage) {
         importMessage?.let {
             snackbarHostState.showSnackbar(it)
@@ -134,7 +135,7 @@ fun FileListScreen(
     }
 
     // 启动时自动检查更新
-    val autoUpdateInfo by viewModel.autoUpdateInfo.collectAsState()
+    val autoUpdateInfo by viewModel.autoUpdateInfo.collectAsStateWithLifecycle()
     var downloadingUpdate by remember { mutableStateOf<com.yumark.app.domain.model.UpdateInfo?>(null) }
 
     // 自动更新对话框
@@ -218,7 +219,7 @@ fun FileListScreen(
     }
 
     // 文件夹导入勾选对话框（默认全不选，手动勾；可自定义导入位置）
-    val importCandidates by viewModel.importCandidates.collectAsState()
+    val importCandidates by viewModel.importCandidates.collectAsStateWithLifecycle()
     importCandidates?.let { candidates ->
         ImportSelectionDialog(
             candidates = candidates,
@@ -231,7 +232,7 @@ fun FileListScreen(
     }
 
     // 导入中状态：模态进度提示（扫描/复制期间均显示）
-    val isImporting by viewModel.isImporting.collectAsState()
+    val isImporting by viewModel.isImporting.collectAsStateWithLifecycle()
     if (isImporting) {
         AlertDialog(
             onDismissRequest = { /* 导入中不可取消 */ },

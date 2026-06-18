@@ -92,8 +92,7 @@ class SendAgentMessageUseCaseTest {
             imageProcessor,
             agentTaskRepository,
             PlanAgentTaskUseCase(),
-            ExecuteAgentTaskUseCase(agentTaskRepository, executeDocumentTool),
-            EvaluateTaskCompletionUseCase()
+            ExecuteAgentTaskUseCase(agentTaskRepository, executeDocumentTool)
         )
     }
 
@@ -305,56 +304,42 @@ class SendAgentMessageUseCaseTest {
     }
 
     @Test
-    fun `finalizes persisted task from completion judge output`() = runTest {
-        val judgeJson = """
-            {
-              "outcome": "COMPLETED",
-              "summary": "done summary"
-            }
-        """.trimIndent()
+    fun `converged answer finalizes persisted task as completed without a judge round`() = runTest {
+        // 移除 completion judge 后：planner 轮（无效→兜底单步）+ 回答轮 = 2 轮，无判定请求
         val adapter = FakeAdapter(listOf(
             invalidPlannerRound(),
-            listOf(StreamEvent.Content("answer"), StreamEvent.Done("answer")),
-            listOf(StreamEvent.Content(judgeJson), StreamEvent.Done(judgeJson))
+            listOf(StreamEvent.Content("answer"), StreamEvent.Done("answer"))
         ))
 
         val states = useCase(adapter).invoke("c1", "hi", null, null, null).toList()
 
         assertThat(states.filterIsInstance<AgentMessageState.Completed>().map { it.fullText })
             .contains("answer")
-        assertThat(adapter.configs.last().systemPrompt).contains("completion")
+        assertThat(adapter.callCount).isEqualTo(2)  // 不再发判定请求
         coVerify {
             agentTaskRepository.updateTask(match {
-                it.status == AgentTaskStatus.COMPLETED &&
-                    it.finalSummary == "done summary" &&
-                    it.blockingReason == null
+                it.status == AgentTaskStatus.COMPLETED && it.blockingReason == null
             })
         }
     }
 
     @Test
-    fun `blocked completion judge finalizes persisted task with blocking reason`() = runTest {
-        val judgeJson = """
-            {
-              "outcome": "BLOCKED",
-              "summary": "could not finish",
-              "blocking_reason": "No matching document"
-            }
-        """.trimIndent()
+    fun `blocked tool failure finalizes persisted task with blocking reason`() = runTest {
+        coEvery { executeDocumentTool(any()) } returns Result.failure(IllegalArgumentException("No matching document"))
         val adapter = FakeAdapter(listOf(
             invalidPlannerRound(),
-            listOf(StreamEvent.Content("I could not find it"), StreamEvent.Done("I could not find it")),
-            listOf(StreamEvent.Content(judgeJson), StreamEvent.Done(judgeJson))
+            listOf(
+                StreamEvent.ToolCallComplete(listOf(ToolCall("call_1", "read_document", """{"document_id":"missing"}"""))),
+                StreamEvent.Done("")
+            )
         ))
 
         useCase(adapter).invoke("c1", "find missing note", null, null, null).toList()
 
-        assertThat(adapter.configs.last().systemPrompt).contains("completion")
         coVerify {
             agentTaskRepository.updateTask(match {
                 it.status == AgentTaskStatus.BLOCKED &&
-                    it.finalSummary == "could not finish" &&
-                    it.blockingReason == "No matching document"
+                    it.blockingReason?.contains("No matching document") == true
             })
         }
     }
@@ -392,7 +377,8 @@ class SendAgentMessageUseCaseTest {
 
         assertThat(states.filterIsInstance<AgentMessageState.Completed>().map { it.fullText })
             .contains("done")
-        assertThat(adapter.callCount).isEqualTo(3)
+        // planner + 回答轮 = 2 轮（无判定请求）
+        assertThat(adapter.callCount).isEqualTo(2)
         assertThat(adapter.configs.first().systemPrompt).contains("JSON")
         assertThat(adapter.messagesByCall.first().single().content).contains("organize notes")
         coVerify {
@@ -422,7 +408,8 @@ class SendAgentMessageUseCaseTest {
         val states = useCase(adapter).invoke("c1", "读一下", null, null, null).toList()
 
         coVerify(exactly = 1) { executeDocumentTool(any()) }
-        assertThat(adapter.callCount).isEqualTo(4)
+        // planner + 工具轮 + 回答轮 = 3 轮（无判定请求）
+        assertThat(adapter.callCount).isEqualTo(3)
         assertThat(states.filterIsInstance<AgentMessageState.Completed>().map { it.fullText })
             .contains("最终答案")
         assertThat(states.filterIsInstance<AgentMessageState.ToolStep>()).isNotEmpty()
@@ -460,29 +447,24 @@ class SendAgentMessageUseCaseTest {
     }
 
     @Test
-    fun `completion judge input includes latest step status and result summary`() = runTest {
+    fun `tool step then converged answer finalizes completed without judge round`() = runTest {
         coEvery { executeDocumentTool(any()) } returns Result.success("tool result")
-        val judgeJson = """
-            {
-              "outcome": "COMPLETED",
-              "summary": "done"
-            }
-        """.trimIndent()
         val adapter = FakeAdapter(listOf(
             invalidPlannerRound(),
             listOf(
                 StreamEvent.ToolCallComplete(listOf(ToolCall("call_1", "read_document", """{"document_id":"x"}"""))),
                 StreamEvent.Done("")
             ),
-            listOf(StreamEvent.Content("final answer"), StreamEvent.Done("final answer")),
-            listOf(StreamEvent.Content(judgeJson), StreamEvent.Done(judgeJson))
+            listOf(StreamEvent.Content("final answer"), StreamEvent.Done("final answer"))
         ))
 
         useCase(adapter).invoke("c1", "read one", null, null, null).toList()
 
-        val judgeInput = adapter.messagesByCall.last().single().content.orEmpty()
-        assertThat(judgeInput).contains("[DONE] Respond to user request")
-        assertThat(judgeInput).contains("read_document")
+        // planner + 工具轮 + 回答轮 = 3 轮，无判定请求
+        assertThat(adapter.callCount).isEqualTo(3)
+        coVerify {
+            agentTaskRepository.updateTask(match { it.status == AgentTaskStatus.COMPLETED })
+        }
     }
 
     @Test
@@ -550,7 +532,7 @@ class SendAgentMessageUseCaseTest {
 
         val states = useCase(adapter).invoke("c1", "改写文档", "doc-1", "笔记", "旧内容").toList()
 
-        assertThat(adapter.callCount).isEqualTo(3)  // planner + 写工具终点 + completion judge，不再请求第二轮回答
+        assertThat(adapter.callCount).isEqualTo(2)  // planner + 写工具终点（无判定请求），不再请求第二轮回答
         val proposed = states.filterIsInstance<AgentMessageState.ActionProposed>()
         assertThat(proposed).isNotEmpty()
         assertThat(proposed.first().action.type)
@@ -602,5 +584,96 @@ class SendAgentMessageUseCaseTest {
         assertThat(states.filterIsInstance<AgentMessageState.Error>()).isNotEmpty()
         coVerify { conversationRepository.updateConversation(match { it.status == ConversationStatus.WORKING }) }
         coVerify { conversationRepository.updateConversation(match { it.status == ConversationStatus.IDLE }) }
+    }
+
+    @Test
+    fun `implicit full markdown text becomes a create document proposal for weak tool models`() = runTest {
+        // 弱工具模型：既不发 create_document 工具调用，也不写 [[ACTION]]，直接把整篇 Markdown 吐在回复里
+        val docText = """
+            # 人工智能入门
+
+            人工智能（AI）是研究、开发用于模拟、延伸和扩展人的智能的理论、方法、技术及应用系统的一门新技术科学。
+
+            ## 核心概念
+            - 机器学习：让机器从数据中学习规律
+            - 深度学习：基于神经学习的子领域
+            - 自然语言处理：让机器理解人类语言
+
+            ## 应用场景
+            人工智能已广泛应用于语音识别、图像识别、推荐系统、自动驾驶等领域。
+        """.trimIndent()
+        val adapter = FakeAdapter(listOf(
+            invalidPlannerRound(),
+            listOf(StreamEvent.Content(docText), StreamEvent.Done(docText))
+        ))
+
+        val states = useCase(adapter)
+            .invoke("c1", "创建一份关于人工智能的md文档", null, null, null)
+            .toList()
+
+        val proposed = states.filterIsInstance<AgentMessageState.ActionProposed>()
+        assertThat(proposed).isNotEmpty()
+        assertThat(proposed.first().action.type)
+            .isEqualTo(com.yumark.app.domain.model.AgentActionType.CREATE_DOCUMENT)
+        assertThat(proposed.first().action.content).isEqualTo(docText.trim())
+        coVerify(exactly = 0) { executeDocumentTool(any()) }
+    }
+
+    @Test
+    fun `implicit full markdown text becomes an edit proposal when editing current document`() = runTest {
+        val docText = """
+            # 润色后的笔记
+
+            这是经过润色与补充的版本，结构更清晰、表述更完整。
+            - 要点一
+            - 要点二
+        """.trimIndent()
+        val adapter = FakeAdapter(listOf(
+            invalidPlannerRound(),
+            listOf(StreamEvent.Content(docText), StreamEvent.Done(docText))
+        ))
+
+        val states = useCase(adapter)
+            .invoke("c1", "帮我改写一下这篇文档", "doc-1", "我的笔记", "旧内容")
+            .toList()
+
+        val proposed = states.filterIsInstance<AgentMessageState.ActionProposed>()
+        assertThat(proposed).isNotEmpty()
+        assertThat(proposed.first().action.type)
+            .isEqualTo(com.yumark.app.domain.model.AgentActionType.EDIT_DOCUMENT)
+        assertThat(proposed.first().action.targetDocumentId).isEqualTo("doc-1")
+        assertThat(proposed.first().action.content).isEqualTo(docText.trim())
+    }
+
+    @Test
+    fun `plain short answer is not misread as a document write`() = runTest {
+        // 普通问答：用户无创建/改写意图，且回复短小 → 不应产出任何 action
+        val answer = "RAG 是检索增强生成，通过外挂知识库提升大模型回答的事实准确性。"
+        val adapter = FakeAdapter(listOf(
+            invalidPlannerRound(),
+            listOf(StreamEvent.Content(answer), StreamEvent.Done(answer))
+        ))
+
+        val states = useCase(adapter).invoke("c1", "什么是 RAG", null, null, null).toList()
+
+        assertThat(states.filterIsInstance<AgentMessageState.ActionProposed>()).isEmpty()
+        assertThat(states.filterIsInstance<AgentMessageState.Completed>().map { it.fullText })
+            .contains(answer)
+    }
+
+    @Test
+    fun `short creation reply without document body does not trigger implicit proposal`() = runTest {
+        // 创建意图但模型只回了短句（无结构、不足长度）→ 不应误判为待创建文档
+        val answer = "好的，我来帮你创建。"
+        val adapter = FakeAdapter(listOf(
+            invalidPlannerRound(),
+            listOf(StreamEvent.Content(answer), StreamEvent.Done(answer))
+        ))
+
+        val states = useCase(adapter)
+            .invoke("c1", "创建一份md文档关于ai主题", null, null, null)
+            .toList()
+
+        assertThat(states.filterIsInstance<AgentMessageState.ActionProposed>()).isEmpty()
     }
 }

@@ -5,8 +5,10 @@ import com.yumark.app.data.local.file.FileManager
 import com.yumark.app.data.mapper.DocumentMapper
 import com.yumark.app.domain.model.Document
 import com.yumark.app.domain.repository.DocumentRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -84,20 +86,23 @@ class DocumentRepositoryImpl @Inject constructor(
 
     override suspend fun searchDocuments(query: String): Result<List<Document>> = runCatching {
         // 全文搜索：正文存在文件系统而非数据库，需加载后在内存过滤（名称或正文，忽略大小写）
-        documentDao.getAll()
-            .map { entity ->
-                val content = fileManager.loadDocumentContent(entity.id).getOrElse { error ->
-                    when (error) {
-                        is java.io.FileNotFoundException -> ""
-                        else -> throw error
+        // 切到 IO 调度器：逐个读文件是密集磁盘 IO，不应在调用线程（可能是 UI/默认调度器）执行
+        withContext(Dispatchers.IO) {
+            documentDao.getAll()
+                .map { entity ->
+                    val content = fileManager.loadDocumentContent(entity.id).getOrElse { error ->
+                        when (error) {
+                            is java.io.FileNotFoundException -> ""
+                            else -> throw error
+                        }
                     }
+                    mapper.toDomain(entity, content)
                 }
-                mapper.toDomain(entity, content)
-            }
-            .filter { doc ->
-                doc.name.contains(query, ignoreCase = true) ||
-                    doc.content.contains(query, ignoreCase = true)
-            }
+                .filter { doc ->
+                    doc.name.contains(query, ignoreCase = true) ||
+                        doc.content.contains(query, ignoreCase = true)
+                }
+        }
     }
 
     override suspend fun createDocument(name: String, folderId: String?): Result<Document> = runCatching {
