@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "affectedLayers": [
+    "domain model",
+    "agent orchestration",
+    "repository",
+    "Room schema",
+    "agent UI",
+    "unit tests"
+  ],
+  "owners": [
+    "app/src/main/java/com/yumark/app/domain/usecase/ai/agent/AgentUseCases.kt",
+    "app/src/main/java/com/yumark/app/domain/repository/AgentTaskRepository.kt",
+    "app/src/main/java/com/yumark/app/data/repository/AgentTaskRepositoryImpl.kt",
+    "app/src/main/java/com/yumark/app/presentation/ai/agent/AgentChatSheet.kt"
+  ],
+  "invariants": [
+    "Provider adapter sendChatStream contract remains stable",
+    "Standard chat mode remains unchanged",
+    "Document writes still require user approval",
+    "Create/save/load document use cases remain stable"
+  ],
+  "compatBoundary": "Preserve existing provider adapter interfaces, standard chat behavior, and mandatory write approval while adding Agent V2 task runtime state.",
+  "nonGoals": [
+    "multi-agent collaboration",
+    "background autonomous jobs",
+    "unrestricted file or shell automation",
+    "automatic document writes without user approval"
+  ]
+}

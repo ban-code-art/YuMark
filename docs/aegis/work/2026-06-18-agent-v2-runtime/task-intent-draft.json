@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "requestedOutcome": "Implement Agent V2 runtime so the document agent can plan, execute steps, capture evidence, replan once, and judge completion.",
+  "scope": "Document agent runtime only, including task state, planner, executor, replanner, completion judge, and task progress UI.",
+  "changeKinds": [
+    "domain-runtime",
+    "persistence",
+    "ui-progress",
+    "verification"
+  ],
+  "riskHints": [
+    "Room migration drift",
+    "agent orchestration regression",
+    "write approval behavior regression",
+    "task progress UI overlap"
+  ]
+}

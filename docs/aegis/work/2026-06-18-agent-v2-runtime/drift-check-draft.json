@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-06-18-agent-v2-runtime",
+  "taskIntentRef": "docs/aegis/work/2026-06-18-agent-v2-runtime/task-intent-draft.json",
+  "baselineRefs": [
+    "docs/aegis/specs/2026-06-18-agent-v2-runtime-design.md",
+    "docs/aegis/plans/2026-06-18-agent-v2-runtime-implementation-plan.md",
+    "docs/aegis/baseline/2026-06-18-initial-baseline.md"
+  ],
+  "scopeStatus": "aligned: document agent runtime finalization remains inside approved Agent V2 scope",
+  "compatStatus": "aligned: provider adapter contracts and mandatory write approval are preserved",
+  "retirementStatus": "legacy transient narration remains as supporting UI detail; task persistence is the source of truth for progress/finalization",
+  "newRiskSignals": [
+    "release packaging not yet run",
+    "manual device UX not yet verified",
+    "live provider calls not yet verified"
+  ],
+  "decision": "continue"
+}

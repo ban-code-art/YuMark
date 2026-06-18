@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "artifactKey": "agent-v2-runtime-finalization",
+  "type": "automated-test-and-compile",
+  "source": "cmd /c gradlew.bat :app:testDebugUnitTest; cmd /c gradlew.bat :app:compileDebugKotlin",
+  "summary": "Full debug unit suite and debug Kotlin compile check produced BUILD SUCCESSFUL after completion judge finalization was wired into SendAgentMessageUseCase. A later feedback slice also made underspecified document creation ask clarification first and hid completed task progress from the persistent top panel.",
+  "verifier": "Codex"
+}

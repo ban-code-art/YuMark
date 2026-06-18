@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "baselineRefs": [
+    "docs/aegis/specs/2026-06-18-agent-v2-runtime-design.md",
+    "docs/aegis/plans/2026-06-18-agent-v2-runtime-implementation-plan.md",
+    "docs/aegis/baseline/2026-06-18-initial-baseline.md"
+  ],
+  "impactStatement": "docs/aegis/work/2026-06-18-agent-v2-runtime/impact-statement-draft.json",
+  "compatPlan": "Preserve existing provider adapter interfaces, standard chat behavior, and mandatory write approval while adding Agent V2 task runtime state.",
+  "retirementPlan": "legacy transient narration remains as supporting UI detail; task persistence is the source of truth for progress/finalization",
+  "evidenceBundle": [
+    "docs/aegis/work/2026-06-18-agent-v2-runtime/evidence-bundle-draft-finalization.json"
+  ]
+}

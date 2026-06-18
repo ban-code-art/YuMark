@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "aegis.schema.v0",
+  "taskId": "2026-06-18-agent-v2-runtime",
+  "currentTodo": "Final verification / packaging remains after this checkpoint if a release build or commit is requested.",
+  "completedTodos": [
+    "design spec written",
+    "implementation plan written",
+    "task persistence introduced",
+    "planner and completion parser contracts added",
+    "executor and single-replan runtime contracts added",
+    "task progress exposed in Agent UI",
+    "planner request wired before answer loop",
+    "step status wired for tool execution and write proposals",
+    "completion judge finalizes persisted task state",
+    "runtime guard exits finalize persisted task state directly"
+  ],
+  "activeSlice": "Completion evaluation and blocked/failed task finalization in the send loop completed.",
+  "evidenceRefs": [
+    "docs/aegis/work/2026-06-18-agent-v2-runtime/90-evidence.md",
+    "cmd /c gradlew.bat :app:testDebugUnitTest",
+    "cmd /c gradlew.bat :app:compileDebugKotlin"
+  ],
+  "blockedOn": null,
+  "nextStep": "Perform packaging/release validation or create a commit/PR boundary if continuing this branch.",
+  "updatedAt": "2026-06-18"
+}
