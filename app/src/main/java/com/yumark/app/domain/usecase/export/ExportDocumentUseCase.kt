@@ -1,6 +1,8 @@
 package com.yumark.app.domain.usecase.export
 
+import com.yumark.app.core.export.DocxExporter
 import com.yumark.app.core.export.HtmlExporter
+import com.yumark.app.core.export.WebViewDocumentRenderer
 import com.yumark.app.domain.model.Document
 import com.yumark.app.domain.model.ExportFormat
 import com.yumark.app.domain.model.ExportOptions
@@ -10,7 +12,9 @@ import javax.inject.Inject
 
 class ExportDocumentUseCase @Inject constructor(
     private val documentRepository: DocumentRepository,
-    private val htmlExporter: HtmlExporter
+    private val htmlExporter: HtmlExporter,
+    private val webViewRenderer: WebViewDocumentRenderer,
+    private val docxExporter: DocxExporter
 ) {
     suspend operator fun invoke(
         documentId: String,
@@ -90,29 +94,24 @@ class ExportDocumentUseCase @Inject constructor(
     }
 
     @Suppress("UNUSED_PARAMETER")
-    private fun exportPdf(document: Document, options: ExportOptions): File {
-        // TODO: 使用 Android PrintManager API 生成 PDF
-        // 1. 创建 WebView 渲染 HTML
-        // 2. 使用 PrintManager.print() 转 PDF
-        // 3. 保存到 outputDir
-        throw UnsupportedOperationException("PDF export not yet implemented")
+    private suspend fun exportPdf(document: Document, options: ExportOptions): File {
+        val safeFileName = sanitizeFileName(document.name)
+        val outputFile = File(options.outputDir, "$safeFileName.pdf")
+        validateOutputPath(outputFile, options.outputDir)
+        // 复用预览 WebView 管线渲染（含 KaTeX/Mermaid/Prism），打印为 PDF
+        return webViewRenderer.renderToPdf(document.content, outputFile)
     }
 
-    @Suppress("UNUSED_PARAMETER")
     private fun exportWord(document: Document, options: ExportOptions): File {
-        // TODO: 使用 Apache POI 或其他库生成 .docx
-        // 1. 解析 Markdown 为结构化数据
-        // 2. 使用 POI 创建 Word 文档
-        // 3. 保存到 outputDir
-        throw UnsupportedOperationException("Word export not yet implemented")
+        return docxExporter.export(document, options).getOrThrow()
     }
 
     @Suppress("UNUSED_PARAMETER")
-    private fun exportImage(document: Document, options: ExportOptions): File {
-        // TODO: WebView 截图转 PNG
-        // 1. 渲染 Markdown 到 WebView
-        // 2. 使用 PixelCopy.request() 截图
-        // 3. 保存为 PNG
-        throw UnsupportedOperationException("Image export not yet implemented")
+    private suspend fun exportImage(document: Document, options: ExportOptions): File {
+        val safeFileName = sanitizeFileName(document.name)
+        val outputFile = File(options.outputDir, "$safeFileName.png")
+        validateOutputPath(outputFile, options.outputDir)
+        // 整页渲染截成长图
+        return webViewRenderer.renderToImage(document.content, outputFile)
     }
 }

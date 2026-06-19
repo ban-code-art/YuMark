@@ -374,6 +374,15 @@ fun SettingsScreen(
 
             HorizontalDivider()
 
+            // 云端同步
+            ListItem(
+                headlineContent = { Text("云端同步") },
+                supportingContent = { Text("WebDAV 多端备份与同步") },
+                modifier = Modifier.clickable { navController.navigate(Screen.Sync.route) }
+            )
+
+            HorizontalDivider()
+
             // 检查更新
             ListItem(
                 headlineContent = { Text("检查更新") },

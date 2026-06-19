@@ -48,6 +48,7 @@ class EditorViewModel @Inject constructor(
     private val folderRepository: FolderRepository,
     private val getFolderTreeUseCase: GetFolderTreeUseCase,
     private val documentRepository: DocumentRepository,
+    private val documentVersionRepository: com.yumark.app.domain.repository.DocumentVersionRepository,
     getAiConfig: GetAiConfigUseCase,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -65,6 +66,12 @@ class EditorViewModel @Inject constructor(
 
     /** 当前内部文档 id（侧栏高亮/防重复打开用），外部文档为 null */
     val currentDocumentId: String? get() = documentId
+
+    /** 当前文档的历史版本（仅内部文档；按时间倒序）。 */
+    val versions: StateFlow<List<com.yumark.app.domain.model.DocumentVersion>> =
+        (documentId?.let { documentVersionRepository.observeVersions(it) }
+            ?: kotlinx.coroutines.flow.flowOf(emptyList()))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 当前外部文档 URI（侧栏防重复打开用），内部文档为 null */
     val currentDocUri: String? get() = docUri
@@ -276,6 +283,15 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch { doSave() }
     }
 
+    /** 恢复到某历史版本：先把当前内容入历史，再写回该版本内容并保存。 */
+    fun restoreVersion(version: com.yumark.app.domain.model.DocumentVersion) {
+        viewModelScope.launch {
+            doSave()                          // 当前内容先落历史（若有改动）
+            onContentChanged(version.content) // 写回历史内容
+            doSave()                          // 保存并记一条「恢复后」版本
+        }
+    }
+
     /** 供返回键等需要等待保存落盘后再继续的场景（在调用方协程内执行，不会被 VM 销毁取消） */
     suspend fun saveAndWait() = doSave()
 
@@ -292,6 +308,13 @@ class EditorViewModel @Inject constructor(
                 }
                 result.onSuccess {
                     isDocumentDirty = false
+                    // 内部文档保存成功后落历史版本快照（内容变化才记，best-effort，失败不影响保存）
+                    val internalId = documentId
+                    if (docUri == null && internalId != null) {
+                        runCatching {
+                            documentVersionRepository.snapshotIfChanged(internalId, doc.content, doc.wordCount)
+                        }
+                    }
                 }.onFailure { e ->
                     // 保存失败不改变整页状态，编辑内容保留在内存
                     _saveError.value = e.message ?: "保存失败"
@@ -389,6 +412,7 @@ class EditorViewModel @Inject constructor(
             ).onSuccess { file ->
                 _exportedFile.value = file
             }.onFailure { e ->
+                android.util.Log.e("YuMarkExport", "export failed: ${e.message}", e)
                 _saveError.value = e.message ?: "导出失败"
             }
         }

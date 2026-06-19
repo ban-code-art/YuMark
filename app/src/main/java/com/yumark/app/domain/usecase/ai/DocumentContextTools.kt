@@ -79,8 +79,9 @@ object DocumentContextTools {
 
     val EDIT_DOCUMENT = AiTool(
         name = "edit_document",
-        description = "用新内容整体替换某文档。仅在用户确需修改文档时调用；" +
-            "调用后用户会逐块审阅 diff 并确认，无需你再追加 [[ACTION]] 文本块。",
+        description = "对某文档做**外科式局部编辑**：用一组 old_string→new_string 精确替换片段，" +
+            "而不是整篇重写。改动越小越好；不要重复原文未改动的大段内容。" +
+            "调用后用户会逐块审阅 diff 并确认。修改前建议先用 read_document 获取确切原文。",
         parameters = mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -88,12 +89,62 @@ object DocumentContextTools {
                     "type" to "string",
                     "description" to "目标文档 ID；省略则默认当前打开的文档"
                 ),
-                "new_content" to mapOf(
-                    "type" to "string",
-                    "description" to "替换后的完整 Markdown 正文（不要省略）"
+                "edits" to mapOf(
+                    "type" to "array",
+                    "description" to "按顺序应用的编辑列表",
+                    "items" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "old_string" to mapOf(
+                                "type" to "string",
+                                "description" to "要被替换的原文片段，需与文档完全一致且能唯一定位（含足够上下文）"
+                            ),
+                            "new_string" to mapOf(
+                                "type" to "string",
+                                "description" to "替换后的文本"
+                            ),
+                            "replace_all" to mapOf(
+                                "type" to "boolean",
+                                "description" to "是否替换所有命中（默认 false，要求唯一命中）",
+                                "default" to false
+                            )
+                        ),
+                        "required" to listOf("old_string", "new_string")
+                    )
                 )
             ),
-            "required" to listOf("new_content")
+            "required" to listOf("edits")
+        )
+    )
+
+    val UPDATE_PLAN = AiTool(
+        name = "update_plan",
+        description = "维护当前任务的待办计划（todo）。多步任务时用它列出步骤并随进展更新状态；" +
+            "简单一步问答可不调用。每次调用都会整体替换计划，请提交完整步骤列表。",
+        parameters = mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "steps" to mapOf(
+                    "type" to "array",
+                    "description" to "完整的步骤列表",
+                    "items" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "title" to mapOf(
+                                "type" to "string",
+                                "description" to "步骤标题（简短、动宾结构）"
+                            ),
+                            "status" to mapOf(
+                                "type" to "string",
+                                "description" to "步骤状态",
+                                "enum" to listOf("pending", "in_progress", "done", "blocked")
+                            )
+                        ),
+                        "required" to listOf("title", "status")
+                    )
+                )
+            ),
+            "required" to listOf("steps")
         )
     )
 
@@ -105,6 +156,7 @@ object DocumentContextTools {
         LIST_DOCUMENTS,
         SEARCH_IN_PROJECT,
         CREATE_DOCUMENT,
-        EDIT_DOCUMENT
+        EDIT_DOCUMENT,
+        UPDATE_PLAN
     )
 }

@@ -33,8 +33,23 @@ class DocumentContextToolsTest {
     }
 
     @Test
-    fun `edit_document schema matches parser fields`() {
-        assertThat(properties("edit_document").keys).containsAtLeast("document_id", "new_content")
-        assertThat(required("edit_document")).contains("new_content")
+    fun `edit_document schema is surgical edits array`() {
+        val props = properties("edit_document")
+        assertThat(props.keys).containsAtLeast("document_id", "edits")
+        assertThat(required("edit_document")).contains("edits")
+
+        @Suppress("UNCHECKED_CAST")
+        val edits = props["edits"] as Map<String, Any?>
+        assertThat(edits["type"]).isEqualTo("array")
+        @Suppress("UNCHECKED_CAST")
+        val itemProps = (edits["items"] as Map<String, Any?>)["properties"] as Map<String, Any?>
+        assertThat(itemProps.keys).containsAtLeast("old_string", "new_string", "replace_all")
+    }
+
+    @Test
+    fun `update_plan tool is exposed with steps schema`() {
+        val names = DocumentContextTools.getAllTools().map { it.name }
+        assertThat(names).contains("update_plan")
+        assertThat(required("update_plan")).contains("steps")
     }
 }

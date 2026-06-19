@@ -78,6 +78,8 @@ private fun EditDiffCard(
             ActionHeader(AgentActionType.EDIT_DOCUMENT, action.status)
             Text(action.description, style = MaterialTheme.typography.bodyMedium)
 
+            // 用 if/else 而非 early return：应用后 baseContent 更新会让 diff 重算为「无改动」，
+            // 若用 return@Column 会改变可组合组结构 → 重组时 Compose 组栈下溢崩溃。
             if (!diff.hasChanges) {
                 Text(
                     "AI 未提出实际改动。",
@@ -87,45 +89,44 @@ private fun EditDiffCard(
                 if (action.status == AgentActionStatus.PENDING) {
                     OutlinedButton(onClick = onReject) { Text("知道了") }
                 }
-                return@Column
-            }
+            } else {
+                if (diff.degraded) {
+                    Text(
+                        "文档较大，已切换为整体对照预览。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
-            if (diff.degraded) {
-                Text(
-                    "文档较大，已切换为整体对照预览。",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+                TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(0.dp)) {
+                    Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null)
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (expanded) "收起改动" else "查看改动")
+                }
+                AnimatedVisibility(visible = expanded) {
+                    DiffView(
+                        result = diff,
+                        accepted = accepted,
+                        onToggleHunk = { id -> accepted[id] = !accepted[id] }
+                    )
+                }
 
-            TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(0.dp)) {
-                Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null)
-                Spacer(Modifier.width(4.dp))
-                Text(if (expanded) "收起改动" else "查看改动")
-            }
-            AnimatedVisibility(visible = expanded) {
-                DiffView(
-                    result = diff,
-                    accepted = accepted,
-                    onToggleHunk = { id -> accepted[id] = !accepted[id] }
-                )
-            }
-
-            if (action.status == AgentActionStatus.PENDING) {
-                val acceptedCount = accepted.count { it }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { onApproveDiff(DiffComposer.applyHunks(diff, accepted)) },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.Check, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("应用已选 $acceptedCount 处")
-                    }
-                    OutlinedButton(onClick = onReject, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.Close, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("全部拒绝")
+                if (action.status == AgentActionStatus.PENDING) {
+                    val acceptedCount = accepted.count { it }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { onApproveDiff(DiffComposer.applyHunks(diff, accepted)) },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Check, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("应用已选 $acceptedCount 处")
+                        }
+                        OutlinedButton(onClick = onReject, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Close, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("全部拒绝")
+                        }
                     }
                 }
             }

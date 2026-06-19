@@ -88,6 +88,8 @@
     <string name="export_html">导出为 HTML</string>
     <string name="export_pdf">导出为 PDF</string>
     <string name="export_word">导出为 Word</string>
+    <string name="export_image">导出为长图</string>
+    <string name="history_versions">历史版本</string>
 
     <!-- 视图菜单 -->
     <string name="show_sidebar">显示侧边栏</string>
@@ -183,4 +185,10 @@
 
     <!-- 导出 -->
     <string name="export_markdown">导出为 Markdown</string>
+    <string name="export_document">导出文档</string>
+    <string name="export_markdown_desc">纯文本，保留 Markdown 语法</string>
+    <string name="export_html_desc">网页格式，可在浏览器打开</string>
+    <string name="export_pdf_desc">固定版式，便于打印与分享</string>
+    <string name="export_word_desc">Microsoft Word 文档（.docx）</string>
+    <string name="export_image_desc">整篇渲染为一张长图</string>
 </resources>

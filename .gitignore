@@ -17,6 +17,9 @@ captures/
 # Claude Code 工作区
 .claude/
 
+# 本地诊断产物（截图 / UI dump，不入库）
+.diag/
+
 # APK/AAB 产物
 *.apk
 *.aab

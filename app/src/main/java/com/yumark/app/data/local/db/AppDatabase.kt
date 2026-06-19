@@ -7,17 +7,21 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.yumark.app.data.local.db.dao.AgentTaskDao
 import com.yumark.app.data.local.db.dao.ConversationDao
 import com.yumark.app.data.local.db.dao.DocumentDao
+import com.yumark.app.data.local.db.dao.DocumentVersionDao
 import com.yumark.app.data.local.db.dao.FolderDao
 import com.yumark.app.data.local.db.dao.ImageDao
 import com.yumark.app.data.local.db.dao.MessageDao
+import com.yumark.app.data.local.db.dao.SyncStateDao
 import com.yumark.app.data.local.db.entity.AgentEvidenceEntity
 import com.yumark.app.data.local.db.entity.AgentTaskEntity
 import com.yumark.app.data.local.db.entity.AgentTaskStepEntity
 import com.yumark.app.data.local.db.entity.ConversationEntity
 import com.yumark.app.data.local.db.entity.DocumentEntity
+import com.yumark.app.data.local.db.entity.DocumentVersionEntity
 import com.yumark.app.data.local.db.entity.FolderEntity
 import com.yumark.app.data.local.db.entity.ImageEntity
 import com.yumark.app.data.local.db.entity.MessageEntity
+import com.yumark.app.data.local.db.entity.SyncStateEntity
 
 @Database(
     entities = [
@@ -28,9 +32,11 @@ import com.yumark.app.data.local.db.entity.MessageEntity
         MessageEntity::class,
         AgentTaskEntity::class,
         AgentTaskStepEntity::class,
-        AgentEvidenceEntity::class
+        AgentEvidenceEntity::class,
+        DocumentVersionEntity::class,
+        SyncStateEntity::class
     ],
-    version = 6,
+    version = 8,
     exportSchema = true  // 启用 schema 导出，支持数据库迁移
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -40,6 +46,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
     abstract fun agentTaskDao(): AgentTaskDao
+    abstract fun documentVersionDao(): DocumentVersionDao
+    abstract fun syncStateDao(): SyncStateDao
 
     companion object {
         /**
@@ -179,6 +187,51 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * 版本 6 → 7：新增文档历史版本表 document_versions（本地内容快照）。
+         * 不改动既有表，确保用户数据保留。
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS document_versions (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        document_id TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        word_count INTEGER NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_document_versions_document_id_created_at ON document_versions(document_id, created_at)"
+                )
+            }
+        }
+
+        /**
+         * 版本 7 → 8：新增 WebDAV 同步态表 sync_state（每文档一条，记录远端路径/etag/本地哈希/上次同步时间）。
+         * 不改动既有表，确保用户数据保留。
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS sync_state (
+                        document_id TEXT NOT NULL PRIMARY KEY,
+                        remote_path TEXT NOT NULL,
+                        remote_etag TEXT,
+                        local_hash TEXT,
+                        last_synced_at INTEGER,
+                        FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        /**
          * 获取所有已定义的迁移
          * 在 DatabaseModule 中使用：
          * Room.databaseBuilder(...).addMigrations(*AppDatabase.ALL_MIGRATIONS).build()
@@ -188,7 +241,9 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_2_3,
             MIGRATION_3_4,
             MIGRATION_4_5,
-            MIGRATION_5_6
+            MIGRATION_5_6,
+            MIGRATION_6_7,
+            MIGRATION_7_8
         )
     }
 }

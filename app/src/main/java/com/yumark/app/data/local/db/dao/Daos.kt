@@ -2,8 +2,10 @@ package com.yumark.app.data.local.db.dao
 
 import androidx.room.*
 import com.yumark.app.data.local.db.entity.DocumentEntity
+import com.yumark.app.data.local.db.entity.DocumentVersionEntity
 import com.yumark.app.data.local.db.entity.FolderEntity
 import com.yumark.app.data.local.db.entity.ImageEntity
+import com.yumark.app.data.local.db.entity.SyncStateEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -90,4 +92,50 @@ interface ImageDao {
         WHERE documents.id IS NULL
     """)
     suspend fun getOrphanedImages(): List<ImageEntity>
+}
+
+@Dao
+interface DocumentVersionDao {
+    @Insert
+    suspend fun insert(version: DocumentVersionEntity)
+
+    @Query("SELECT * FROM document_versions WHERE document_id = :docId ORDER BY created_at DESC")
+    fun observeByDocument(docId: String): Flow<List<DocumentVersionEntity>>
+
+    @Query("SELECT * FROM document_versions WHERE id = :id")
+    suspend fun getById(id: String): DocumentVersionEntity?
+
+    @Query("SELECT * FROM document_versions WHERE document_id = :docId ORDER BY created_at DESC LIMIT 1")
+    suspend fun latest(docId: String): DocumentVersionEntity?
+
+    @Query("SELECT COUNT(*) FROM document_versions WHERE document_id = :docId")
+    suspend fun count(docId: String): Int
+
+    /** 删除超出保留数量的最旧版本（保留最近 [keep] 个）。 */
+    @Query(
+        """
+        DELETE FROM document_versions WHERE document_id = :docId AND id NOT IN (
+            SELECT id FROM document_versions WHERE document_id = :docId ORDER BY created_at DESC LIMIT :keep
+        )
+        """
+    )
+    suspend fun pruneOldest(docId: String, keep: Int)
+
+    @Query("DELETE FROM document_versions WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
+@Dao
+interface SyncStateDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(state: SyncStateEntity)
+
+    @Query("SELECT * FROM sync_state WHERE document_id = :docId")
+    suspend fun getByDocument(docId: String): SyncStateEntity?
+
+    @Query("SELECT * FROM sync_state")
+    suspend fun getAll(): List<SyncStateEntity>
+
+    @Query("DELETE FROM sync_state WHERE document_id = :docId")
+    suspend fun deleteByDocument(docId: String)
 }

@@ -30,6 +30,7 @@ class MainActivity : ComponentActivity() {
     // 保存外部打开的文件 URI
     private var externalFileUri by mutableStateOf<String?>(null)
 
+    @OptIn(androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         // 兼容库开屏页：Android 12+ 走系统 SplashScreen，12 以下由库绘制等效开屏窗口，
         // 保证真机（任何版本/ROM）冷启动都有图标开屏动画
@@ -50,7 +51,14 @@ class MainActivity : ComponentActivity() {
             }
             YuMarkTheme(themeId = settings.themeId, darkTheme = darkTheme) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    YuMarkNavGraph(externalFileUri = externalFileUri)
+                    val windowSizeClass =
+                        androidx.compose.material3.windowsizeclass.calculateWindowSizeClass(this)
+                    val hinge = com.yumark.app.presentation.adaptive.rememberHingeInfo(this)
+                    com.yumark.app.presentation.AppShell(
+                        widthSizeClass = windowSizeClass.widthSizeClass,
+                        hinge = hinge,
+                        externalFileUri = externalFileUri
+                    )
                 }
             }
         }

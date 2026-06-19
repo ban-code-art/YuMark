@@ -16,8 +16,8 @@ android {
         applicationId = "com.yumark.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 17
-        versionName = "0.7"
+        versionCode = 18
+        versionName = "0.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -109,6 +109,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.documentfile)
+    implementation(libs.androidx.window)
 
     // Compose
     implementation(platform(libs.compose.bom))
@@ -116,6 +117,7 @@ dependencies {
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
+    implementation(libs.compose.material3.window.size)
     implementation(libs.compose.material.icons.extended)
     implementation(libs.compose.navigation)
     debugImplementation(libs.compose.ui.tooling)
@@ -147,6 +149,8 @@ dependencies {
 
     // Ktor (HTTP client for update checking)
     implementation(libs.ktor.client.android)
+    // CIO 引擎用于 WebDAV：Android 引擎基于 HttpURLConnection，不支持 PROPFIND/MKCOL 等自定义方法
+    implementation(libs.ktor.client.cio)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
 

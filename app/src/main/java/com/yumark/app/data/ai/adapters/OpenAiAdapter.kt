@@ -47,6 +47,11 @@ import kotlinx.serialization.json.putJsonObject
  * OpenAI 官方 + 兼容格式（DeepSeek、Ollama、本地 vLLM 等）。
  * 仅通过 baseUrl 区分；协议同为 /chat/completions 的 SSE。
  */
+// 空补全间歇性出现（实测该类多智能体/聚合端点对任务类 prompt 常返回 200-空），且空补全失败很快
+// （~0.3s）而真实回复是慢速流式（~10s+），故重试成本低、可多试几次显著提升成功率。
+private const val EMPTY_RETRY_MAX = 5
+private const val EMPTY_RETRY_DELAY_MS = 400L
+
 class OpenAiAdapter(
     private val baseUrl: String,
     private val apiKey: String,
@@ -61,11 +66,15 @@ class OpenAiAdapter(
         tools: List<AiTool>
     ): Flow<StreamEvent> = flow {
         val full = StringBuilder()
+        // 推理模型（DeepSeek-R1 / o 系列等）把输出放进 reasoning_content/reasoning，content 可能为空。
+        // 单独累积；若最终 content 为空而 reasoning 非空，则把 reasoning 作为答复兜底，避免“空响应”。
+        val reasoning = StringBuilder()
 
         // 一次完整请求：构建 body(可选 tools) → 请求 → 解析 SSE → emit Content/ToolCallComplete。
         // 返回本次是否“产出了有效内容”（有正文 或 有工具调用）。不在此 emit Done——交由 runAttempt。
         suspend fun streamOnce(emit: suspend (StreamEvent) -> Unit, includeTools: Boolean): Boolean {
             full.clear()
+            reasoning.clear()
             // 每次请求新建累积器，避免主路径/兜底重试时残留上一轮的 tool_calls delta
             // 导致向模型回填陈旧或重复的工具调用。
             val toolAcc = OpenAiToolCallAccumulator()
@@ -97,6 +106,9 @@ class OpenAiAdapter(
                             emit(StreamEvent.Content(it))
                         }
                     }
+                    // 推理增量：累积但不实时上屏（避免把思维链当正文）；仅在 content 为空时兜底使用。
+                    (delta["reasoning_content"] ?: delta["reasoning"])
+                        ?.jsonPrimitive?.contentOrNull?.let { if (it.isNotEmpty()) reasoning.append(it) }
                     delta["tool_calls"]?.jsonArray?.forEach { tcEl ->
                         val tc = tcEl.jsonObject
                         val index = tc["index"]?.jsonPrimitive?.intOrNull ?: 0
@@ -114,13 +126,27 @@ class OpenAiAdapter(
             return full.isNotBlank() || !toolAcc.isEmpty()
         }
 
-        // 一次尝试：先按需带 tools 请求；若带 tools 却 200-空（既无正文也无工具调用，常见于
-        // 不真正支持 function calling 的兼容端点静默忽略 tools），去掉 tools 重试一次，
-        // 让模型能以纯文本作答 / 走 [[ACTION]] / 隐式识别这条路。最后统一 emit Done。
+        // 空补全重试：部分聚合代理/多智能体模型会间歇性地返回「200 + 只有 role、无 content/工具」
+        // 的空补全（实测同一 prompt 重试几次后能出内容）。空补全期间未 emit 任何内容，重试安全
+        // （不会重复输出）。带 tools 多次仍空，则去掉 tools 再试若干次（兼容不支持 function calling 的端点）。
         suspend fun runAttempt(emit: suspend (StreamEvent) -> Unit, includeTools: Boolean) {
-            val produced = streamOnce(emit, includeTools)
+            suspend fun attemptPhase(useTools: Boolean): Boolean {
+                repeat(EMPTY_RETRY_MAX) { i ->
+                    if (streamOnce(emit, useTools) || reasoning.isNotBlank()) return true
+                    if (i < EMPTY_RETRY_MAX - 1) kotlinx.coroutines.delay(EMPTY_RETRY_DELAY_MS)
+                }
+                return false
+            }
+
+            var produced = attemptPhase(includeTools)
             if (!produced && includeTools) {
-                streamOnce(emit, includeTools = false)
+                produced = attemptPhase(false)
+            }
+            // content 为空但有推理内容（推理模型把答案放在 reasoning 字段）→ 用推理内容兜底为答复。
+            if (full.isBlank() && reasoning.isNotBlank()) {
+                val text = reasoning.toString()
+                full.append(text)
+                emit(StreamEvent.Content(text))
             }
             emit(StreamEvent.Done(full.toString()))
         }

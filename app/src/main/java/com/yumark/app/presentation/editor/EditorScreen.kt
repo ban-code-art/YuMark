@@ -38,7 +38,6 @@ import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.yumark.app.R
-import com.yumark.app.domain.model.ExportFormat
 import com.yumark.app.presentation.ai.AiAssistantHost
 import com.yumark.app.presentation.navigation.Screen
 import com.yumark.app.presentation.sidebar.SidebarActions
@@ -62,6 +61,9 @@ fun EditorScreen(
     val applyError by viewModel.applyError.collectAsStateWithLifecycle()
     val aiEnabled by viewModel.aiEnabled.collectAsStateWithLifecycle()
     var showAiSheet by remember { mutableStateOf(false) }
+    var showVersionHistory by remember { mutableStateOf(false) }
+    var showExportSheet by remember { mutableStateOf(false) }
+    val versions by viewModel.versions.collectAsStateWithLifecycle()
 
     // 文本选择快捷 AI/Agent 功能
     var showQuickAiDialog by remember { mutableStateOf(false) }
@@ -135,6 +137,27 @@ fun EditorScreen(
                 viewModel.reloadDocumentFromRepository()
             },
             onDismiss = { showAiSheet = false }
+        )
+    }
+
+    // 历史版本弹层（仅内部文档）
+    if (showVersionHistory) {
+        VersionHistorySheet(
+            versions = versions,
+            currentContent = document?.content.orEmpty(),
+            onRestore = { viewModel.restoreVersion(it) },
+            onDismiss = { showVersionHistory = false }
+        )
+    }
+
+    // 导出格式收纳弹层（仅内部文档）
+    if (showExportSheet) {
+        ExportSheet(
+            onExport = { format ->
+                viewModel.exportAs(format)
+                showExportSheet = false
+            },
+            onDismiss = { showExportSheet = false }
         )
     }
 
@@ -612,18 +635,19 @@ fun EditorScreen(
                                         enabled = !isSaving
                                     )
 
-                                    // 导出（仅内部文档）
+                                    // 导出（仅内部文档）：收纳到一个入口，点开弹出格式选择
                                     if (!viewModel.isExternal) {
                                         HorizontalDivider()
                                         DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.export_markdown)) },
-                                            onClick = { viewModel.exportAs(ExportFormat.MARKDOWN); showMenu = false },
+                                            text = { Text(stringResource(R.string.export)) },
+                                            onClick = { showExportSheet = true; showMenu = false },
                                             leadingIcon = { Icon(Icons.Default.Download, null) }
                                         )
+                                        HorizontalDivider()
                                         DropdownMenuItem(
-                                            text = { Text(stringResource(R.string.export_html)) },
-                                            onClick = { viewModel.exportAs(ExportFormat.HTML); showMenu = false },
-                                            leadingIcon = { Icon(Icons.Default.Download, null) }
+                                            text = { Text(stringResource(R.string.history_versions)) },
+                                            onClick = { showVersionHistory = true; showMenu = false },
+                                            leadingIcon = { Icon(Icons.Default.History, null) }
                                         )
                                     }
 

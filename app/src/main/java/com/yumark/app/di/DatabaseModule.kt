@@ -6,9 +6,11 @@ import com.yumark.app.data.local.db.AppDatabase
 import com.yumark.app.data.local.db.dao.AgentTaskDao
 import com.yumark.app.data.local.db.dao.ConversationDao
 import com.yumark.app.data.local.db.dao.DocumentDao
+import com.yumark.app.data.local.db.dao.DocumentVersionDao
 import com.yumark.app.data.local.db.dao.FolderDao
 import com.yumark.app.data.local.db.dao.ImageDao
 import com.yumark.app.data.local.db.dao.MessageDao
+import com.yumark.app.data.local.db.dao.SyncStateDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -71,5 +73,17 @@ object DatabaseModule {
     @Singleton
     fun provideAgentTaskDao(database: AppDatabase): AgentTaskDao {
         return database.agentTaskDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideDocumentVersionDao(database: AppDatabase): DocumentVersionDao {
+        return database.documentVersionDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideSyncStateDao(database: AppDatabase): SyncStateDao {
+        return database.syncStateDao()
     }
 }
