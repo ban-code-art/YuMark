@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Delete
@@ -15,6 +16,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -29,6 +32,7 @@ import com.yumark.app.domain.usecase.ai.conversation.CreateConversationUseCase
 import com.yumark.app.domain.usecase.ai.conversation.DeleteConversationUseCase
 import com.yumark.app.domain.usecase.ai.conversation.GetAllConversationsUseCase
 import com.yumark.app.presentation.ai.common.AgentStatusIndicator
+import com.yumark.app.presentation.ai.common.AiDesign
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -86,7 +90,7 @@ fun ConversationListContent(
     var showMenuForConv by remember { mutableStateOf<String?>(null) }  // 显示菜单的对话 ID
 
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        Text("AI 对话", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(vertical = 8.dp))
+        Text("AI 对话", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(vertical = 8.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             FilledTonalButton(
@@ -97,7 +101,7 @@ fun ConversationListContent(
                 Spacer(Modifier.width(6.dp))
                 Text("新建聊天")
             }
-            FilledTonalButton(
+            Button(
                 onClick = { viewModel.create(ConversationType.AGENT) { onOpen(it) } },
                 modifier = Modifier.weight(1f)
             ) {
@@ -114,10 +118,20 @@ fun ConversationListContent(
                 Text("暂无对话，点击上方按钮开始", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                contentPadding = PaddingValues(vertical = 4.dp)
+            ) {
                 items(conversations, key = { it.id }) { conv ->
-                    ListItem(
-                        leadingContent = {
+                    Surface(
+                        shape = RoundedCornerShape(AiDesign.CardCorner),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = AiDesign.SoftFill),
+                        modifier = Modifier.fillMaxWidth().clickable { onOpen(conv) }
+                    ) {
+                        ListItem(
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            leadingContent = {
                             // Agent 对话显示状态指示器，普通聊天显示普通图标
                             if (conv.type == ConversationType.AGENT) {
                                 AgentStatusIndicator(
@@ -194,9 +208,8 @@ fun ConversationListContent(
                                 }
                             }
                         },
-                        modifier = Modifier.clickable { onOpen(conv) }
-                    )
-                    HorizontalDivider()
+                        )
+                    }
                 }
             }
         }

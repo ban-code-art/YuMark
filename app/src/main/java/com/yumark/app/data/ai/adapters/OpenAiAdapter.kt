@@ -62,8 +62,9 @@ class OpenAiAdapter(
     ): Flow<StreamEvent> = flow {
         val full = StringBuilder()
 
-        // 一次完整请求：构建 body(可选 tools) → 请求 → 解析 SSE → emit。失败抛异常交由守护处理。
-        suspend fun runOnce(emit: suspend (StreamEvent) -> Unit, includeTools: Boolean) {
+        // 一次完整请求：构建 body(可选 tools) → 请求 → 解析 SSE → emit Content/ToolCallComplete。
+        // 返回本次是否“产出了有效内容”（有正文 或 有工具调用）。不在此 emit Done——交由 runAttempt。
+        suspend fun streamOnce(emit: suspend (StreamEvent) -> Unit, includeTools: Boolean): Boolean {
             full.clear()
             // 每次请求新建累积器，避免主路径/兜底重试时残留上一轮的 tool_calls delta
             // 导致向模型回填陈旧或重复的工具调用。
@@ -109,8 +110,19 @@ class OpenAiAdapter(
                 if (!toolAcc.isEmpty()) {
                     emit(StreamEvent.ToolCallComplete(toolAcc.build()))
                 }
-                emit(StreamEvent.Done(full.toString()))
             }
+            return full.isNotBlank() || !toolAcc.isEmpty()
+        }
+
+        // 一次尝试：先按需带 tools 请求；若带 tools 却 200-空（既无正文也无工具调用，常见于
+        // 不真正支持 function calling 的兼容端点静默忽略 tools），去掉 tools 重试一次，
+        // 让模型能以纯文本作答 / 走 [[ACTION]] / 隐式识别这条路。最后统一 emit Done。
+        suspend fun runAttempt(emit: suspend (StreamEvent) -> Unit, includeTools: Boolean) {
+            val produced = streamOnce(emit, includeTools)
+            if (!produced && includeTools) {
+                streamOnce(emit, includeTools = false)
+            }
+            emit(StreamEvent.Done(full.toString()))
         }
 
         // 保守降级：带 tools 的请求若首字节前被拒（4xx，常见于模型不支持 function calling），
@@ -118,10 +130,10 @@ class OpenAiAdapter(
         withRetryAndEmissionGuard(
             flowEmit = { e -> emit(e) },
             fallback = if (tools.isNotEmpty()) {
-                { trackedEmit -> runOnce(trackedEmit, includeTools = false) }
+                { trackedEmit -> runAttempt(trackedEmit, includeTools = false) }
             } else null
         ) { trackedEmit ->
-            runOnce(trackedEmit, includeTools = tools.isNotEmpty())
+            runAttempt(trackedEmit, includeTools = tools.isNotEmpty())
         }
     }.flowOn(Dispatchers.IO)
 

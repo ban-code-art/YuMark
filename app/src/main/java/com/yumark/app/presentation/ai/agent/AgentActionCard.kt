@@ -1,25 +1,35 @@
 package com.yumark.app.presentation.ai.agent
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yumark.app.core.util.diff.DiffComposer
 import com.yumark.app.core.util.diff.LineDiffer
 import com.yumark.app.domain.model.AgentAction
 import com.yumark.app.domain.model.AgentActionStatus
 import com.yumark.app.domain.model.AgentActionType
+import com.yumark.app.presentation.ai.common.AiDesign
 import com.yumark.app.presentation.ai.common.DiffView
+import com.yumark.app.presentation.ai.common.StatusPill
+import com.yumark.app.presentation.ai.common.actionStatusVisual
 
 /**
  * Agent 操作卡片。
@@ -61,14 +71,11 @@ private fun EditDiffCard(
 
     Card(
         modifier = modifier.fillMaxWidth().padding(top = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+        shape = RoundedCornerShape(AiDesign.CardCorner),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AssistChip(onClick = {}, label = { Text("编辑文档") })
-                Spacer(Modifier.weight(1f))
-                StatusBadge(action.status)
-            }
+            ActionHeader(AgentActionType.EDIT_DOCUMENT, action.status)
             Text(action.description, style = MaterialTheme.typography.bodyMedium)
 
             if (!diff.hasChanges) {
@@ -138,18 +145,11 @@ private fun WholeContentCard(
 
     Card(
         modifier = modifier.fillMaxWidth().padding(top = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+        shape = RoundedCornerShape(AiDesign.CardCorner),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val typeLabel = when (action.type) {
-                    AgentActionType.CREATE_DOCUMENT -> "创建文档"
-                    AgentActionType.EDIT_DOCUMENT -> "编辑文档"
-                }
-                AssistChip(onClick = {}, label = { Text(typeLabel) })
-                Spacer(Modifier.weight(1f))
-                StatusBadge(action.status)
-            }
+            ActionHeader(action.type, action.status)
 
             Text(action.description, style = MaterialTheme.typography.bodyMedium)
 
@@ -193,13 +193,26 @@ private fun WholeContentCard(
     }
 }
 
+/** 操作卡头部：类型字形徽标 + 类型名 + 右侧状态药丸。创建/编辑共用。 */
 @Composable
-private fun StatusBadge(status: AgentActionStatus) {
-    val (label, color) = when (status) {
-        AgentActionStatus.PENDING -> "待确认" to MaterialTheme.colorScheme.secondary
-        AgentActionStatus.APPROVED -> "已批准" to MaterialTheme.colorScheme.primary
-        AgentActionStatus.REJECTED -> "已拒绝" to MaterialTheme.colorScheme.error
-        AgentActionStatus.EXECUTED -> "已执行" to MaterialTheme.colorScheme.primary
+private fun ActionHeader(type: AgentActionType, status: AgentActionStatus) {
+    val cs = MaterialTheme.colorScheme
+    val (icon, label) = when (type) {
+        AgentActionType.CREATE_DOCUMENT -> Icons.Default.Add to "创建文档"
+        AgentActionType.EDIT_DOCUMENT -> Icons.Default.Edit to "编辑文档"
     }
-    Text(label, color = color, style = MaterialTheme.typography.labelMedium)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(
+            modifier = Modifier.size(26.dp).clip(CircleShape).background(cs.primaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp), tint = cs.onPrimaryContainer)
+        }
+        Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.weight(1f))
+        StatusPill(actionStatusVisual(status))
+    }
 }

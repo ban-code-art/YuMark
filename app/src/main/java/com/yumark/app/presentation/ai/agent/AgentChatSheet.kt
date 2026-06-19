@@ -5,9 +5,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
@@ -22,6 +24,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -54,7 +58,10 @@ import com.yumark.app.domain.usecase.ai.agent.AgentMessageState
 import com.yumark.app.domain.usecase.ai.agent.ExecuteAgentActionUseCase
 import com.yumark.app.domain.usecase.ai.agent.SendAgentMessageUseCase
 import com.yumark.app.domain.usecase.ai.conversation.GetConversationUseCase
+import com.yumark.app.presentation.ai.common.AiDesign
 import com.yumark.app.presentation.ai.common.MessageBubble
+import com.yumark.app.presentation.ai.common.StreamingIndicator
+import com.yumark.app.presentation.ai.common.ToolActivityRow
 import com.yumark.app.presentation.common.isNearBottom
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -348,132 +355,55 @@ private fun AgentTaskAggregate.toUiStateOrNull(): TaskProgressUiState? {
     )
 }
 
-private fun AgentTaskStatus.label(): String = when (this) {
-    AgentTaskStatus.PLANNING -> "规划中"
-    AgentTaskStatus.EXECUTING -> "执行中"
-    AgentTaskStatus.REPLANNING -> "重新规划"
-    AgentTaskStatus.BLOCKED -> "已阻塞"
-    AgentTaskStatus.COMPLETED -> "已完成"
-    AgentTaskStatus.FAILED -> "失败"
-}
-
-private fun AgentTaskStepStatus.label(): String = when (this) {
-    AgentTaskStepStatus.PENDING -> "待执行"
-    AgentTaskStepStatus.RUNNING -> "进行中"
-    AgentTaskStepStatus.DONE -> "完成"
-    AgentTaskStepStatus.BLOCKED -> "阻塞"
-    AgentTaskStepStatus.FAILED -> "失败"
-    AgentTaskStepStatus.SKIPPED -> "跳过"
-}
-
-/** 把工具名转成面向用户的自然语言动作（narration）。 */
-private fun narrateTool(tool: String): String = when (tool) {
-    "read_document" -> "读取文档"
-    "search_in_project" -> "检索"
-    "list_documents" -> "浏览文档"
-    else -> tool
-}
-
+/** Agent 对话顶部栏：返回 + 圆形字形徽标 + 标题/状态副标题，下方挂关联文档 chip。 */
 @Composable
-private fun AgentTaskProgressPanel(
-    progress: TaskProgressUiState,
-    collapsed: Boolean,
-    onToggleCollapse: () -> Unit,
-    modifier: Modifier = Modifier
+private fun AgentHeader(
+    documentName: String?,
+    isStreaming: Boolean,
+    onBack: () -> Unit
 ) {
-    val containerColor = when (progress.status) {
-        AgentTaskStatus.BLOCKED,
-        AgentTaskStatus.FAILED -> MaterialTheme.colorScheme.errorContainer
-        AgentTaskStatus.COMPLETED -> MaterialTheme.colorScheme.primaryContainer
-        else -> MaterialTheme.colorScheme.surfaceVariant
-    }
-    val contentColor = when (progress.status) {
-        AgentTaskStatus.BLOCKED,
-        AgentTaskStatus.FAILED -> MaterialTheme.colorScheme.onErrorContainer
-        AgentTaskStatus.COMPLETED -> MaterialTheme.colorScheme.onPrimaryContainer
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(8.dp),
-        color = containerColor,
-        contentColor = contentColor
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+    val cs = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp)
         ) {
-            // 折叠头：点击切换展开/收起。收起时只显示这一行。
-            Row(
-                modifier = Modifier.fillMaxWidth().clickable(onClick = onToggleCollapse),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+            Box(
+                modifier = Modifier.size(AiDesign.GlyphSize).clip(CircleShape).background(cs.primaryContainer),
+                contentAlignment = Alignment.Center
             ) {
+                Icon(Icons.Default.SmartToy, contentDescription = null, modifier = Modifier.size(20.dp), tint = cs.onPrimaryContainer)
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Agent", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "任务",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = contentColor
-                )
-                Text(
-                    progress.goal,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    progress.status.label(),
+                    if (isStreaming) "正在思考…" else "随时待命",
                     style = MaterialTheme.typography.labelSmall,
-                    color = contentColor
-                )
-                Icon(
-                    imageVector = if (collapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
-                    contentDescription = if (collapsed) "展开执行流程" else "收起执行流程",
-                    modifier = Modifier.size(18.dp)
+                    color = if (isStreaming) cs.primary else cs.onSurfaceVariant
                 )
             }
-            // 展开时才显示明细；收起时折叠到只剩标题行。
-            AnimatedVisibility(visible = !collapsed) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    progress.activeStepTitle?.let { activeStep ->
-                        Text(
-                            "当前：$activeStep",
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    progress.blockingReason?.let { reason ->
-                        Text(
-                            "阻塞：$reason",
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    progress.finalSummary?.let { summary ->
-                        Text(
-                            "结果：$summary",
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    if (progress.steps.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            progress.steps.take(4).forEach { step ->
-                                Text(
-                                    "${step.order + 1}. ${step.title} · ${step.status.label()}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
+        }
+        if (documentName != null) {
+            Surface(
+                modifier = Modifier.padding(start = AiDesign.ScreenPadding, end = AiDesign.ScreenPadding, bottom = 6.dp),
+                shape = RoundedCornerShape(AiDesign.PillCorner),
+                color = cs.surfaceVariant.copy(alpha = AiDesign.SoftFill)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(14.dp), tint = cs.onSurfaceVariant)
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        documentName,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = cs.onSurfaceVariant
+                    )
                 }
             }
         }
@@ -556,25 +486,10 @@ fun AgentContent(
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
-            Text("Agent 对话", style = MaterialTheme.typography.titleMedium)
-        }
-        if (documentName != null) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
-            ) {
-                Icon(Icons.Default.Description, null, Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("当前文档：$documentName", style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        if (isStreaming) LinearProgressIndicator(Modifier.fillMaxWidth())
+        AgentHeader(documentName = documentName, isStreaming = isStreaming, onBack = onBack)
+        if (isStreaming) StreamingIndicator()
         taskProgress?.let { progress ->
-            AgentTaskProgressPanel(
+            AgentTimeline(
                 progress = progress,
                 // 已完成/失败等终态默认收起（仅显示结果摘要），进行中沿用用户偏好
                 collapsed = if (progress.status == AgentTaskStatus.EXECUTING ||
@@ -585,19 +500,15 @@ fun AgentContent(
             )
         }
         if (isStreaming && steps.isNotEmpty()) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                steps.takeLast(4).forEach { step ->
-                    val stepText = when (step) {
-                        is AgentStep.ToolCalling -> "🔧 调用 ${step.tool}：${step.argsSummary}"
-                        is AgentStep.ToolDone -> (if (step.ok) "✓ " else "✗ ") + "${step.tool} → ${step.summary}"
-                    }
-                    Text(
-                        stepText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = AiDesign.ScreenPadding, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                val recent = steps.takeLast(4)
+                recent.forEachIndexed { index, step ->
+                    // 最后一行若仍是「调用中」，视为活跃行做 shimmer。
+                    val active = index == recent.lastIndex && step is AgentStep.ToolCalling
+                    ToolActivityRow(step = step, active = active)
                 }
             }
         }
@@ -644,17 +555,9 @@ fun AgentContent(
                                 )
                             }
                             AnimatedVisibility(stepsExpanded) {
-                                Column {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     msg.steps.forEach { step ->
-                                        val stepText = when (step) {
-                                            is AgentStep.ToolCalling -> "🔧 ${narrateTool(step.tool)}：${step.argsSummary}"
-                                            is AgentStep.ToolDone -> (if (step.ok) "✓ " else "✗ ") + "${narrateTool(step.tool)} → ${step.summary}"
-                                        }
-                                        Text(
-                                            stepText,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                        ToolActivityRow(step = step)
                                     }
                                 }
                             }
@@ -673,7 +576,7 @@ fun AgentContent(
                                 }
                                 Card(
                                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                                 ) {
                                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Text("正在加载目标文档内容，以生成可审阅的 diff。", style = MaterialTheme.typography.bodySmall)

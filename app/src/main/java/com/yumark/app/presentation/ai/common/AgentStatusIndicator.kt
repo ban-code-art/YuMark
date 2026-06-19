@@ -70,7 +70,7 @@ private fun WorkingAnimation(size: Dp) {
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearEasing),
+            animation = tween(2000, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "ripple1"
@@ -81,7 +81,7 @@ private fun WorkingAnimation(size: Dp) {
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearEasing),
+            animation = tween(2000, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "ripple2"
@@ -92,7 +92,7 @@ private fun WorkingAnimation(size: Dp) {
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearEasing),
+            animation = tween(2000, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "ripple3"

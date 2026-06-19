@@ -1,16 +1,21 @@
 package com.yumark.app.presentation.ai.chat
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -21,7 +26,9 @@ import com.yumark.app.domain.model.Message
 import com.yumark.app.domain.usecase.ai.chat.ChatMessageState
 import com.yumark.app.domain.usecase.ai.chat.SendChatMessageUseCase
 import com.yumark.app.domain.usecase.ai.conversation.GetConversationUseCase
+import com.yumark.app.presentation.ai.common.AiDesign
 import com.yumark.app.presentation.ai.common.MessageBubble
+import com.yumark.app.presentation.ai.common.StreamingIndicator
 import com.yumark.app.presentation.common.isNearBottom
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -108,12 +115,39 @@ fun ChatContent(
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        // 标题栏
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+        // 标题栏：返回 + 圆形字形徽标 + 标题/状态副标题（与 Agent 同款语言）。
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp)
+        ) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
-            Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Box(
+                modifier = Modifier.size(AiDesign.GlyphSize).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Chat,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (isStreaming) {
+                    Text("正在回复…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
+            }
         }
-        if (isStreaming) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (isStreaming) StreamingIndicator()
         HorizontalDivider()
 
         LazyColumn(

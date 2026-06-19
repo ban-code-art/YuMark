@@ -226,6 +226,34 @@ class SendAgentMessageUseCase @Inject constructor(
                 // 第三条路（写工具调用 create/edit_document）已在上面循环里拦截转为 proposedAction，不会走到收敛分支。
                 val action = parseAgentAction(text, currentDocumentId)
                     ?: extractImplicitWriteAction(text, effectiveUserMessage, currentDocumentId, currentDocumentName)
+
+                // 模型这一轮既无文本也无操作（200 但空流）：常见于端点静默忽略 tools、max_tokens
+                // 过小、或推理模型把输出全放进 reasoning_content 而 content 为空。
+                // 不要落一条空气泡假装“已完成”，给出可操作提示并把任务标记为受阻。
+                if (text.isBlank() && action == null) {
+                    val notice = "AI 本轮没有返回任何内容。可能原因：所选模型不支持函数调用、" +
+                        "max tokens 过小、或为推理模型（输出在 reasoning 字段）。" +
+                        "请重试，或在设置里更换模型 / 调大 max tokens。"
+                    conversationRepository.updateMessage(
+                        assistant.copy(content = notice, isStreaming = false, steps = agentSteps.toList())
+                    )
+                    if (activeTaskStep != null) {
+                        persistedSteps = persistedSteps.replaceStep(activeTaskStep.id) {
+                            it.copy(status = AgentTaskStepStatus.BLOCKED, resultSummary = "模型未返回内容")
+                        }
+                        agentTaskRepository.markStepStatus(activeTaskStep.id, AgentTaskStepStatus.BLOCKED, "模型未返回内容")
+                    }
+                    persistedTask = finalizeTaskDirectly(
+                        task = persistedTask,
+                        status = AgentTaskStatus.BLOCKED,
+                        summary = "模型未返回内容",
+                        blockingReason = "模型未返回任何内容"
+                    )
+                    markCompleted(conversationId)
+                    emit(AgentMessageState.Notice(notice))
+                    emit(AgentMessageState.Completed(notice))
+                    return@flow
+                }
                 // 收敛即完成活跃步骤
                 if (activeTaskStep != null) {
                     persistedSteps = persistedSteps.replaceStep(activeTaskStep.id) {
@@ -237,8 +265,15 @@ class SendAgentMessageUseCase @Inject constructor(
                         text.take(80)
                     )
                 }
+                // 聊天气泡只显示对话性开场白（说明方案那段），文档正文放进 action.content 由
+                // 预览卡承载——避免把"思路/前言"和围栏一起写进文档。无明显前言时给一句简短确认。
+                val chatText = if (action != null) {
+                    conversationalPreamble(text).ifBlank { action.description.ifBlank { "已生成文档内容，请在下方预览确认。" } }
+                } else {
+                    text
+                }
                 conversationRepository.updateMessage(
-                    assistant.copy(content = text, isStreaming = false, agentAction = action, steps = agentSteps.toList())
+                    assistant.copy(content = chatText, isStreaming = false, agentAction = action, steps = agentSteps.toList())
                 )
                 // 直接终态化为 COMPLETED——不再额外跑 completion judge 判定（避免结束后加载与爆红）。
                 persistedTask = finalizeTaskDirectly(
@@ -551,6 +586,9 @@ class ExecuteAgentActionUseCase @Inject constructor(
 
 private const val MAX_STEPS = 6
 
+/** 编辑场景把当前文档全文塞进系统提示的字符上限；超过则退回大纲 + read_document。 */
+private const val FULL_DOC_CONTEXT_BUDGET = 6000
+
 private fun fallbackPlan(userMessage: String): AgentPlan =
     AgentPlan(
         goal = userMessage,
@@ -662,8 +700,17 @@ private fun summarize(s: String, max: Int = 60): String {
 /** 构建 Agent 系统提示，注入当前文档上下文。 */
 internal fun buildAgentSystemPrompt(documentName: String?, documentContent: String?): String {
     val docContext = if (documentName != null) {
-        val outline = documentContent?.let { com.yumark.app.core.util.documentOutline(it) } ?: "(空)"
-        "当前打开的文档：《$documentName》\n$outline\n（需要完整内容时用 read_document 获取）"
+        val content = documentContent.orEmpty()
+        val detail = if (content.isNotBlank() && content.length <= FULL_DOC_CONTEXT_BUDGET) {
+            // 端点可能不支持 read_document（如静默忽略 tools 的兼容端点），编辑时直接给全文，
+            // 模型才能基于真实原文输出"更新后的完整文档"，供逐行 diff 审阅。
+            "完整内容如下（编辑时基于此输出更新后的全文）：\n$content"
+        } else {
+            val outline = content.takeIf { it.isNotBlank() }
+                ?.let { com.yumark.app.core.util.documentOutline(it) } ?: "(空)"
+            "$outline\n（文档较大，仅给出大纲；需要某段完整内容时用 read_document 获取）"
+        }
+        "当前打开的文档：《$documentName》\n$detail"
     } else {
         "当前没有打开的文档。"
     }
@@ -700,9 +747,14 @@ internal fun buildAgentSystemPrompt(documentName: String?, documentContent: Stri
 
         # 弱工具调用模型的兜底约定
         如果你不确定能否成功发起工具调用（例如所用端点的 function calling 不可靠），
-        可以直接输出完整可用的 Markdown 正文作为回复，系统会据此生成一个待确认的创建/编辑提议，
-        用户仍会先预览并确认后才落库。**但仅当用户确实要创建或改写文档时才输出全文正文，
-        普通问答/解释不要整篇输出。**
+        可以直接输出文档正文作为回复，系统会据此生成一个待确认的创建/编辑提议，
+        用户仍会先预览并确认后才落库。此时务必遵守：
+        - 开场最多一句话说明你要做什么，不要长篇解释、不要罗列大纲；
+        - 把**完整文档正文放进一个 ```markdown 围栏代码块**中，围栏内只放将写入文档的内容；
+          不要把开场白、方案说明、"请确认是否保存"等对话内容放进围栏；
+        - **仅当用户确实要创建或改写文档时才输出正文，普通问答/解释不要整篇输出。**
+        - 编辑现有文档时，输出**更新后的完整文档全文**（保留未改动的部分），不要只给新增/改动片段——
+          系统会把它与原文逐行比对，生成可逐块确认的改动。
 
         # 安全与规范
         - 修改用户已有文档前，用户会看到逐行改动并逐块确认；请确保改动完整、准确。
@@ -797,11 +849,16 @@ internal fun extractImplicitWriteAction(
     if (text.contains("[[ACTION]]")) return null
 
     val createIntent = isDocumentCreationRequest(userMessage)
-    val editIntent = currentDocumentId != null && isDocumentEditRequest(userMessage)
+    // 已有打开文档时，编辑意图无需再强求出现"文档/这篇"等名词——上下文已明确指向当前文档。
+    val editIntent = currentDocumentId != null && isDocumentEditRequest(userMessage, requireDocNoun = false)
     if (!createIntent && !editIntent) return null
 
+    // 剥离对话前言、解开 ```markdown 围栏，得到纯文档正文
+    val body = extractDocumentBody(text)
+    if (body.isBlank()) return null
+
     // 文本需像"文档正文"而非短回复：长度达标 或 含 Markdown 结构
-    val looksLikeDocument = text.length >= IMPLICIT_DOC_MIN_CHARS || hasDocumentStructure(text)
+    val looksLikeDocument = body.length >= IMPLICIT_DOC_MIN_CHARS || hasDocumentStructure(body)
     if (!looksLikeDocument) return null
 
     return if (editIntent && currentDocumentId != null) {
@@ -809,32 +866,73 @@ internal fun extractImplicitWriteAction(
             type = AgentActionType.EDIT_DOCUMENT,
             description = "编辑文档${currentDocumentName?.let { "：$it" }.orEmpty()}",
             targetDocumentId = currentDocumentId,
-            content = text.trim()
+            content = body
         )
     } else {
         // 创建：标题取首行 Markdown 标题或文本首行，否则用默认
-        val title = implicitDocumentTitle(text)
+        val title = implicitDocumentTitle(body)
         AgentAction(
             type = AgentActionType.CREATE_DOCUMENT,
             description = title,
-            content = text.trim()
+            content = body
         )
     }
 }
 
-/** 判断用户本轮是否为"改写/编辑既有文档"意图（需配合 currentDocumentId 使用）。 */
-private fun isDocumentEditRequest(userMessage: String): Boolean {
+/**
+ * 从模型回复中抽取"纯文档正文"，剥离前言/围栏：
+ * 1) 优先取 ```markdown / ```md / ``` 围栏内部（模型常把正文包在围栏里）；
+ * 2) 否则从第一行 Markdown 标题开始，丢弃前面的对话前言；
+ * 3) 都不命中则原样返回。
+ */
+internal fun extractDocumentBody(text: String): String {
+    val fence = Regex("```(?:markdown|md)?[ \\t]*\\r?\\n([\\s\\S]*?)```", RegexOption.IGNORE_CASE)
+        .find(text)
+    if (fence != null) {
+        val inner = fence.groupValues[1].trim()
+        if (inner.isNotBlank()) return inner
+    }
+    val lines = text.lines()
+    val headingIdx = lines.indexOfFirst { it.trimStart().startsWith("#") }
+    if (headingIdx > 0) return lines.drop(headingIdx).joinToString("\n").trim()
+    return text.trim()
+}
+
+/**
+ * 取文档正文之前的对话性前言（用于聊天气泡显示），与 [extractDocumentBody] 对应：
+ * 围栏前 / [[ACTION]] 前 / 首个标题前的文本。无明显分界返回空串。
+ */
+internal fun conversationalPreamble(text: String): String {
+    val fenceIdx = text.indexOf("```")
+    if (fenceIdx > 0) return text.substring(0, fenceIdx).trim()
+    val actionIdx = text.indexOf("[[ACTION]]")
+    if (actionIdx > 0) return text.substring(0, actionIdx).trim()
+    val lines = text.lines()
+    val headingIdx = lines.indexOfFirst { it.trimStart().startsWith("#") }
+    if (headingIdx > 0) return lines.take(headingIdx).joinToString("\n").trim()
+    return ""
+}
+
+/** 判断用户本轮是否为"改写/编辑既有文档"意图（需配合 currentDocumentId 使用）。
+ *  [requireDocNoun] 为 false 时（已有打开文档）只看动词，不强求"文档/内容"等名词。*/
+private fun isDocumentEditRequest(userMessage: String, requireDocNoun: Boolean = true): Boolean {
     val normalized = userMessage.lowercase()
-    val editVerb = listOf("改写", "修改", "重写", "补充", "润色", "续写", "修订", "优化", "rewrite", "revise", "polish", "edit")
-        .any { normalized.contains(it) }
-    val docNoun = listOf("文档", "笔记", "这篇", "当前", "本文", "内容", "document", "note", "this")
-        .any { normalized.contains(it) }
-    // 负向条件：明显是"解释/说明/提问"类请求时不当编辑处理，避免把长解释误识别为整篇覆写提议。
-    // 例如"详细解释一下这段内容"、"说明一下为什么这样写"。
-    val isQuestionOrExplanation = listOf(
-        "解释", "说明", "什么是", "为什么", "介绍一下", "讲解", "？", "?"
+    val editVerb = listOf(
+        "改写", "修改", "重写", "补充", "补全", "润色", "续写", "修订", "优化", "完善",
+        "增加", "添加", "扩充", "扩写", "扩展", "加入", "加上", "丰富", "整理", "更新",
+        "调整", "改进", "精简", "重构", "翻译", "纠错", "校对",
+        "rewrite", "revise", "polish", "edit", "improve", "expand", "append", "update"
     ).any { normalized.contains(it) }
-    return editVerb && docNoun && !isQuestionOrExplanation
+    val docNoun = listOf(
+        "文档", "笔记", "这篇", "当前", "本文", "内容", "段落", "章节", "全文",
+        "document", "note", "this"
+    ).any { normalized.contains(it) }
+    // 负向条件：明显是"解释/说明/提问"类请求时不当编辑处理，避免把长解释误识别为整篇覆写提议。
+    // 注意：不再用句尾问号作为否决——"帮我优化一下好吗？"仍是编辑请求。
+    val isQuestionOrExplanation = listOf(
+        "解释", "什么是", "为什么", "介绍一下", "讲解一下", "是什么意思"
+    ).any { normalized.contains(it) }
+    return editVerb && (!requireDocNoun || docNoun) && !isQuestionOrExplanation
 }
 
 /** 文本是否含 Markdown 文档结构特征（标题/列表/代码块/表格）。 */

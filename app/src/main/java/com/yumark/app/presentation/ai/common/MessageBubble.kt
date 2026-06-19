@@ -2,7 +2,10 @@ package com.yumark.app.presentation.ai.common
 
 import android.view.ViewGroup
 import android.webkit.WebView
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -11,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -29,26 +33,42 @@ fun MessageBubble(
 ) {
     val isUser = message.role == MessageRole.USER
     val bubbleColor = if (isUser) MaterialTheme.colorScheme.primaryContainer
-    else MaterialTheme.colorScheme.surfaceVariant
+    else MaterialTheme.colorScheme.surface
     val textColor = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer
-    else MaterialTheme.colorScheme.onSurfaceVariant
+    else MaterialTheme.colorScheme.onSurface
+    val outline = MaterialTheme.colorScheme.outline
+
+    // 入场动画：alpha + 轻微上移，按 id 跑一次。
+    // 仅用户气泡（纯文本）套 graphicsLayer——AI 气泡内是 WebView，放进带 alpha 的硬件图层
+    // 会渲染成空白，故 AI 气泡不加该图层。
+    val appear = remember(message.id) { Animatable(0f) }
+    LaunchedEffect(message.id) { if (isUser) appear.animateTo(1f, tween(260)) }
+    val appearModifier = if (isUser) {
+        Modifier.graphicsLayer {
+            alpha = appear.value
+            translationY = (1f - appear.value) * 8.dp.toPx()
+        }
+    } else Modifier
+
+    val shape = RoundedCornerShape(
+        topStart = AiDesign.BubbleCorner,
+        topEnd = AiDesign.BubbleCorner,
+        bottomStart = if (isUser) AiDesign.BubbleCorner else AiDesign.BubbleTailCorner,
+        bottomEnd = if (isUser) AiDesign.BubbleTailCorner else AiDesign.BubbleCorner
+    )
 
     Column(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .then(appearModifier),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
         Column(
             modifier = Modifier
-                .widthIn(max = 320.dp)
-                .clip(
-                    RoundedCornerShape(
-                        topStart = 14.dp,
-                        topEnd = 14.dp,
-                        bottomStart = if (isUser) 14.dp else 2.dp,
-                        bottomEnd = if (isUser) 2.dp else 14.dp
-                    )
-                )
+                .widthIn(max = AiDesign.BubbleMaxWidth)
+                .clip(shape)
                 .background(bubbleColor)
+                .then(if (isUser) Modifier else Modifier.border(1.dp, outline, shape))
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             val shown = message.content.ifBlank { if (message.isStreaming) "▍" else "" }
