@@ -52,6 +52,12 @@ fun ExportSheet(
             ) { onExport(ExportFormat.HTML) }
 
             ExportFormatRow(
+                icon = Icons.Default.Code,
+                titleRes = R.string.export_rich_html,
+                descRes = R.string.export_rich_html_desc
+            ) { onExport(ExportFormat.RICH_HTML) }
+
+            ExportFormatRow(
                 icon = Icons.Default.PictureAsPdf,
                 titleRes = R.string.export_pdf,
                 descRes = R.string.export_pdf_desc

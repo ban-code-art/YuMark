@@ -15,6 +15,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.yumark.app.domain.model.AiConfig
 import com.yumark.app.domain.model.AiProvider
+import com.yumark.app.domain.model.WebSearchProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -63,10 +64,15 @@ class AiConfigDataStore @Inject constructor(
         val TEMPERATURE = floatPreferencesKey("temperature")
         val MAX_TOKENS = intPreferencesKey("max_tokens")
         val STREAM_ENABLED = booleanPreferencesKey("stream_enabled")
+        val WEB_SEARCH_ENABLED = booleanPreferencesKey("web_search_enabled")
+        val WEB_SEARCH_PROVIDER = stringPreferencesKey("web_search_provider")
+        val WEB_SEARCH_CUSTOM_URL = stringPreferencesKey("web_search_custom_url")
+        val EMBEDDING_MODEL = stringPreferencesKey("embedding_model")
     }
 
     private object EncryptedKeys {
         const val API_KEY = "api_key"
+        const val WEB_SEARCH_API_KEY = "web_search_api_key"
     }
 
     val configFlow: Flow<AiConfig> = context.aiConfigDataStore.data
@@ -87,12 +93,20 @@ class AiConfigDataStore @Inject constructor(
                 } ?: emptyList(),
                 temperature = prefs[Keys.TEMPERATURE] ?: 0.7f,
                 maxTokens = prefs[Keys.MAX_TOKENS] ?: 2048,
-                streamEnabled = prefs[Keys.STREAM_ENABLED] ?: true
+                streamEnabled = prefs[Keys.STREAM_ENABLED] ?: true,
+                webSearchEnabled = prefs[Keys.WEB_SEARCH_ENABLED] ?: false,
+                webSearchProvider = runCatching {
+                    WebSearchProvider.valueOf(prefs[Keys.WEB_SEARCH_PROVIDER] ?: WebSearchProvider.DUCKDUCKGO.name)
+                }.getOrDefault(WebSearchProvider.DUCKDUCKGO),
+                webSearchApiKey = encryptedPrefs.getString(EncryptedKeys.WEB_SEARCH_API_KEY, "").orEmpty(),
+                webSearchCustomUrl = prefs[Keys.WEB_SEARCH_CUSTOM_URL] ?: "",
+                embeddingModel = prefs[Keys.EMBEDDING_MODEL] ?: ""
             )
         }
 
     suspend fun updateConfig(config: AiConfig) {
         encryptedPrefs.edit().putString(EncryptedKeys.API_KEY, config.apiKey).apply()
+        encryptedPrefs.edit().putString(EncryptedKeys.WEB_SEARCH_API_KEY, config.webSearchApiKey).apply()
 
         context.aiConfigDataStore.edit { prefs ->
             prefs[Keys.ENABLED] = config.enabled
@@ -103,6 +117,10 @@ class AiConfigDataStore @Inject constructor(
             prefs[Keys.TEMPERATURE] = config.temperature
             prefs[Keys.MAX_TOKENS] = config.maxTokens
             prefs[Keys.STREAM_ENABLED] = config.streamEnabled
+            prefs[Keys.WEB_SEARCH_ENABLED] = config.webSearchEnabled
+            prefs[Keys.WEB_SEARCH_PROVIDER] = config.webSearchProvider.name
+            prefs[Keys.WEB_SEARCH_CUSTOM_URL] = config.webSearchCustomUrl
+            prefs[Keys.EMBEDDING_MODEL] = config.embeddingModel
         }
     }
 

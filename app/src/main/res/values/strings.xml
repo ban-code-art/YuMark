@@ -86,6 +86,7 @@
     <string name="save_as">另存为</string>
     <string name="export_as">导出为</string>
     <string name="export_html">导出为 HTML</string>
+    <string name="export_rich_html">导出为富 HTML</string>
     <string name="export_pdf">导出为 PDF</string>
     <string name="export_word">导出为 Word</string>
     <string name="export_image">导出为长图</string>
@@ -188,6 +189,7 @@
     <string name="export_document">导出文档</string>
     <string name="export_markdown_desc">纯文本，保留 Markdown 语法</string>
     <string name="export_html_desc">网页格式，可在浏览器打开</string>
+    <string name="export_rich_html_desc">与预览一致：代码高亮、公式、图表，自包含可移植</string>
     <string name="export_pdf_desc">固定版式，便于打印与分享</string>
     <string name="export_word_desc">Microsoft Word 文档（.docx）</string>
     <string name="export_image_desc">整篇渲染为一张长图</string>

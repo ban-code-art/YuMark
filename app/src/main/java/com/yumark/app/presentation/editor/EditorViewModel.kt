@@ -49,6 +49,7 @@ class EditorViewModel @Inject constructor(
     private val getFolderTreeUseCase: GetFolderTreeUseCase,
     private val documentRepository: DocumentRepository,
     private val documentVersionRepository: com.yumark.app.domain.repository.DocumentVersionRepository,
+    private val ragPipeline: com.yumark.app.data.ai.rag.RagPipeline,
     getAiConfig: GetAiConfigUseCase,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -314,6 +315,8 @@ class EditorViewModel @Inject constructor(
                         runCatching {
                             documentVersionRepository.snapshotIfChanged(internalId, doc.content, doc.wordCount)
                         }
+                        // RAG 索引：保存后异步入队重建（内容未变则跳过，幂等）
+                        runCatching { ragPipeline.enqueueIndex(internalId, doc.name, doc.content) }
                     }
                 }.onFailure { e ->
                     // 保存失败不改变整页状态，编辑内容保留在内存
@@ -375,17 +378,17 @@ class EditorViewModel @Inject constructor(
             oldText.isNotEmpty() && content.contains(oldText) ->
                 content.replaceFirst(oldText, newText)
 
-            // 3. 兜底：trim 后匹配
+            // 3. trim 后匹配
             else -> {
                 val trimmed = oldText.trim()
                 if (trimmed.isNotEmpty() && content.contains(trimmed))
                     content.replaceFirst(trimmed, newText)
                 else null
             }
-        }
+        } ?: locateByNormalizedMatch(content, oldText, newText)   // 4. 预览模式：渲染文本与源码空白/换行不一致 → 规范化匹配
 
         if (newContent == null || newContent == content) {
-            _applyError.value = "无法在原文中定位选中文本，请切换到编辑模式后再用 Agent 修改"
+            _applyError.value = "预览模式下无法精确定位该选区（可能含 Markdown 语法），请切换到编辑模式后选中并重试"
             return false
         }
 
@@ -394,6 +397,21 @@ class EditorViewModel @Inject constructor(
         // 触发自动保存
         saveDocument()
         return true
+    }
+
+    /**
+     * 预览模式兜底：渲染选区与源码在空白/换行上不一致时，按「空白不敏感」匹配。
+     * 把选区按空白切成词，词间用 `\s+` 连接，在原文中定位首处命中区间并替换。
+     * 仍无法跨越 Markdown 语法（如 `**bold**` 渲染为 `bold`）——那种情况交由编辑模式精确处理。
+     */
+    private fun locateByNormalizedMatch(content: String, oldText: String, newText: String): String? {
+        if (oldText.isBlank()) return null
+        val tokens = oldText.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (tokens.isEmpty()) return null
+        val pattern = tokens.joinToString("\\s+") { Regex.escape(it) }
+        val regex = try { Regex(pattern) } catch (e: Exception) { return null }
+        val match = regex.find(content) ?: return null
+        return content.substring(0, match.range.first) + newText + content.substring(match.range.last + 1)
     }
 
     /** 导出为指定格式（仅内部文档），成功后通过 exportedFile 通知 UI 弹分享 */

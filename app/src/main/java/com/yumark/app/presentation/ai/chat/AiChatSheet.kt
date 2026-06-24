@@ -1,6 +1,8 @@
 package com.yumark.app.presentation.ai.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,11 +29,13 @@ import com.yumark.app.domain.model.Message
 import com.yumark.app.domain.usecase.ai.chat.ChatMessageState
 import com.yumark.app.domain.usecase.ai.chat.SendChatMessageUseCase
 import com.yumark.app.domain.usecase.ai.conversation.GetConversationUseCase
+import com.yumark.app.domain.repository.ConversationRepository
 import com.yumark.app.presentation.ai.common.AiDesign
 import com.yumark.app.presentation.ai.common.MessageBubble
 import com.yumark.app.presentation.ai.common.StreamingIndicator
 import com.yumark.app.presentation.common.isNearBottom
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -45,7 +50,8 @@ import javax.inject.Inject
 @HiltViewModel
 class AiChatViewModel @Inject constructor(
     getConversation: GetConversationUseCase,
-    private val sendChatMessage: SendChatMessageUseCase
+    private val sendChatMessage: SendChatMessageUseCase,
+    private val conversationRepository: ConversationRepository
 ) : ViewModel() {
 
     private val conversationId = MutableStateFlow<String?>(null)
@@ -65,22 +71,49 @@ class AiChatViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    /** 本轮流式协程与对应助手消息 id；中断时据此取消并收尾。 */
+    private var sendJob: Job? = null
+    private var streamingAssistantId: String? = null
+
     fun bind(id: String) { conversationId.value = id }
 
     fun send(text: String) {
         val id = conversationId.value ?: return
         if (text.isBlank()) return
-        viewModelScope.launch {
+        sendJob = viewModelScope.launch {
             _isStreaming.value = true
             _error.value = null
             sendChatMessage(id, text).collect { state ->
                 when (state) {
+                    is ChatMessageState.AssistantMessageStarted -> streamingAssistantId = state.messageId
                     is ChatMessageState.Error -> { _error.value = state.message; _isStreaming.value = false }
                     is ChatMessageState.Completed -> _isStreaming.value = false
                     else -> Unit
                 }
             }
             _isStreaming.value = false
+        }
+    }
+
+    /** 用户在思考过程中点击中断：取消本轮流式，把半截助手消息收尾（空则删、非空则置非流式），状态复位。 */
+    fun stop() {
+        sendJob?.cancel()
+        sendJob = null
+        _isStreaming.value = false
+        val assistantId = streamingAssistantId
+        streamingAssistantId = null
+        // 收尾在独立协程里跑：被取消的 job 不能再执行 suspend
+        viewModelScope.launch {
+            assistantId?.let { mid ->
+                val msg = messages.value.firstOrNull { it.id == mid }
+                if (msg != null && msg.isStreaming) {
+                    if (msg.content.isBlank()) {
+                        conversationRepository.deleteMessage(mid)
+                    } else {
+                        conversationRepository.updateMessage(msg.copy(isStreaming = false))
+                    }
+                }
+            }
         }
     }
 
@@ -101,13 +134,35 @@ fun ChatContent(
     val isStreaming by viewModel.isStreaming.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
-    val listState = rememberLazyListState()
+    val scrollState = rememberScrollState()
     val snackbar = remember { SnackbarHostState() }
 
+    // 自动跟随到底部：流式输出时持续滚到最新内容；用户上滑查看历史时停止跟随。
+    var autoScroll by remember { mutableStateOf(true) }
+    var programmaticScroll by remember { mutableStateOf(false) }
+
+    // 非懒 Column + ScrollState：maxValue 即"可滚到底的距离"，不依赖 item 高度，
+    // 也就没有 WebView 异步高度塌缩导致跳顶的问题。
+    val bottomThreshold = 220
+    LaunchedEffect(scrollState) {
+        snapshotFlow { scrollState.isScrollInProgress to (scrollState.value >= scrollState.maxValue - bottomThreshold) }
+            .collect { (scrolling, nearBottom) ->
+                if (programmaticScroll) return@collect
+                when {
+                    scrolling && !nearBottom -> autoScroll = false
+                    !scrolling && nearBottom -> autoScroll = true
+                }
+            }
+    }
+
     LaunchedEffect(messages.size, messages.lastOrNull()?.content) {
-        // 瞬时滚动(避免流式每个 token 重启动画)+ 仅在底部附近跟随(用户向上翻阅时不被拽回)
-        if (messages.isNotEmpty() && listState.isNearBottom()) {
-            listState.scrollToItem(listState.layoutInfo.totalItemsCount - 1)
+        if (messages.isNotEmpty() && autoScroll) {
+            programmaticScroll = true
+            try {
+                scrollState.scrollTo(scrollState.maxValue)
+            } finally {
+                programmaticScroll = false
+            }
         }
     }
     LaunchedEffect(error) {
@@ -150,13 +205,17 @@ fun ChatContent(
         if (isStreaming) StreamingIndicator()
         HorizontalDivider()
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(min = 200.dp, max = 460.dp).padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(vertical = 8.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = false)
+                .heightIn(min = 200.dp, max = 460.dp)
+                .verticalScroll(scrollState)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(messages, key = { it.id }) { msg -> MessageBubble(msg) }
+            // 非懒列表：不回收，WebView 不重建 → 无异步高度塌缩跳顶/白屏
+            messages.forEach { msg -> MessageBubble(msg) }
         }
 
         SnackbarHost(snackbar)
@@ -174,11 +233,20 @@ fun ChatContent(
                 modifier = Modifier.weight(1f),
                 maxLines = 4
             )
-            FilledIconButton(
-                onClick = { viewModel.send(input); input = "" },
-                enabled = !isStreaming && input.isNotBlank()
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Send, "发送")
+            if (isStreaming) {
+                FilledIconButton(onClick = { viewModel.stop() }) {
+                    Icon(Icons.Filled.Stop, "停止")
+                }
+            } else {
+                FilledIconButton(
+                    onClick = {
+                        autoScroll = true   // 发送新消息 → 恢复跟随，确保能看到回复
+                        viewModel.send(input); input = ""
+                    },
+                    enabled = input.isNotBlank()
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Send, "发送")
+                }
             }
         }
     }

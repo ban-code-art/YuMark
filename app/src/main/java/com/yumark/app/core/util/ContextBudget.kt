@@ -13,6 +13,26 @@ object ContextBudget {
 
     /** 粗略 token 估算（char/4）。 */
     fun estimateTokens(text: String): Int = text.length / 4
+
+    /** 各工具结果回填的字符预算（移植 guanmo getToolTokenBudget，按工具名查表）。 */
+    private val TOOL_BUDGETS: Map<String, Int> = mapOf(
+        "search_memory" to 3000,
+        "list_memories" to 4000,
+        "save_memory" to 1000,
+        "search_knowledge" to 5000,
+        "knowledge_stats" to 2000,
+        "list_documents" to 5000,
+        "read_document" to 6000,
+        "search_in_project" to 5000,
+        "web_search" to 3000,
+        "get_current_time" to 1000,
+        "create_document" to 2000,
+        "edit_document" to 2000,
+        "update_plan" to 1000
+    )
+
+    /** 取工具结果回填上限；未登记的工具回退到通用 [TOOL_RESULT_CHARS]。 */
+    fun toolResultBudget(toolName: String): Int = TOOL_BUDGETS[toolName] ?: TOOL_RESULT_CHARS
 }
 
 /**

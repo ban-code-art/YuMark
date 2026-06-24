@@ -9,7 +9,9 @@ import com.yumark.app.data.local.db.dao.DocumentDao
 import com.yumark.app.data.local.db.dao.DocumentVersionDao
 import com.yumark.app.data.local.db.dao.FolderDao
 import com.yumark.app.data.local.db.dao.ImageDao
+import com.yumark.app.data.local.db.dao.MemoryDao
 import com.yumark.app.data.local.db.dao.MessageDao
+import com.yumark.app.data.local.db.dao.RagDao
 import com.yumark.app.data.local.db.dao.SyncStateDao
 import dagger.Module
 import dagger.Provides
@@ -85,5 +87,17 @@ object DatabaseModule {
     @Singleton
     fun provideSyncStateDao(database: AppDatabase): SyncStateDao {
         return database.syncStateDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideMemoryDao(database: AppDatabase): MemoryDao {
+        return database.memoryDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideRagDao(database: AppDatabase): RagDao {
+        return database.ragDao()
     }
 }

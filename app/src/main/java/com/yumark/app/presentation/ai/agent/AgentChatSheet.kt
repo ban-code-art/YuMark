@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.scrollBy
@@ -441,18 +442,20 @@ fun AgentContent(
         ActivityResultContracts.PickMultipleVisualMedia(3)
     ) { uris -> uris.forEach { viewModel.addAttachment(it) } }
     var input by remember { mutableStateOf("") }
-    val listState = rememberLazyListState()
+    val scrollState = rememberScrollState()
     val snackbar = remember { SnackbarHostState() }
 
     // 自动跟随到底部：流式输出时持续把窗口滚到最新内容；用户上滑查看历史时停止跟随。
     var autoScroll by remember { mutableStateOf(true) }
-    // 标记「程序化滚动」：屏蔽其间的滚动检测，避免 scrollToItem/scrollBy 短暂置
-    // isScrollInProgress 时被误判为用户上滑而错误关闭跟随。
+    // 标记「程序化滚动」，屏蔽其间的滚动检测，避免误判为用户上滑而错误关闭跟随。
     var programmaticScroll by remember { mutableStateOf(false) }
 
     // 仅在「用户发起的滚动」时切换跟随状态。
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress to listState.isNearBottom() }
+    // 非懒 Column + ScrollState：maxValue 即"可滚到底的距离"，不依赖 item 高度，
+    // 也就没有 WebView 异步高度塌缩导致跳顶的问题。
+    val bottomThreshold = 220
+    LaunchedEffect(scrollState) {
+        snapshotFlow { scrollState.isScrollInProgress to (scrollState.value >= scrollState.maxValue - bottomThreshold) }
             .collect { (scrolling, nearBottom) ->
                 if (programmaticScroll) return@collect
                 when {
@@ -462,19 +465,13 @@ fun AgentContent(
             }
     }
 
-    // 跟随最新内容：先把最后一条对齐到顶部，再下推使其底部露出——
-    // 超长回复时新内容不会停留在视口下方看不到。
+    // 跟随最新内容：直接滚到底（maxValue）。无需 scrollToItem/overflow——ScrollState 的 maxValue
+    // 反映全部已组合内容的高度，无回收、无异步重测，不会跳顶。
     LaunchedEffect(autoScroll, messages.size, messages.lastOrNull()?.content) {
         if (!autoScroll || messages.isEmpty()) return@LaunchedEffect
-        val lastIndex = listState.layoutInfo.totalItemsCount - 1
-        if (lastIndex < 0) return@LaunchedEffect
         programmaticScroll = true
         try {
-            listState.scrollToItem(lastIndex)
-            val info = listState.layoutInfo
-            val last = info.visibleItemsInfo.firstOrNull { it.index == lastIndex }
-            val overflow = last?.let { (it.offset + it.size) - info.viewportEndOffset } ?: 0
-            if (overflow > 0) listState.scrollBy(overflow.toFloat())
+            scrollState.scrollTo(scrollState.maxValue)
         } finally {
             programmaticScroll = false
         }
@@ -514,13 +511,16 @@ fun AgentContent(
         }
         HorizontalDivider()
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp, max = 460.dp).padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(vertical = 8.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 200.dp, max = 460.dp)
+                .verticalScroll(scrollState)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(messages, key = { it.id }) { msg ->
+            // 非懒列表：不回收条目，WebView 不被重建 → 无异步高度塌缩跳顶/白屏
+            messages.forEach { msg ->
                 MessageBubble(msg) {
                     Column {
                         if (msg.attachments.isNotEmpty()) {

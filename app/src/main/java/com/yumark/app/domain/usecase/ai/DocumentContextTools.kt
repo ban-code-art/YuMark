@@ -1,6 +1,9 @@
 package com.yumark.app.domain.usecase.ai
 
 import com.yumark.app.domain.model.AiTool
+import com.yumark.app.domain.usecase.ai.tools.KnowledgeTools
+import com.yumark.app.domain.usecase.ai.tools.MemoryTools
+import com.yumark.app.domain.usecase.ai.tools.WebTools
 
 /**
  * AI文档上下文工具定义
@@ -149,7 +152,8 @@ object DocumentContextTools {
     )
 
     /**
-     * 获取所有可用工具
+     * 获取所有可用工具（聚合文档工具 + 网络搜索工具 + 记忆工具）。
+     * 后续 Phase 的知识库工具按同样方式并入此处聚合。
      */
     fun getAllTools(): List<AiTool> = listOf(
         READ_DOCUMENT,
@@ -158,5 +162,5 @@ object DocumentContextTools {
         CREATE_DOCUMENT,
         EDIT_DOCUMENT,
         UPDATE_PLAN
-    )
+    ) + WebTools.all + MemoryTools.all + KnowledgeTools.all
 }

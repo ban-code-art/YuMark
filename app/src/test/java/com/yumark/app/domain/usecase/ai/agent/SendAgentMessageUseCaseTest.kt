@@ -20,6 +20,7 @@ import com.yumark.app.domain.model.ToolCall
 import com.yumark.app.domain.repository.AiConfigRepository
 import com.yumark.app.domain.repository.AgentTaskRepository
 import com.yumark.app.domain.repository.ConversationRepository
+import com.yumark.app.domain.usecase.ai.DocumentContextTools
 import com.yumark.app.domain.usecase.ai.ExecuteDocumentToolUseCase
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -68,6 +69,9 @@ class SendAgentMessageUseCaseTest {
     private val imageProcessor: com.yumark.app.core.image.ImageProcessor = mockk()
     private val agentTaskRepository: AgentTaskRepository = mockk(relaxed = true)
     private val buildWriteProposal: BuildWriteProposalUseCase = mockk()
+    private val webSearchService: com.yumark.app.data.ai.web.WebSearchService = mockk(relaxed = true)
+    private val memoryService: com.yumark.app.data.ai.memory.MemoryService = mockk(relaxed = true)
+    private val ragPipeline: com.yumark.app.data.ai.rag.RagPipeline = mockk(relaxed = true)
 
     private val config = AiConfig(apiKey = "k", modelName = "m")
     private val conversation = Conversation(id = "c1", title = "t", type = ConversationType.AGENT)
@@ -77,6 +81,9 @@ class SendAgentMessageUseCaseTest {
         every { configRepository.observeConfig() } returns flowOf(config)
         every { conversationRepository.observeConversation("c1") } returns flowOf(conversation)
         coEvery { agentTaskRepository.getTaskByConversationId(any()) } returns null
+        coEvery { webSearchService.search(any()) } returns Result.success("（测试：网络搜索未启用）")
+        coEvery { memoryService.execute(any()) } returns Result.success("（测试：记忆工具）")
+        coEvery { ragPipeline.execute(any()) } returns Result.success("（测试：知识库）")
     }
 
     private fun useCase(adapter: AiApiAdapter): SendAgentMessageUseCase {
@@ -88,7 +95,10 @@ class SendAgentMessageUseCaseTest {
             imageProcessor,
             agentTaskRepository,
             executeDocumentTool,
-            buildWriteProposal
+            buildWriteProposal,
+            webSearchService,
+            memoryService,
+            ragPipeline
         )
     }
 
@@ -285,7 +295,7 @@ class SendAgentMessageUseCaseTest {
 
     @Test
     fun `system prompt is tool-first with surgical edit guidance`() {
-        val prompt = buildAgentSystemPrompt(documentName = null, documentContent = null)
+        val prompt = buildAgentSystemPrompt(documentName = null, documentContent = null, tools = DocumentContextTools.getAllTools())
         assertThat(prompt).contains("外科式编辑")
         assertThat(prompt).contains("edit_document")
         assertThat(prompt).contains("update_plan")
@@ -294,7 +304,7 @@ class SendAgentMessageUseCaseTest {
 
     @Test
     fun `system prompt injects full current document content when small`() {
-        val prompt = buildAgentSystemPrompt(documentName = "笔记", documentContent = "# 标题\n正文")
+        val prompt = buildAgentSystemPrompt(documentName = "笔记", documentContent = "# 标题\n正文", tools = DocumentContextTools.getAllTools())
         assertThat(prompt).contains("当前打开的文档：《笔记》")
         assertThat(prompt).contains("正文")
     }

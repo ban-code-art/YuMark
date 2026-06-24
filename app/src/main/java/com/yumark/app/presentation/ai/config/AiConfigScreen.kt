@@ -24,6 +24,7 @@ import androidx.navigation.NavController
 import com.yumark.app.domain.model.AiConfig
 import com.yumark.app.domain.model.AiProvider
 import com.yumark.app.domain.model.ModelTestResult
+import com.yumark.app.domain.model.WebSearchProvider
 import com.yumark.app.domain.model.defaultBaseUrl
 import com.yumark.app.domain.usecase.ai.FetchAvailableModelsUseCase
 import com.yumark.app.domain.usecase.ai.GetAiConfigUseCase
@@ -76,9 +77,14 @@ class AiConfigViewModel @Inject constructor(
     fun onApiKeyChange(v: String) = edit { it.copy(apiKey = v) }
     fun onBaseUrlChange(v: String) = edit { it.copy(baseUrl = v) }
     fun onModelChange(v: String) = edit { it.copy(modelName = v) }
+    fun onEmbeddingModelChange(v: String) = edit { it.copy(embeddingModel = v) }
     fun onTemperatureChange(v: Float) = edit { it.copy(temperature = v) }
     fun onMaxTokensChange(v: Int) = edit { it.copy(maxTokens = v) }
     fun onStreamChange(v: Boolean) = edit { it.copy(streamEnabled = v) }
+    fun onWebSearchToggle(v: Boolean) = edit { it.copy(webSearchEnabled = v) }
+    fun onWebSearchProviderChange(p: WebSearchProvider) = edit { it.copy(webSearchProvider = p) }
+    fun onWebSearchApiKeyChange(v: String) = edit { it.copy(webSearchApiKey = v) }
+    fun onWebSearchCustomUrlChange(v: String) = edit { it.copy(webSearchCustomUrl = v) }
 
     fun save() {
         viewModelScope.launch {
@@ -196,6 +202,7 @@ fun AiConfigScreen(
 
             // API Key
             var keyVisible by remember { mutableStateOf(false) }
+            var webKeyVisible by remember { mutableStateOf(false) }
             OutlinedTextField(
                 value = config.apiKey,
                 onValueChange = viewModel::onApiKeyChange,
@@ -268,6 +275,75 @@ fun AiConfigScreen(
 
             HorizontalDivider()
 
+            // 知识库（RAG）embedding 模型
+            Text("知识库 (RAG)", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "复用上方 Base URL 与 API Key，走 OpenAI 兼容 /embeddings。留空则不建立向量索引（仅文档全文检索可用）。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedTextField(
+                value = config.embeddingModel,
+                onValueChange = viewModel::onEmbeddingModelChange,
+                label = { Text("Embedding 模型（如 text-embedding-3-small）") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            HorizontalDivider()
+
+            // 网络搜索
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("网络搜索", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.weight(1f))
+                Switch(checked = config.webSearchEnabled, onCheckedChange = viewModel::onWebSearchToggle)
+            }
+            if (config.webSearchEnabled) {
+                Text("搜索引擎", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    WebSearchProvider.values().forEach { p ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            RadioButton(selected = config.webSearchProvider == p, onClick = { viewModel.onWebSearchProviderChange(p) })
+                            Spacer(Modifier.width(8.dp))
+                            Text(p.webSearchDisplayName())
+                        }
+                    }
+                }
+                if (config.webSearchProvider != WebSearchProvider.DUCKDUCKGO) {
+                    OutlinedTextField(
+                        value = config.webSearchApiKey,
+                        onValueChange = viewModel::onWebSearchApiKeyChange,
+                        label = { Text("搜索 API Key（DuckDuckGo 不需要）") },
+                        singleLine = true,
+                        visualTransformation = if (webKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { webKeyVisible = !webKeyVisible }) {
+                                Icon(
+                                    if (webKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    "切换显隐"
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                if (config.webSearchProvider == WebSearchProvider.CUSTOM) {
+                    OutlinedTextField(
+                        value = config.webSearchCustomUrl,
+                        onValueChange = viewModel::onWebSearchCustomUrlChange,
+                        label = { Text("自定义搜索 URL") },
+                        placeholder = { Text("https://your-search-endpoint/search") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            HorizontalDivider()
+
             // 测试连接
             Button(onClick = { viewModel.save(); viewModel.test() }, enabled = !state.isTesting, modifier = Modifier.fillMaxWidth()) {
                 if (state.isTesting) {
@@ -303,4 +379,12 @@ private fun AiProvider.displayName(): String = when (this) {
     AiProvider.OPENAI_COMPATIBLE -> "OpenAI 兼容 (Ollama / DeepSeek 等)"
     AiProvider.CLAUDE -> "Anthropic Claude"
     AiProvider.GEMINI -> "Google Gemini"
+}
+
+private fun WebSearchProvider.webSearchDisplayName(): String = when (this) {
+    WebSearchProvider.DUCKDUCKGO -> "DuckDuckGo（免 Key）"
+    WebSearchProvider.TAVILY -> "Tavily"
+    WebSearchProvider.SERPER -> "Serper（Google）"
+    WebSearchProvider.BRAVE -> "Brave"
+    WebSearchProvider.CUSTOM -> "自定义"
 }

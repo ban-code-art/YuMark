@@ -49,6 +49,7 @@ data class SearchResult(
 enum class ExportFormat(val extension: String, val mimeType: String) {
     MARKDOWN("md", "text/markdown"),
     HTML("html", "text/html"),
+    RICH_HTML("html", "text/html"),
     PDF("pdf", "application/pdf"),
     WORD("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
     IMAGE("png", "image/png")

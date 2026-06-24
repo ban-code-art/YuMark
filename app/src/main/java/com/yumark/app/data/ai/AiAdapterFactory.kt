@@ -1,8 +1,10 @@
 package com.yumark.app.data.ai
 
 import com.yumark.app.data.ai.adapters.ClaudeAdapter
+import com.yumark.app.data.ai.adapters.EmbeddingAdapter
 import com.yumark.app.data.ai.adapters.GeminiAdapter
 import com.yumark.app.data.ai.adapters.OpenAiAdapter
+import com.yumark.app.data.ai.adapters.OpenAiEmbeddingAdapter
 import com.yumark.app.domain.model.AiConfig
 import com.yumark.app.domain.model.AiProvider
 import com.yumark.app.domain.model.defaultBaseUrl
@@ -31,5 +33,14 @@ class AiAdapterFactory @Inject constructor(
         }
         current = adapter
         return adapter
+    }
+
+    /**
+     * 创建 embedding 适配器（Phase 4）。复用 chat 的 baseUrl/apiKey，走 OpenAI 兼容 `/embeddings`。
+     * 不影响 [current] chat 适配器缓存——embedding 与 chat 独立、无状态可管。
+     */
+    fun createEmbeddingAdapter(config: AiConfig): EmbeddingAdapter {
+        val baseUrl = config.baseUrl.ifBlank { config.provider.defaultBaseUrl }
+        return OpenAiEmbeddingAdapter(baseUrl, config.apiKey, client)
     }
 }

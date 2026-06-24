@@ -20,6 +20,32 @@ val AiProvider.defaultBaseUrl: String
         AiProvider.GEMINI -> "https://generativelanguage.googleapis.com/v1beta"
     }
 
+/** 网络搜索引擎 Provider（移植自 guanmo webSearch.ts） */
+enum class WebSearchProvider {
+    DUCKDUCKGO,  // 免 key，解析 lite 页面 HTML
+    TAVILY,      // POST Bearer
+    SERPER,      // POST X-API-KEY（Google）
+    BRAVE,       // GET X-Subscription-Token
+    CUSTOM       // 用户自定义 URL，自动探测常见响应格式
+}
+
+/**
+ * 记忆分类（移植自 guanmo memoryService）。
+ * 检索排序优先级：PROJECT > PROFILE > INSTRUCTION > PREFERENCE > LEARNING。
+ */
+enum class MemoryCategory(val priority: Int) {
+    PROJECT(5),
+    PROFILE(4),
+    INSTRUCTION(3),
+    PREFERENCE(2),
+    LEARNING(1);
+
+    companion object {
+        fun fromString(raw: String?): MemoryCategory =
+            runCatching { valueOf(raw?.uppercase()?.trim().orEmpty()) }.getOrDefault(PREFERENCE)
+    }
+}
+
 /** AI 配置 */
 data class AiConfig(
     val enabled: Boolean = false,
@@ -30,7 +56,13 @@ data class AiConfig(
     val availableModels: List<String> = emptyList(),
     val temperature: Float = 0.7f,
     val maxTokens: Int = 2048,
-    val streamEnabled: Boolean = true
+    val streamEnabled: Boolean = true,
+    val webSearchEnabled: Boolean = false,
+    val webSearchProvider: WebSearchProvider = WebSearchProvider.DUCKDUCKGO,
+    val webSearchApiKey: String = "",
+    val webSearchCustomUrl: String = "",
+    /** OpenAI 兼容 /embeddings 模型名（如 text-embedding-3-small）；为空则 RAG 不索引。复用 baseUrl/apiKey。 */
+    val embeddingModel: String = ""
 )
 
 /** 对话类型 */

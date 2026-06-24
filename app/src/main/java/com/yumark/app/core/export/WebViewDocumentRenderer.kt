@@ -74,6 +74,103 @@ class WebViewDocumentRenderer @Inject constructor(
         outFile
     }
 
+    /**
+     * 渲染 Markdown 为**自包含富 HTML 字符串**（与预览一致：Prism 代码高亮 + KaTeX 公式 + Mermaid SVG）。
+     *
+     * 复用预览 WebView 管线（marked.js + Prism + KaTeX + Mermaid）渲染，再抽取 `#content` 的 innerHTML，
+     * 把 KaTeX CSS（含 woff2 字体转 data URI）、Prism CSS 与基础排版样式内联进 `<style>`，
+     * 生成不依赖 android_asset 的可移植 HTML。解决"导出走 commonmark、预览走 marked.js"的双轨分叉。
+     *
+     * 写入 [outFile] 并返回。所有 WebView 操作在主线程。
+     */
+    suspend fun renderToRichHtml(markdown: String, outFile: File): File {
+        val html = renderToRichHtmlString(markdown)
+        withContext(Dispatchers.IO) {
+            outFile.writeText(html)
+        }
+        return outFile
+    }
+
+    private suspend fun renderToRichHtmlString(markdown: String): String = withContext(Dispatchers.Main) {
+        val webView = awaitRendered(markdown, layoutWidthPx = A4_WIDTH_PX)
+        try {
+            val innerHtml = awaitContentInnerHtml(webView)
+            val katexCss = inlineFontDataUris(readAsset("raw/katexcss.css"), "raw/fonts")
+            val prismCss = readAsset("raw/prism.css")
+            buildStandaloneHtml(innerHtml, katexCss, prismCss)
+        } finally {
+            destroy(webView)
+        }
+    }
+
+    /** 抽取渲染后 `#content` 的 innerHTML（JSON 字符串解码）。 */
+    private suspend fun awaitContentInnerHtml(webView: WebView): String =
+        suspendCancellableCoroutine { cont ->
+            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+            webView.evaluateJavascript(
+                "(function(){var el=document.getElementById('content');return el?el.innerHTML:'';})();"
+            ) { result ->
+                // evaluateJavascript 回传的是 JSON 编码字符串（含引号与转义），需解码
+                val decoded = result?.let { decodeJsonString(it) } ?: ""
+                if (cont.isActive) cont.resume(decoded)
+            }
+            // 兜底超时
+            handler.postDelayed({
+                if (cont.isActive) cont.resume("")
+            }, EXTRACT_TIMEOUT_MS)
+            cont.invokeOnCancellation { /* webView 由调用方销毁 */ }
+        }
+
+    /** 把 CSS 中的 url(fonts/xxx.woff2) 替换为 base64 data URI，使 CSS 自包含。 */
+    private fun inlineFontDataUris(css: String, fontsDir: String): String {
+        val fontRef = Regex("""url\(\s*(?:fonts/)?([^)]+\.woff2)\s*\)""")
+        return fontRef.replace(css) { m ->
+            val fontName = m.groupValues[1].substringAfterLast('/')
+            val fontBytes = runCatching { context.assets.open("$fontsDir/$fontName").use { it.readBytes() } }.getOrNull()
+            if (fontBytes != null) "url(data:font/woff2;base64,${android.util.Base64.encodeToString(fontBytes, android.util.Base64.NO_WRAP)})"
+            else m.value
+        }
+    }
+
+    private fun readAsset(path: String): String =
+        context.assets.open(path).bufferedReader().use { it.readText() }
+
+    /** evaluateJavascript 回传的 JSON 字符串解码（去外层引号 + 反转义）。 */
+    private fun decodeJsonString(raw: String): String {
+        if (raw.isBlank() || raw == "null") return ""
+        val s = if (raw.startsWith("\"") && raw.endsWith("\"")) raw.substring(1, raw.length - 1) else raw
+        return s.replace("\\n", "\n").replace("\\\"", "\"").replace("\\/", "/")
+            .replace("\\t", "\t").replace("\\\\", "\\")
+    }
+
+    private fun buildStandaloneHtml(bodyInnerHtml: String, katexCss: String, prismCss: String): String {
+        return """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="generator" content="YuMark">
+<style>
+$katexCss
+$prismCss
+$BASE_RICH_CSS
+</style>
+</head>
+<body>
+$bodyInnerHtml
+</body>
+</html>""".trimIndent()
+    }
+
+    private val BASE_RICH_CSS = """
+        body { max-width: 800px; margin: 0 auto; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; color: #333; background: #fff; }
+        img { max-width: 100%; height: auto; }
+        table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+        th, td { border: 1px solid #dfe2e5; padding: 6px 13px; }
+        th { background: #f6f8fa; }
+        blockquote { border-left: 4px solid #dfe2e5; padding: 0 16px; color: #6a737d; margin: 0 0 16px 0; }
+    """.trimIndent()
+
     /** 创建离屏 WebView，加载模板→渲染 markdown→等待异步渲染收敛，返回已渲染的 WebView。 */
     private suspend fun awaitRendered(markdown: String, layoutWidthPx: Int): WebView =
         suspendCancellableCoroutine { cont ->
@@ -183,5 +280,7 @@ class WebViewDocumentRenderer @Inject constructor(
         private const val IMAGE_WIDTH_PX = 1080
         /** 长图最大高度，超出截断（防 OOM）。 */
         private const val MAX_IMAGE_HEIGHT_PX = 16000
+        /** 抽取 innerHTML 的兜底超时。 */
+        private const val EXTRACT_TIMEOUT_MS = 3_000L
     }
 }

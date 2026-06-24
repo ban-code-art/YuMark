@@ -10,16 +10,22 @@ import com.yumark.app.data.local.db.dao.DocumentDao
 import com.yumark.app.data.local.db.dao.DocumentVersionDao
 import com.yumark.app.data.local.db.dao.FolderDao
 import com.yumark.app.data.local.db.dao.ImageDao
+import com.yumark.app.data.local.db.dao.MemoryDao
 import com.yumark.app.data.local.db.dao.MessageDao
+import com.yumark.app.data.local.db.dao.RagDao
 import com.yumark.app.data.local.db.dao.SyncStateDao
 import com.yumark.app.data.local.db.entity.AgentEvidenceEntity
 import com.yumark.app.data.local.db.entity.AgentTaskEntity
 import com.yumark.app.data.local.db.entity.AgentTaskStepEntity
+import com.yumark.app.data.local.db.entity.ChunkEntity
 import com.yumark.app.data.local.db.entity.ConversationEntity
 import com.yumark.app.data.local.db.entity.DocumentEntity
 import com.yumark.app.data.local.db.entity.DocumentVersionEntity
+import com.yumark.app.data.local.db.entity.EmbeddingEntity
+import com.yumark.app.data.local.db.entity.EmbeddingJobEntity
 import com.yumark.app.data.local.db.entity.FolderEntity
 import com.yumark.app.data.local.db.entity.ImageEntity
+import com.yumark.app.data.local.db.entity.MemoryEntity
 import com.yumark.app.data.local.db.entity.MessageEntity
 import com.yumark.app.data.local.db.entity.SyncStateEntity
 
@@ -34,9 +40,13 @@ import com.yumark.app.data.local.db.entity.SyncStateEntity
         AgentTaskStepEntity::class,
         AgentEvidenceEntity::class,
         DocumentVersionEntity::class,
-        SyncStateEntity::class
+        SyncStateEntity::class,
+        MemoryEntity::class,
+        ChunkEntity::class,
+        EmbeddingEntity::class,
+        EmbeddingJobEntity::class
     ],
-    version = 8,
+    version = 10,
     exportSchema = true  // 启用 schema 导出，支持数据库迁移
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -48,6 +58,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun agentTaskDao(): AgentTaskDao
     abstract fun documentVersionDao(): DocumentVersionDao
     abstract fun syncStateDao(): SyncStateDao
+    abstract fun memoryDao(): MemoryDao
+    abstract fun ragDao(): RagDao
 
     companion object {
         /**
@@ -232,6 +244,90 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * 版本 8 → 9：新增长期记忆表 memories（移植自 guanmo memoryService）。
+         * 与 RAG 知识库分开，无 chunk、无 document 关联。
+         *
+         * 表结构必须与 [MemoryEntity] 逐字一致（无 DB 默认值、无索引）——否则 Room 在
+         * 迁移后做 schema 校验会抛 "Migration didn't properly handle: memories" 导致启动闪退。
+         * 列默认值由 MemoryEntity 构造器在插入时提供（locked=false / status="active"）。
+         */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS memories (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        content TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        source TEXT NOT NULL,
+                        locked INTEGER NOT NULL,
+                        status TEXT NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        /**
+         * 版本 9 → 10：新增 RAG 知识库三表——分块、向量、索引任务（移植自 guanmo vectorStore/chunker）。
+         * 均外键关联 documents，删除文档时级联清除其分块、向量与任务。
+         */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS rag_chunks (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        document_id TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        content_hash TEXT NOT NULL,
+                        title_path TEXT NOT NULL,
+                        heading TEXT,
+                        source_type TEXT NOT NULL,
+                        chunk_index INTEGER NOT NULL,
+                        start_line INTEGER NOT NULL,
+                        end_line INTEGER NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_rag_chunks_document_id ON rag_chunks(document_id)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS rag_embeddings (
+                        chunk_id TEXT NOT NULL PRIMARY KEY,
+                        embedding TEXT NOT NULL,
+                        model TEXT NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        FOREIGN KEY(chunk_id) REFERENCES rag_chunks(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS rag_embedding_jobs (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        document_id TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        content_hash TEXT,
+                        error TEXT,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_rag_embedding_jobs_document_id ON rag_embedding_jobs(document_id)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_rag_embedding_jobs_status ON rag_embedding_jobs(status)")
+            }
+        }
+
+        /**
          * 获取所有已定义的迁移
          * 在 DatabaseModule 中使用：
          * Room.databaseBuilder(...).addMigrations(*AppDatabase.ALL_MIGRATIONS).build()
@@ -243,7 +339,9 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_4_5,
             MIGRATION_5_6,
             MIGRATION_6_7,
-            MIGRATION_7_8
+            MIGRATION_7_8,
+            MIGRATION_8_9,
+            MIGRATION_9_10
         )
     }
 }

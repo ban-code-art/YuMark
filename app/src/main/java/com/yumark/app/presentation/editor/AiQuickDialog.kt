@@ -2,6 +2,9 @@ package com.yumark.app.presentation.editor
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -9,6 +12,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,6 +26,7 @@ import com.yumark.app.domain.model.AgentAction
 import com.yumark.app.domain.model.AgentActionStatus
 import com.yumark.app.domain.model.AgentActionType
 import com.yumark.app.domain.model.AiRequestConfig
+import com.yumark.app.domain.model.AiTool
 import com.yumark.app.domain.model.ChatMessage
 import com.yumark.app.domain.model.StreamEvent
 import com.yumark.app.domain.repository.AiConfigRepository
@@ -32,6 +37,7 @@ import com.yumark.app.presentation.common.isNearBottom
 import com.yumark.app.domain.model.Message
 import com.yumark.app.domain.model.MessageRole
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -40,6 +46,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 
 enum class QuickAiMode {
@@ -51,9 +61,36 @@ enum class QuickAiMode {
 private const val DOC_CONTEXT_CHAR_BUDGET = 12000
 
 /**
+ * 划词编辑工具：用新文本替换用户选中的文本。与主 Agent 的 edit_document 一致走函数调用，
+ * 比纯文本协议（[[EDIT]] 标记）可靠——删除传空串、润色直接给新文本，模型结构化返回。
+ * 弱端点不支持函数调用时，仍回退到 [[EDIT]] 文本协议。
+ */
+private val APPLY_EDIT_TOOL = AiTool(
+    name = "apply_edit",
+    description = "用新文本替换用户选中的文本。用户要求修改/改写/润色/翻译/扩写/精简/删除选中文本时调用。" +
+        "new_text 给出改写后的完整文本；删除选中文本则 new_text 传空字符串。" +
+        "不要在回复正文里重复输出改后的文本——调用本工具即可。",
+    parameters = mapOf(
+        "type" to "object",
+        "properties" to mapOf(
+            "new_text" to mapOf(
+                "type" to "string",
+                "description" to "替换选中文本的新文本；删除时传空字符串"
+            ),
+            "summary" to mapOf(
+                "type" to "string",
+                "description" to "一句话说明改了什么（可选，仅展示用）"
+            )
+        ),
+        "required" to listOf("new_text")
+    )
+)
+
+/**
  * 对话消息数据类
  */
 data class ConversationMessage(
+    val id: String = java.util.UUID.randomUUID().toString(),  // 稳定身份：流式更新时保留，供列表 key 与高度缓存命中
     val role: MessageRole,
     val content: String,
     val mode: QuickAiMode,  // 记录发送时的模式
@@ -84,7 +121,11 @@ fun AiQuickDialog(
     val hasMessages by viewModel.hasMessages.collectAsStateWithLifecycle()
     var editableSelectedText by remember { mutableStateOf(selectedText) }
     var showExitConfirmDialog by remember { mutableStateOf(false) }
-    val listState = rememberLazyListState()
+    val scrollState = rememberScrollState()
+    // 自动跟随到底部：流式输出时持续滚到最新内容；用户上滑查看历史时停止跟随。
+    var autoScroll by remember { mutableStateOf(true) }
+    // 标记「程序化滚动」，屏蔽其间的滚动检测，避免误判为用户上滑而关闭跟随。
+    var programmaticScroll by remember { mutableStateOf(false) }
 
     // 打开（或换了新选区）时，由 ViewModel 原子决定恢复上次会话还是重置
     LaunchedEffect(selectedText) {
@@ -101,15 +142,31 @@ fun AiQuickDialog(
         viewModel.setDocumentContext(documentName, documentContent)
     }
 
-    // 自动滚动到最新消息。
-    // LazyColumn 顶部有一个固定 item(选中文本块)占索引 0,消息从 1 起;加载时末项是指示器。
-    // 用 scrollToItem(瞬时)而非 animateScrollToItem：流式每个 token 都会触发本 effect，
-    // 动画会被不断取消重启、产生抖动；瞬时跳转更稳定。
-    // 仅在「已接近底部」时跟随：用户向上翻阅历史时不被强行拽回底部。
+    // 仅在「用户发起的滚动」时切换跟随状态。
+    // 非懒 Column + ScrollState：maxValue 即"可滚到底的距离"，不依赖 item 高度，
+    // 也就没有 WebView 异步高度塌缩导致跳顶的问题。nearBottom = 已贴近 maxValue。
+    val bottomThreshold = 220
+    LaunchedEffect(scrollState) {
+        snapshotFlow { scrollState.isScrollInProgress to (scrollState.value >= scrollState.maxValue - bottomThreshold) }
+            .collect { (scrolling, nearBottom) ->
+                if (programmaticScroll) return@collect
+                when {
+                    scrolling && !nearBottom -> autoScroll = false   // 用户向上拖离底部
+                    !scrolling && nearBottom -> autoScroll = true    // 静止且回到底部
+                }
+            }
+    }
+
+    // 跟随最新内容：直接滚到底（maxValue）。无需 scrollToItem/overflow——ScrollState 的 maxValue
+    // 反映全部已组合内容的高度，无回收、无异步重测，不会跳顶。
     LaunchedEffect(conversationHistory.size, conversationHistory.lastOrNull()?.content, isLoading) {
-        if (conversationHistory.isEmpty()) return@LaunchedEffect
-        if (listState.isNearBottom()) {
-            listState.scrollToItem(listState.layoutInfo.totalItemsCount - 1)
+        if (conversationHistory.isEmpty() && !isLoading) return@LaunchedEffect
+        if (!autoScroll) return@LaunchedEffect
+        programmaticScroll = true
+        try {
+            scrollState.scrollTo(scrollState.maxValue)
+        } finally {
+            programmaticScroll = false
         }
     }
 
@@ -177,56 +234,56 @@ fun AiQuickDialog(
             HorizontalDivider()
 
             // 对话区域
-            LazyColumn(
+            // 非懒 Column + verticalScroll：不回收条目，WebView 不被重建 → 无异步高度塌缩跳顶、无白屏。
+            // 划词对话消息数有限，全量组合的内存代价可接受。
+            Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                state = listState
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 16.dp)
             ) {
                 // 显示选中的文本（始终显示在顶部）
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = if (currentMode == QuickAiMode.AI_QUERY) "关于：" else "选中的文本：",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = if (currentMode == QuickAiMode.AI_QUERY) "关于：" else "选中的文本：",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (allowEditSelectedText) {
+                    OutlinedTextField(
+                        value = editableSelectedText,
+                        onValueChange = { editableSelectedText = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        minLines = 3,
+                        maxLines = 6,
+                        placeholder = { Text("粘贴或输入要处理的文本...") }
                     )
-
-                    if (allowEditSelectedText) {
-                        OutlinedTextField(
-                            value = editableSelectedText,
-                            onValueChange = { editableSelectedText = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            minLines = 3,
-                            maxLines = 6,
-                            placeholder = { Text("粘贴或输入要处理的文本...") }
+                } else {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Text(
+                            text = editableSelectedText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(12.dp)
                         )
-                    } else {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            Text(
-                                text = editableSelectedText,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(12.dp)
-                            )
-                        }
-                    }
-
-                    if (hasMessages) {
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     }
                 }
 
+                if (hasMessages) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                }
+
                 // 对话历史
-                itemsIndexed(conversationHistory) { index, message ->
+                conversationHistory.forEachIndexed { index, message ->
                     // 仅当 AI 确实给出改写(editContent 非空)时才挂「应用修改」卡片；
                     // 纯提问/总结不会有 editContent,因此不弹卡片。
                     val edit = message.editContent
@@ -236,6 +293,7 @@ fun AiQuickDialog(
 
                     MessageBubble(
                         message = Message(
+                            id = message.id,
                             conversationId = "",
                             role = message.role,
                             content = message.content
@@ -266,22 +324,20 @@ fun AiQuickDialog(
 
                 // 加载指示器
                 if (isLoading) {
-                    item {
-                        Row(
-                            modifier = Modifier.padding(vertical = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = if (currentMode == QuickAiMode.AI_QUERY) "AI 思考中..." else "Agent 处理中...",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                    Row(
+                        modifier = Modifier.padding(vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = if (currentMode == QuickAiMode.AI_QUERY) "AI 思考中..." else "Agent 处理中...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -325,10 +381,17 @@ fun AiQuickDialog(
                     },
                     minLines = 1,
                     maxLines = 3,
-                    enabled = !isLoading,
                     trailingIcon = {
-                        if (!isLoading && userInput.isNotBlank()) {
-                            IconButton(onClick = { viewModel.send() }) {
+                        if (isLoading) {
+                            // 思考中可手动中断，与外部 AI/Agent 一致
+                            IconButton(onClick = { viewModel.stop() }) {
+                                Icon(Icons.Filled.Stop, "停止")
+                            }
+                        } else if (userInput.isNotBlank()) {
+                            IconButton(onClick = {
+                                autoScroll = true   // 发送新消息 → 恢复跟随，确保能看到回复
+                                viewModel.send()
+                            }) {
                                 Icon(Icons.AutoMirrored.Filled.Send, "发送")
                             }
                         }
@@ -393,6 +456,9 @@ class AiQuickViewModel @Inject constructor(
     private var documentName: String? = null
     private var documentContent: String? = null
 
+    /** 当前流式协程；用户中断时据此取消。 */
+    private var sendJob: Job? = null
+
     fun setSelectedText(text: String) {
         selectedText = text
     }
@@ -424,6 +490,13 @@ class AiQuickViewModel @Inject constructor(
         _userInput.value = input
     }
 
+    /** 用户在思考过程中点击中断：取消本轮流式，半截回复保留在历史里，状态复位。 */
+    fun stop() {
+        sendJob?.cancel()
+        sendJob = null
+        _isLoading.value = false
+    }
+
     /**
      * 对话框打开（或换了新选区）时调用：相同选中文本则保留上次会话（历史+模式），
      * 否则按新选区重置。原子完成，避免分散在多个 LaunchedEffect 里因执行时序
@@ -448,7 +521,7 @@ class AiQuickViewModel @Inject constructor(
         val userMessage = _userInput.value
         val currentModeSnapshot = _currentMode.value
 
-        viewModelScope.launch {
+        sendJob = viewModelScope.launch {
             // 添加用户消息到历史记录
             _conversationHistory.value = _conversationHistory.value + ConversationMessage(
                 role = MessageRole.USER,
@@ -481,6 +554,9 @@ class AiQuickViewModel @Inject constructor(
 
                 // 流式接收回复
                 val fullResponse = StringBuilder()
+                // AGENT_EDIT 下发 apply_edit 工具（函数调用优先）；弱端点不支持时由 [[EDIT]] 文本兜底。
+                val tools = if (currentModeSnapshot == QuickAiMode.AGENT_EDIT) listOf(APPLY_EDIT_TOOL) else emptyList()
+                var pendingEditNewText: String? = null
                 adapter.sendChatStream(
                     messages,
                     AiRequestConfig(
@@ -488,7 +564,8 @@ class AiQuickViewModel @Inject constructor(
                         temperature = config.temperature,
                         maxTokens = config.maxTokens,
                         systemPrompt = systemPrompt
-                    )
+                    ),
+                    tools = tools
                 ).collect { event ->
                     when (event) {
                         is StreamEvent.Content -> {
@@ -500,9 +577,10 @@ class AiQuickViewModel @Inject constructor(
                             // 临时更新最后一条消息（流式显示）
                             val currentHistory = _conversationHistory.value
                             val lastMessage = currentHistory.lastOrNull()
-                            if (lastMessage?.role == MessageRole.ASSISTANT) {
-                                // 更新现有的 AI 消息
+                            if (lastMessage != null && lastMessage.role == MessageRole.ASSISTANT) {
+                                // 更新现有的 AI 消息（保留 id：流式期间身份稳定，列表 key 与高度缓存才能命中）
                                 _conversationHistory.value = currentHistory.dropLast(1) + ConversationMessage(
+                                    id = lastMessage.id,
                                     role = MessageRole.ASSISTANT,
                                     content = display,
                                     mode = currentModeSnapshot
@@ -516,30 +594,51 @@ class AiQuickViewModel @Inject constructor(
                                 )
                             }
                         }
-                        is StreamEvent.ToolCallDelta -> Unit  // Quick Dialog暂不使用工具调用
-                        is StreamEvent.ToolCallComplete -> Unit
+                        is StreamEvent.ToolCallDelta -> Unit
+                        is StreamEvent.ToolCallComplete -> {
+                            // apply_edit 工具调用：取 new_text 作为改写结果（空串=删除）。
+                            if (currentModeSnapshot == QuickAiMode.AGENT_EDIT && pendingEditNewText == null) {
+                                val call = event.calls.firstOrNull { it.name == "apply_edit" }
+                                if (call != null) {
+                                    parseApplyEditArgs(call.arguments)?.let { pendingEditNewText = it }
+                                }
+                            }
+                            android.util.Log.d("YuMarkQuick",
+                                "ToolCallComplete mode=$currentModeSnapshot calls=${event.calls.map { it.name }} " +
+                                    "applyEditNewText=${pendingEditNewText?.let { "len=${it.length}" }}")
+                        }
                         is StreamEvent.Done -> {
                             val finalText = event.fullText.ifBlank { fullResponse.toString() }
-                            // 处理模式:解析 AI 是否给出改写。
-                            // 优先按 [[EDIT]] 标记解析(compliant 模型)；
-                            // 无标记时走兜底启发式:回复「看起来像改写」则整段作为 editContent(救援忽略标记的弱模型)，
-                            // 否则按普通问答/总结处理(不挂卡片)。纯问答/总结不挂卡片。
+                            // 处理模式:决定 AI 是否给出改写。
+                            // 优先 apply_edit 工具调用 → 其次 [[EDIT]] 标记 → 最后兜底启发式（弱模型）。
+                            // 工具返回空串代表删除，必须保留（不能当 null）；仅"完全无改写信号"才返回 null。
                             val edit = if (currentModeSnapshot == QuickAiMode.AGENT_EDIT)
-                                resolveEdit(finalText, selectedText) else null
+                                pendingEditNewText ?: resolveEdit(finalText, selectedText, userMessage) else null
+                            android.util.Log.d("YuMarkQuick",
+                                "Done mode=$currentModeSnapshot finalTextLen=${finalText.length} " +
+                                    "edit=${edit?.let { "len=${it.length}" } ?: "null"} " +
+                                    "toolUsed=${pendingEditNewText != null} userMsg=${userMessage.take(40)}")
                             val display = when {
                                 edit != null -> edit
                                 currentModeSnapshot == QuickAiMode.AGENT_EDIT -> stripEditMarkers(finalText)
                                 else -> finalText
                             }
-                            // 确保最后一条消息是完整的
+                            // 确保最后一条消息是完整的。
+                            // 纯工具调用（无正文流式）时 Content 分支不会插入助手消息，
+                            // 此刻末条仍是用户消息——需追加而非替换，否则会丢掉用户消息。
                             val currentHistory = _conversationHistory.value
-                            _conversationHistory.value = currentHistory.dropLast(1) + ConversationMessage(
-                                role = MessageRole.ASSISTANT,
-                                content = display,
-                                mode = currentModeSnapshot,
-                                editContent = edit,
-                                editStatus = if (edit != null) AgentActionStatus.PENDING else null
-                            )
+                            val lastAssistant = currentHistory.lastOrNull()?.takeIf { it.role == MessageRole.ASSISTANT }
+                            val lastIsAssistant = lastAssistant != null
+                            // 替换末条助手消息时保留其 id（流式期间同一轮回复身份不变，缓存/动画才连贯）
+                            _conversationHistory.value =
+                                (if (lastIsAssistant) currentHistory.dropLast(1) else currentHistory) + ConversationMessage(
+                                    id = lastAssistant?.id ?: java.util.UUID.randomUUID().toString(),
+                                    role = MessageRole.ASSISTANT,
+                                    content = display,
+                                    mode = currentModeSnapshot,
+                                    editContent = edit,
+                                    editStatus = if (edit != null) AgentActionStatus.PENDING else null
+                                )
                             _isLoading.value = false
                         }
                         is StreamEvent.Error -> {
@@ -576,13 +675,14 @@ class AiQuickViewModel @Inject constructor(
             """.trimIndent() + docContext
 
             QuickAiMode.AGENT_EDIT -> """
-                你是一个文本编辑助手。用户选中了一段文本（见对话），可能要你「修改/改写/润色/翻译/扩写/精简」它，也可能只是「提问/总结/解释」。请先判断用户意图：
+                你是一个文本编辑助手。用户选中了一段文本（见对话），可能要你「修改/改写/润色/翻译/扩写/精简/删除」它，也可能只是「提问/总结/解释」。请先判断用户意图：
 
-                - 若用户要求**修改选中文本**：只输出修改后的【完整文本】，并严格用如下标记包裹（标记各占一行，标记外不要写任何解释，也不要用代码块包裹）：
-                [[EDIT]]
-                （这里放改写后的完整文本）
-                [[/EDIT]]
-                - 若用户只是**提问/总结/解释**、并不需要替换选中文本：正常用 Markdown 回答，**不要**输出 [[EDIT]] 标记。
+                - 若用户要求**修改选中文本**：调用 apply_edit 工具，在 new_text 里给出改写后的完整文本（删除选中文本则 new_text 传空字符串）。可在 summary 里一句话说明改了什么。**不要在回复正文里重复输出改后的文本**——调用工具即可。
+                  若所用端点不支持函数调用，改为用标记包裹（标记外不写解释，也不用代码块）：
+                  [[EDIT]]
+                  （改写后的完整文本；删除则留空）
+                  [[/EDIT]]
+                - 若用户只是**提问/总结/解释**、并不需要替换选中文本：正常用 Markdown 回答，**不要**调用 apply_edit、也不要输出 [[EDIT]] 标记。
 
                 保持原文的格式与风格，只按用户要求做必要修改。
             """.trimIndent() + docContext
@@ -617,28 +717,53 @@ class AiQuickViewModel @Inject constructor(
     private fun stripEditMarkers(text: String): String =
         text.replace("[[EDIT]]", "").replace("[[/EDIT]]", "").trim()
 
-    /** 解析 [[EDIT]]...[[/EDIT]] 包裹的改写文本;无标记返回 null(表示这是普通问答/总结,不挂卡片)。 */
+    /** 解析 [[EDIT]]...[[/EDIT]] 包裹的改写文本;无标记返回 null(表示这是普通问答/总结,不挂卡片)。
+     *  注意:标记存在但内容为空(模型表示"删除")时返回空串而非 null——空串代表删除,必须走审批门。 */
     private fun parseEditContent(text: String): String? {
         val start = text.indexOf("[[EDIT]]")
         if (start < 0) return null
         val afterStart = start + "[[EDIT]]".length
         val end = text.indexOf("[[/EDIT]]", afterStart)
         val inner = if (end >= 0) text.substring(afterStart, end) else text.substring(afterStart)
-        return inner.trim().ifBlank { null }
+        return inner.trim()
+    }
+
+    /** 从 apply_edit 工具调用参数解析 new_text。空串=删除（非 null）；仅当缺字段/解析失败才返回 null。 */
+    private fun parseApplyEditArgs(argsJson: String): String? {
+        return runCatching {
+            Json.parseToJsonElement(argsJson).jsonObject["new_text"]?.jsonPrimitive?.contentOrNull
+        }.getOrNull()
     }
 
     /**
      * 处理模式下决定回复是否应作为「可应用改写」。
      *
-     * 1) 优先按 [[EDIT]] 标记解析(compliant 模型)。
-     * 2) 无标记时走兜底启发式:仅当回复「看起来像改写」才把整段作为 editContent
-     *    ——救援忽略标记指令的弱模型;其余(明显是问答/总结/解释)按普通消息处理,不挂卡片。
+     * 1) 优先按 [[EDIT]] 标记解析(空串=删除)。
+     * 2) apply_edit 工具调用已在上游处理(空串=删除)。
+     * 3) 明确的删除意图（"删除/删掉/去掉 这一段"）且模型未给新文本 → 空替换 = 删除整段选中。
+     * 4) 其余走兜底启发式：回复「看起来像改写」才当 editContent；否则按普通问答/总结处理。
      */
-    private fun resolveEdit(text: String, selected: String): String? {
+    private fun resolveEdit(text: String, selected: String, userMessage: String): String? {
         parseEditContent(text)?.let { return it }
+        if (isDeletionIntent(userMessage)) return ""   // 删除整段选中 = 空替换
         val reply = text.trim()
         if (!looksLikeRewrite(reply, selected.trim())) return null
         return reply.ifBlank { null }
+    }
+
+    /** 判定用户是否要求「删除整段选中文本」（模型未给新文本时的兜底，空替换=删除）。 */
+    private fun isDeletionIntent(userMessage: String): Boolean {
+        val m = userMessage.lowercase()
+        val deleteVerb = listOf(
+            "删除", "删掉", "删去", "去掉", "移除", "清除", "抹掉", "删了",
+            "delete", "remove", "erase"
+        ).any { m.contains(it) }
+        if (!deleteVerb) return false
+        // 目标指向选区本身，而非文档别处
+        return listOf(
+            "这段", "这一段", "选中", "这段话", "这段文字", "这些", "那段",
+            "this", "it", "selection", "paragraph"
+        ).any { m.contains(it) }
     }
 
     /**

@@ -13,7 +13,13 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
+import javax.inject.Qualifier
 import javax.inject.Singleton
+
+/** 标记用于网络搜索的短超时 HttpClient。 */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class WebSearchClient
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -42,10 +48,30 @@ object NetworkModule {
             socketTimeoutMillis = AiHttpTimeouts.SOCKET_TIMEOUT_MILLIS
         }
     }
+
+    /** 网络搜索专用客户端：短超时，避免单次搜索阻塞 Agent 循环。 */
+    @Provides
+    @Singleton
+    @WebSearchClient
+    fun provideWebSearchHttpClient(): HttpClient = HttpClient(Android) {
+        install(ContentNegotiation) {
+            json(Json { ignoreUnknownKeys = true; isLenient = true })
+        }
+        install(HttpTimeout) {
+            connectTimeoutMillis = AiHttpTimeouts.CONNECT_TIMEOUT_MILLIS
+            requestTimeoutMillis = WebSearchTimeouts.REQUEST_TIMEOUT_MILLIS
+            socketTimeoutMillis = WebSearchTimeouts.SOCKET_TIMEOUT_MILLIS
+        }
+    }
 }
 
 internal object AiHttpTimeouts {
     const val CONNECT_TIMEOUT_MILLIS: Long = 10_000
     val REQUEST_TIMEOUT_MILLIS: Long = HttpTimeout.INFINITE_TIMEOUT_MS
     const val SOCKET_TIMEOUT_MILLIS: Long = 120_000
+}
+
+internal object WebSearchTimeouts {
+    const val REQUEST_TIMEOUT_MILLIS: Long = 15_000
+    const val SOCKET_TIMEOUT_MILLIS: Long = 15_000
 }

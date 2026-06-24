@@ -9,6 +9,7 @@ import com.yumark.app.domain.model.AgentTaskStatus
 import com.yumark.app.domain.model.AgentTaskStep
 import com.yumark.app.domain.model.AgentTaskStepStatus
 import com.yumark.app.domain.model.AiRequestConfig
+import com.yumark.app.domain.model.AiTool
 import com.yumark.app.domain.model.ChatMessage
 import com.yumark.app.domain.model.ConversationStatus
 import com.yumark.app.domain.model.Message
@@ -64,7 +65,10 @@ class SendAgentMessageUseCase @Inject constructor(
     private val imageProcessor: com.yumark.app.core.image.ImageProcessor,
     private val agentTaskRepository: AgentTaskRepository,
     private val executeDocumentTool: ExecuteDocumentToolUseCase,
-    private val buildWriteProposal: BuildWriteProposalUseCase
+    private val buildWriteProposal: BuildWriteProposalUseCase,
+    private val webSearchService: com.yumark.app.data.ai.web.WebSearchService,
+    private val memoryService: com.yumark.app.data.ai.memory.MemoryService,
+    private val ragPipeline: com.yumark.app.data.ai.rag.RagPipeline
 ) {
     operator fun invoke(
         conversationId: String,
@@ -131,8 +135,17 @@ class SendAgentMessageUseCase @Inject constructor(
         emit(AgentMessageState.AssistantMessageStarted(assistant.id))
 
         val workingMessages = ArrayList(priorMessages).apply { add(currentTurn) }
-        val systemPrompt = buildAgentSystemPrompt(currentDocumentName, currentDocumentContent)
-        val tools = DocumentContextTools.getAllTools()
+        // 意图驱动的工具裁剪：只发送与本轮用户意图相关的工具，避免全量注入污染上下文。
+        val appContext = com.yumark.app.domain.usecase.ai.intent.AppContext(
+            hasOpenDocument = currentDocumentId != null && !currentDocumentContent.isNullOrBlank(),
+            hasSelection = false,
+            hasContextTags = false,
+            hasRecentEdit = currentDocumentId != null
+        )
+        val intent = com.yumark.app.domain.usecase.ai.intent.IntentDetector.detect(effectiveUserMessage, appContext)
+        val allTools = DocumentContextTools.getAllTools()
+        val tools = com.yumark.app.domain.usecase.ai.intent.ToolSelector.selectTools(intent, allTools)
+        val systemPrompt = buildAgentSystemPrompt(currentDocumentName, currentDocumentContent, tools)
         val full = StringBuilder()
         val agentSteps = ArrayList<AgentStep>()
         var lastToolSignature: String? = null
@@ -154,6 +167,29 @@ class SendAgentMessageUseCase @Inject constructor(
                     finalSummary = summary,
                     blockingReason = blockingReason
                 )
+            )
+        }
+
+        /** 执行只读工具（read/list/search/web_search 等）并回填结果。callingStep 已由调用方发出。 */
+        suspend fun runReadOnlyTool(
+            call: ToolCall,
+            executor: suspend (ToolCall) -> Result<String>
+        ) {
+            executor(call).fold(
+                onSuccess = { content ->
+                    val truncated = truncateToolResult(content, call.name)
+                    workingMessages.add(ChatMessage(role = "tool", content = truncated, toolCallId = call.id))
+                    val done = AgentStep.ToolDone(call.name, true, summarize(truncated))
+                    agentSteps.add(done)
+                    emit(AgentMessageState.ToolStep(done))
+                },
+                onFailure = { e ->
+                    val msg = e.message ?: "工具执行失败"
+                    workingMessages.add(ChatMessage(role = "tool", content = "ERROR: $msg", toolCallId = call.id))
+                    val done = AgentStep.ToolDone(call.name, false, summarize(msg))
+                    agentSteps.add(done)
+                    emit(AgentMessageState.ToolStep(done))
+                }
             )
         }
 
@@ -291,24 +327,12 @@ class SendAgentMessageUseCase @Inject constructor(
                             agentSteps.add(done)
                             emit(AgentMessageState.ToolStep(done))
                         }
+                        "web_search" -> runReadOnlyTool(call) { webSearchService.search(it) }
+                        "save_memory", "search_memory", "list_memories" -> runReadOnlyTool(call) { memoryService.execute(it) }
+                        "search_knowledge", "knowledge_stats" -> runReadOnlyTool(call) { ragPipeline.execute(it) }
                         else -> {
                             // 只读工具：read_document / list_documents / search_in_project
-                            executeDocumentTool(call).fold(
-                                onSuccess = { content ->
-                                    val truncated = truncateToolResult(content)
-                                    workingMessages.add(ChatMessage(role = "tool", content = truncated, toolCallId = call.id))
-                                    val done = AgentStep.ToolDone(call.name, true, summarize(truncated))
-                                    agentSteps.add(done)
-                                    emit(AgentMessageState.ToolStep(done))
-                                },
-                                onFailure = { e ->
-                                    val msg = e.message ?: "工具执行失败"
-                                    workingMessages.add(ChatMessage(role = "tool", content = "ERROR: $msg", toolCallId = call.id))
-                                    val done = AgentStep.ToolDone(call.name, false, summarize(msg))
-                                    agentSteps.add(done)
-                                    emit(AgentMessageState.ToolStep(done))
-                                }
-                            )
+                            runReadOnlyTool(call) { executeDocumentTool(it) }
                         }
                     }
                     if (proposal != null) break
@@ -553,14 +577,19 @@ private fun summarize(s: String, max: Int = 60): String {
     return if (oneLine.length <= max) oneLine else oneLine.take(max) + "…"
 }
 
-/** 工具结果回填前截断，避免单步爆窗。 */
-private fun truncateToolResult(s: String): String {
-    val budget = com.yumark.app.core.util.ContextBudget.TOOL_RESULT_CHARS
+/** 工具结果回填前截断，避免单步爆窗。按工具名取各自预算。 */
+private fun truncateToolResult(s: String, toolName: String): String {
+    val budget = com.yumark.app.core.util.ContextBudget.toolResultBudget(toolName)
     return if (s.length <= budget) s else s.take(budget) + "\n…（结果过长已截断）"
 }
 
-/** 构建 Agent 系统提示：工具优先、外科式编辑、模型驱动 todo，注入当前文档上下文。 */
-internal fun buildAgentSystemPrompt(documentName: String?, documentContent: String?): String {
+/** 构建 Agent 系统提示：工具优先、外科式编辑、模型驱动 todo，注入当前文档上下文。
+ *  工具列表与说明按本轮实际下发的 [tools] 动态生成，避免提示描述与 tools 参数不一致。 */
+internal fun buildAgentSystemPrompt(
+    documentName: String?,
+    documentContent: String?,
+    tools: List<AiTool>
+): String {
     val docContext = if (documentName != null) {
         val content = documentContent.orEmpty()
         val detail = if (content.isNotBlank() && content.length <= FULL_DOC_CONTEXT_BUDGET) {
@@ -575,44 +604,65 @@ internal fun buildAgentSystemPrompt(documentName: String?, documentContent: Stri
         "当前没有打开的文档。"
     }
 
-    return """
-        # 角色
-        你是 YuMark 的文档助手，帮用户检索、整理、创作与改写 Markdown 笔记。
+    val toolNames = tools.map { it.name }.toSet()
+    val hasWrite = "create_document" in toolNames || "edit_document" in toolNames
+    val hasEdit = "edit_document" in toolNames
+    val hasPlan = "update_plan" in toolNames
 
-        # 工作方式（工具优先）
-        你可以调用工具来完成任务，并基于工具结果继续推理，直到给出最终答复：
-        - read_document：读取某文档完整内容（需要确切原文时用；同一文档不要重复读）。
-        - list_documents / search_in_project：不确定文档是否存在或不知其 ID 时，先查再做，不要凭空假设。
-        - create_document：创建新文档（提交完整 Markdown 正文）。
-        - edit_document：对既有文档做**外科式局部编辑**（见下）。
-        - update_plan：多步任务时维护 todo 计划（见下）。
-        普通问答 / 解释：直接用文字回答，不要调用写工具，也不要整篇输出文档。
+    val toolList = if (tools.isEmpty()) {
+        "（本轮无可用工具，请直接用自身知识作答。）"
+    } else {
+        tools.joinToString("\n") { "- ${it.name}：${it.description}" }
+    }
 
-        # 外科式编辑（重要）
-        修改既有文档时**只改需要改的部分**，用 edit_document 提交一组 old_string→new_string：
-        - old_string 必须与文档**完全一致**且能**唯一定位**（带足够上下文），不确定就先 read_document。
-        - 不要把整篇文档塞进 new_content（已无此参数），不要重复未改动的大段内容。
-        - 同一片段多处出现时，补充上下文使其唯一，或设 replace_all=true。
-        - 若编辑未命中/不唯一，你会收到错误说明——据此修正 old_string 后重试。
-        - new_string 必须是**改好后的真实文档正文**，不要写"改进要点/修改说明"这类对改动的描述。
+    val editBlock = if (hasEdit) {
+        """
+        # 外科式编辑与整篇重写（重要）
+        用户要求修改文档时，必须让改动经过审批门（diff 预览）。**绝不能只在回复里写出改后内容就宣称"已完成/已修改"——那样文档不会被改动，用户也看不到审批。** 在产生审批门之前，不要说"已完成修改"。
+        按改动范围选一种方式：
+        1. **局部修改** → 调用 edit_document，提交 old_string→new_string（外科式编辑）：
+           - old_string 与文档**完全一致**且**唯一定位**（带上下文）；不确定就先 read_document。
+           - new_string 是改好后的真实正文，不要写"修改说明/改进要点"。
+           - 命中不唯一时补上下文或设 replace_all=true；未命中会收到错误说明，据此修正后重试。
+        2. **整篇润色 / 重写 / 改写全文** → 在 ```markdown 围栏内输出**完整的改后文档正文**（围栏外只放一句说明），它会自动转为整篇 diff 审批（等价于整体替换）。**不要用 edit_document 做整篇重写**——old_string 过长极易失配、且把整篇当一处替换是错误用法。
+        - 文档较大、缺确切原文时先 read_document 获取目标片段，再 edit_document。
+        """.trimIndent()
+    } else ""
 
+    val planBlock = if (hasPlan) {
+        """
         # 计划（update_plan）
         任务需要多步时，先用 update_plan 列出步骤（pending/in_progress/done/blocked），
         并在推进时更新各步状态；单步小任务可不调用。
+        """.trimIndent()
+    } else ""
 
+    val approvalBlock = if (hasWrite) {
+        """
         # 审批
-        任何创建/编辑都会先以预览或逐行 diff 呈现给用户，由用户确认后才真正写入。
-        因此放心提出改动；但务必保证内容完整、准确。
+        任何创建/编辑都会先以预览或逐行 diff 呈现给用户，由用户确认后才真正写入。放心提出改动；但务必保证内容完整、准确。
 
-        # 弱端点兜底
-        若所用端点不支持函数调用（你无法发起工具调用），可改为：开场一句话说明，
-        然后把**完整文档正文放进一个 ```markdown 围栏代码块**中（围栏外只放那句说明）；
-        编辑时在围栏内输出**更新后的完整文档全文**。仅在确实要创建/改写文档时才这样做。
-        围栏内必须是文档的真实正文，**不能是"改了哪些地方"的说明或要点清单**。
+        # 仅当端点不支持函数调用时
+        （你确实无法发起 edit_document / create_document 工具调用）才改为：把**完整文档正文放进一个 ```markdown 围栏代码块**（围栏外只放一句说明），用户仍会收到审批预览，并非直接生效。围栏内必须是文档真实正文，**不能是"改了哪些地方"的说明或要点清单**。能调用工具时不要走这条路径——局部修改走 edit_document，整篇重写走上文的围栏输出。
+        """.trimIndent()
+    } else ""
 
-        # 当前上下文
-        $docContext
-    """.trimIndent()
+    return buildString {
+        append("""
+            # 角色
+            你是 YuMark 的文档助手，帮用户检索、整理、创作与改写 Markdown 笔记。
+
+            # 工作方式（工具优先）
+            你可以调用工具来完成任务，并基于工具结果继续推理，直到给出最终答复。
+            本轮可用工具：
+        """.trimIndent())
+        append("\n").append(toolList)
+        append("\n普通问答 / 解释：直接用文字回答，不要调用写工具，也不要整篇输出文档。")
+        if (editBlock.isNotBlank()) { append("\n\n").append(editBlock) }
+        if (planBlock.isNotBlank()) { append("\n\n").append(planBlock) }
+        if (approvalBlock.isNotBlank()) { append("\n\n").append(approvalBlock) }
+        append("\n\n# 当前上下文\n").append(docContext)
+    }.trimIndent()
 }
 
 /** 从 AI 回复中解析 [[ACTION]] 操作意图（降级文本协议）。返回 null 表示无操作。 */

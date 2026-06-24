@@ -34,6 +34,7 @@ class ExportDocumentUseCase @Inject constructor(
         when (format) {
             ExportFormat.MARKDOWN -> exportMarkdown(document, options)
             ExportFormat.HTML -> exportHtml(document, options)
+            ExportFormat.RICH_HTML -> exportRichHtml(document, options)
             ExportFormat.PDF -> exportPdf(document, options)
             ExportFormat.WORD -> exportWord(document, options)
             ExportFormat.IMAGE -> exportImage(document, options)
@@ -91,6 +92,15 @@ class ExportDocumentUseCase @Inject constructor(
 
     private fun exportHtml(document: Document, options: ExportOptions): File {
         return htmlExporter.export(document, options).getOrThrow()
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    private suspend fun exportRichHtml(document: Document, options: ExportOptions): File {
+        val safeFileName = sanitizeFileName(document.name)
+        val outputFile = File(options.outputDir, "$safeFileName.html")
+        validateOutputPath(outputFile, options.outputDir)
+        // 复用预览 WebView 管线渲染（含 KaTeX/Mermaid/Prism），输出自包含富 HTML
+        return webViewRenderer.renderToRichHtml(document.content, outputFile)
     }
 
     @Suppress("UNUSED_PARAMETER")
