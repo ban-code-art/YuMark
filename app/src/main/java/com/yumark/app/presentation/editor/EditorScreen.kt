@@ -70,6 +70,10 @@ fun EditorScreen(
     var selectedText by remember { mutableStateOf("") }
     // 编辑模式选区的半开区间 (start, end)，供 Agent 按精确区间替换；预览模式为 null
     var selectedRange by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    // 点击「AI 助手」chip 时对选区的快照：点击会让 BasicTextField 失焦、选区 collapse，
+    // onValueChange 随之清空 selectedText；若弹窗仍读 selectedText 则间歇性不弹。
+    // 弹窗改读此快照，关闭时复位。
+    var pendingQuickAiSelection by remember { mutableStateOf<Pair<String, Pair<Int, Int>?>?>(null) }
 
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
@@ -161,14 +165,18 @@ fun EditorScreen(
         )
     }
 
-    // 文本选择快捷 AI/Agent 对话框
-    if (showQuickAiDialog && selectedText.isNotEmpty()) {
+    // 文本选择快捷 AI/Agent 对话框：读点击时的选区快照，避免失焦清空导致间歇性不弹。
+    val quickAiSelection = pendingQuickAiSelection
+    if (showQuickAiDialog && quickAiSelection != null && quickAiSelection.first.isNotEmpty()) {
         AiQuickDialog(
-            selectedText = selectedText,
-            onDismiss = { showQuickAiDialog = false },
+            selectedText = quickAiSelection.first,
+            onDismiss = {
+                showQuickAiDialog = false
+                pendingQuickAiSelection = null
+            },
             onApplyEdit = { oldText, newText ->
                 // Agent 模式下应用修改：编辑模式用精确选区，预览模式按原文匹配
-                viewModel.replaceSelectedText(oldText, newText, selectedRange)
+                viewModel.replaceSelectedText(oldText, newText, quickAiSelection.second)
             },
             allowEditSelectedText = isPreviewMode,  // 预览模式下允许编辑选中文本
             documentName = document?.name,
@@ -237,7 +245,7 @@ fun EditorScreen(
                             // 清空选中文本
                             selectedText = ""
                             selectedRange = null
-                        } else if (aiEnabled && text.trim().length > 2) {
+                        } else if (aiEnabled && text.isNotBlank()) {
                             // 更新选中文本（预览选区来自渲染文本，无可靠源码区间，置 null 走原文匹配）
                             selectedText = text
                             selectedRange = null
@@ -851,6 +859,7 @@ fun EditorScreen(
                                                     // AI 助手按钮 - 统一入口
                                                     SuggestionChip(
                                                         onClick = {
+                                                            pendingQuickAiSelection = selectedText to selectedRange
                                                             showQuickAiDialog = true
                                                         },
                                                         label = { Text("AI 助手") },
@@ -912,7 +921,7 @@ fun EditorScreen(
                                                         val s = minOf(sel.start, sel.end).coerceIn(0, newValue.text.length)
                                                         val e = maxOf(sel.start, sel.end).coerceIn(0, newValue.text.length)
                                                         val selected = newValue.text.substring(s, e)
-                                                        if (selected.isNotBlank() && selected.trim().length > 2) {
+                                                        if (selected.isNotBlank()) {
                                                             selectedText = selected
                                                             selectedRange = s to e
                                                         }
@@ -962,6 +971,7 @@ fun EditorScreen(
                                                         // AI 助手 - 统一入口
                                                         SuggestionChip(
                                                             onClick = {
+                                                                pendingQuickAiSelection = selectedText to selectedRange
                                                                 showQuickAiDialog = true
                                                             },
                                                             label = { Text("AI 助手", style = MaterialTheme.typography.labelSmall) },
@@ -1489,7 +1499,7 @@ private fun textSelectionListenerJs(): String = """
 
             // 通知选中文本或清空
             if (window.AndroidSelection && window.AndroidSelection.onTextSelected) {
-                if (text && text.length > 2) {
+                if (text) {
                     if (text !== lastSelection) {
                         lastSelection = text;
                         window.AndroidSelection.onTextSelected(text);

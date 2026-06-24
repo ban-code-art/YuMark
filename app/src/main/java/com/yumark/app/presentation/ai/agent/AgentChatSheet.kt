@@ -521,6 +521,7 @@ fun AgentContent(
         ) {
             // 非懒列表：不回收条目，WebView 不被重建 → 无异步高度塌缩跳顶/白屏
             messages.forEach { msg ->
+                key(msg.id) {
                 MessageBubble(msg) {
                     Column {
                         if (msg.attachments.isNotEmpty()) {
@@ -569,7 +570,8 @@ fun AgentContent(
                             } else null
                             val awaitingBase = action.type == com.yumark.app.domain.model.AgentActionType.EDIT_DOCUMENT &&
                                 action.targetDocumentId != null &&
-                                base == null
+                                base == null &&
+                                action.status == com.yumark.app.domain.model.AgentActionStatus.PENDING
                             if (awaitingBase) {
                                 LaunchedEffect(msg.id, action.targetDocumentId) {
                                     viewModel.ensureBaseContent(action.targetDocumentId)
@@ -599,6 +601,7 @@ fun AgentContent(
                             }
                         }
                     }
+                }
                 }
             }
         }

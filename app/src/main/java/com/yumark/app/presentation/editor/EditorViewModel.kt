@@ -374,21 +374,25 @@ class EditorViewModel @Inject constructor(
                 content.substring(range.first, range.second) == oldText ->
                 content.substring(0, range.first) + newText + content.substring(range.second)
 
-            // 2. 源码精确匹配第一处
+            // 2. 预览模式（range==null）：渲染选区无源码区间，直接走语法感知匹配。
+            //    不先走 contains/trim——它们对 **bold**→bold 的单 token 会命中子串却留下 **** 残留。
+            range == null ->
+                locateByNormalizedMatch(content, oldText, newText)
+
+            // 3. 编辑模式 range 失效兜底：源码精确/trim 匹配（oldText 是源码选区，无语法差异）
             oldText.isNotEmpty() && content.contains(oldText) ->
                 content.replaceFirst(oldText, newText)
 
-            // 3. trim 后匹配
             else -> {
                 val trimmed = oldText.trim()
                 if (trimmed.isNotEmpty() && content.contains(trimmed))
                     content.replaceFirst(trimmed, newText)
-                else null
+                else locateByNormalizedMatch(content, oldText, newText)
             }
-        } ?: locateByNormalizedMatch(content, oldText, newText)   // 4. 预览模式：渲染文本与源码空白/换行不一致 → 规范化匹配
+        }
 
         if (newContent == null || newContent == content) {
-            _applyError.value = "预览模式下无法精确定位该选区（可能含 Markdown 语法），请切换到编辑模式后选中并重试"
+            _applyError.value = "无法在文档中定位该选区，请切换到编辑模式后选中并重试"
             return false
         }
 
@@ -400,18 +404,30 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * 预览模式兜底：渲染选区与源码在空白/换行上不一致时，按「空白不敏感」匹配。
-     * 把选区按空白切成词，词间用 `\s+` 连接，在原文中定位首处命中区间并替换。
-     * 仍无法跨越 Markdown 语法（如 `**bold**` 渲染为 `bold`）——那种情况交由编辑模式精确处理。
+     * 预览模式兜底：渲染选区是纯文本（Markdown 语法已被去掉），与源码直接 token 匹配
+     * 会被语法符号打断——| a | b | 渲染 "a b"、[文本](url) 渲染 "文本"、# 标题 渲染 "标题"、
+     * hello **world** 渲染 "hello world"。原 \s+ 连接要求 token 间只有空白，遇到这些语法
+     * 即匹配失败返回 null → 报"无法定位"。
+     *
+     * 做法：token 间允许任意非单词字符（语法/标点/空白）穿插来匹配（sep = [^\p{L}\p{N}_]*），
+     * 命中后前后扩展吞紧邻的非单词非空白字符（**bold** 的 **、表格的 |、链接的 []()），
+     * 不吞空白避免跨段误删。删除即整段去掉；标题/表格等结构可能残留语法符号，但不再报错。
      */
     private fun locateByNormalizedMatch(content: String, oldText: String, newText: String): String? {
         if (oldText.isBlank()) return null
         val tokens = oldText.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (tokens.isEmpty()) return null
-        val pattern = tokens.joinToString("\\s+") { Regex.escape(it) }
+        val sep = "[^\\p{L}\\p{N}_]*"   // 非字母/数字/下划线：语法、标点、空白均可穿插
+        val pattern = tokens.joinToString(sep) { Regex.escape(it) }
         val regex = try { Regex(pattern) } catch (e: Exception) { return null }
         val match = regex.find(content) ?: return null
-        return content.substring(0, match.range.first) + newText + content.substring(match.range.last + 1)
+        var startOrig = match.range.first
+        var endOrig = match.range.last
+        fun isSyntax(c: Char) = !c.isLetterOrDigit() && c != '_' && !c.isWhitespace()
+        // 向前/后吞紧邻的语法符号（**bold** 的 **、| a | 的 |），不吞空白避免跨段
+        while (startOrig - 1 >= 0 && isSyntax(content[startOrig - 1])) startOrig--
+        while (endOrig + 1 < content.length && isSyntax(content[endOrig + 1])) endOrig++
+        return content.substring(0, startOrig) + newText + content.substring(endOrig + 1)
     }
 
     /** 导出为指定格式（仅内部文档），成功后通过 exportedFile 通知 UI 弹分享 */

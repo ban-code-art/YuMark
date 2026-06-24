@@ -739,15 +739,27 @@ internal fun extractImplicitWriteAction(
 /**
  * 从模型回复中抽取"纯文档正文"，剥离前言/围栏：
  * 1) 优先取 ```markdown / ```md / ``` 围栏内部；2) 否则从首个标题起丢弃前言；3) 都不命中原样返回。
+ *
+ * 围栏分支注意：模型常把整篇文档用一对围栏包裹，而正文内部又含 ``` 代码块。
+ * 若用非贪婪正则 `([\s\S]*?)````，会在内部首个 ``` 处误闭合，**截断其后全部正文**。
+ * 故改为：取首个围栏开启行之后到文本末尾，再剥掉末尾最后一个独占一行的 ``` 闭合标记。
  */
 internal fun extractDocumentBody(text: String): String {
-    val fence = Regex("```(?:markdown|md)?[ \\t]*\\r?\\n([\\s\\S]*?)```", RegexOption.IGNORE_CASE)
-        .find(text)
-    if (fence != null) {
-        val inner = fence.groupValues[1].trim()
-        if (inner.isNotBlank()) return inner
-    }
     val lines = text.lines()
+    val openIdx = lines.indexOfFirst {
+        it.trim().equals("```", ignoreCase = true) ||
+            it.trim().equals("```markdown", ignoreCase = true) ||
+            it.trim().equals("```md", ignoreCase = true)
+    }
+    if (openIdx >= 0) {
+        val inner = lines.subList(openIdx + 1, lines.size).toMutableList()
+        // 从末尾跳过空行，首个非空行若为 ``` 视为外层闭合，剥掉。
+        var i = inner.lastIndex
+        while (i >= 0 && inner[i].isBlank()) i--
+        if (i >= 0 && inner[i].trim() == "```") inner.removeAt(i)
+        val body = inner.joinToString("\n").trim()
+        if (body.isNotBlank()) return body
+    }
     val headingIdx = lines.indexOfFirst { it.trimStart().startsWith("#") }
     if (headingIdx > 0) return lines.drop(headingIdx).joinToString("\n").trim()
     return text.trim()

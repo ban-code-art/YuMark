@@ -27,6 +27,36 @@ class ExtractImplicitWriteActionTest {
     }
 
     @Test
+    fun `extractDocumentBody preserves inner code block when fenced doc contains one`() {
+        // 模型把整篇文档用 ```markdown 围栏包裹，正文内部又含 ```kotlin 代码块。
+        // 非贪婪正则会在内部首个 ``` 处误闭合，截断其后全部正文。
+        val text = """
+            我已为你创建文档，请预览确认。
+
+            ```markdown
+            # Kotlin 笔记
+
+            示例代码：
+
+            ```kotlin
+            fun main() {
+                println("hello")
+            }
+            ```
+
+            更多正文内容，应当全部保留，不应被代码块截断。
+            ```
+        """.trimIndent()
+
+        val body = extractDocumentBody(text)
+
+        assertThat(body).startsWith("# Kotlin 笔记")
+        assertThat(body).contains("```kotlin")
+        assertThat(body).contains("println(\"hello\")")
+        assertThat(body).contains("更多正文内容")
+    }
+
+    @Test
     fun `extractDocumentBody strips preamble before first heading`() {
         val text = """
             好的，我来帮你写。下面是文档：

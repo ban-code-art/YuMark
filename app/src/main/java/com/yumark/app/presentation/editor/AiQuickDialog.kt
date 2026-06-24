@@ -231,6 +231,16 @@ fun AiQuickDialog(
                 }
             }
 
+            // 处理模式说明：仅输入含 yy 才改写选中文本，否则仅作答
+            if (currentMode == QuickAiMode.AGENT_EDIT) {
+                Text(
+                    text = "💡 仅当输入含 yy 时才会修改选中文本，否则仅作答",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
+
             HorizontalDivider()
 
             // 对话区域
@@ -376,7 +386,7 @@ fun AiQuickDialog(
                     placeholder = {
                         Text(
                             if (currentMode == QuickAiMode.AI_QUERY) "输入你的问题..."
-                            else "例如：改写成更专业的表达"
+                            else "输入 yy 可让 AI 直接改写选中文本，如：yy 改成专业表达"
                         )
                     },
                     minLines = 1,
@@ -520,9 +530,16 @@ class AiQuickViewModel @Inject constructor(
 
         val userMessage = _userInput.value
         val currentModeSnapshot = _currentMode.value
+        // 仅「处理」模式 + 输入含 yy（大小写不敏感）才授权修改通道：下发 apply_edit 工具、
+        // 挂「应用修改」卡片。其余情况纯文本输出，不调工具、不修改选中文本。
+        val editAuthorized = currentModeSnapshot == QuickAiMode.AGENT_EDIT &&
+            userMessage.lowercase().contains("yy")
+        // 剥离 yy，得到传给 AI 的干净指令；剥离后为空（用户只输入了 yy）则用占位。
+        val instructionForAi = userMessage.replace(Regex("(?i)yy"), "").trim()
+            .ifBlank { "请改写选中文本" }
 
         sendJob = viewModelScope.launch {
-            // 添加用户消息到历史记录
+            // 添加用户消息到历史记录（显示原始输入，含 yy）
             _conversationHistory.value = _conversationHistory.value + ConversationMessage(
                 role = MessageRole.USER,
                 content = userMessage,
@@ -544,9 +561,9 @@ class AiQuickViewModel @Inject constructor(
 
                 val adapter = adapterFactory.createAdapter(config)
 
-                // 构建消息
+                // 构建消息：传给 AI 的是剥离 yy 后的指令
                 val systemPrompt = buildSystemPrompt(currentModeSnapshot)
-                val fullUserMessage = buildUserMessage(userMessage, currentModeSnapshot)
+                val fullUserMessage = buildUserMessage(instructionForAi, currentModeSnapshot)
 
                 val messages = listOf(
                     ChatMessage(role = "user", content = fullUserMessage)
@@ -554,8 +571,8 @@ class AiQuickViewModel @Inject constructor(
 
                 // 流式接收回复
                 val fullResponse = StringBuilder()
-                // AGENT_EDIT 下发 apply_edit 工具（函数调用优先）；弱端点不支持时由 [[EDIT]] 文本兜底。
-                val tools = if (currentModeSnapshot == QuickAiMode.AGENT_EDIT) listOf(APPLY_EDIT_TOOL) else emptyList()
+                // 仅授权时下发 apply_edit；未授权时 AI 拿不到写工具，纯文本回复。
+                val tools = if (editAuthorized) listOf(APPLY_EDIT_TOOL) else emptyList()
                 var pendingEditNewText: String? = null
                 adapter.sendChatStream(
                     messages,
@@ -597,25 +614,23 @@ class AiQuickViewModel @Inject constructor(
                         is StreamEvent.ToolCallDelta -> Unit
                         is StreamEvent.ToolCallComplete -> {
                             // apply_edit 工具调用：取 new_text 作为改写结果（空串=删除）。
-                            if (currentModeSnapshot == QuickAiMode.AGENT_EDIT && pendingEditNewText == null) {
+                            if (editAuthorized && pendingEditNewText == null) {
                                 val call = event.calls.firstOrNull { it.name == "apply_edit" }
                                 if (call != null) {
                                     parseApplyEditArgs(call.arguments)?.let { pendingEditNewText = it }
                                 }
                             }
                             android.util.Log.d("YuMarkQuick",
-                                "ToolCallComplete mode=$currentModeSnapshot calls=${event.calls.map { it.name }} " +
+                                "ToolCallComplete mode=$currentModeSnapshot editAuthorized=$editAuthorized calls=${event.calls.map { it.name }} " +
                                     "applyEditNewText=${pendingEditNewText?.let { "len=${it.length}" }}")
                         }
                         is StreamEvent.Done -> {
                             val finalText = event.fullText.ifBlank { fullResponse.toString() }
-                            // 处理模式:决定 AI 是否给出改写。
-                            // 优先 apply_edit 工具调用 → 其次 [[EDIT]] 标记 → 最后兜底启发式（弱模型）。
-                            // 工具返回空串代表删除，必须保留（不能当 null）；仅"完全无改写信号"才返回 null。
-                            val edit = if (currentModeSnapshot == QuickAiMode.AGENT_EDIT)
-                                pendingEditNewText ?: resolveEdit(finalText, selectedText, userMessage) else null
+                            // 仅授权时才可能产生 edit（工具调用 → [[EDIT]] → 兜底）；未授权恒 null，不挂卡片。
+                            val edit = if (editAuthorized)
+                                pendingEditNewText ?: resolveEdit(finalText, selectedText, instructionForAi) else null
                             android.util.Log.d("YuMarkQuick",
-                                "Done mode=$currentModeSnapshot finalTextLen=${finalText.length} " +
+                                "Done mode=$currentModeSnapshot editAuthorized=$editAuthorized finalTextLen=${finalText.length} " +
                                     "edit=${edit?.let { "len=${it.length}" } ?: "null"} " +
                                     "toolUsed=${pendingEditNewText != null} userMsg=${userMessage.take(40)}")
                             val display = when {
