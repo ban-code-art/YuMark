@@ -6,6 +6,10 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -39,15 +43,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yumark.app.R
+import com.yumark.app.domain.model.AgentStatusCode
 import com.yumark.app.domain.model.AgentTaskStatus
 import com.yumark.app.domain.model.AgentTaskStepStatus
 import com.yumark.app.presentation.ai.common.AiDesign
 import com.yumark.app.presentation.ai.common.StatusPill
 import com.yumark.app.presentation.ai.common.agentTaskStatusVisual
 import com.yumark.app.presentation.ai.common.stepStatusVisual
+import com.yumark.app.presentation.common.resolve
+import com.yumark.app.presentation.theme.AppIconSize
+import com.yumark.app.presentation.theme.AppMotion
+import com.yumark.app.presentation.theme.AppSpacing
 
 /**
  * Agent 执行时间轴——本次美化的签名元素。
@@ -81,7 +93,7 @@ fun AgentTimeline(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = AiDesign.ScreenPadding, vertical = 6.dp),
+            .padding(horizontal = AiDesign.ScreenPadding, vertical = AppSpacing.Snug),
         shape = RoundedCornerShape(AiDesign.CardCorner),
         color = cs.surfaceVariant.copy(alpha = AiDesign.SoftFill),
     ) {
@@ -89,22 +101,22 @@ fun AgentTimeline(
             // 进行中时左侧一条强调竖条，赋予“正在推进”的体感。
             Box(
                 Modifier
-                    .width(3.dp)
+                    .width(AgentTimelineMetrics.AccentBar)
                     .fillMaxHeight()
                     .background(if (active) taskVisual.color else Color.Transparent)
             )
-            Column(Modifier.padding(start = 12.dp, top = 10.dp, end = 12.dp, bottom = 10.dp)) {
+            Column(Modifier.padding(start = AppSpacing.Cozy, top = AgentTimelineMetrics.ContentVertical, end = AppSpacing.Cozy, bottom = AgentTimelineMetrics.ContentVertical)) {
                 // 折叠头：点击展开/收起。收起时只剩这一行。
                 Row(
                     modifier = Modifier.fillMaxWidth().clickable {
                         localCollapsed = !localCollapsed
                         if (active) onToggleCollapse()
                     },
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.Default),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "任务",
+                        stringResource(R.string.agent_timeline_task_label),
                         style = MaterialTheme.typography.labelMedium,
                         color = cs.onSurfaceVariant
                     )
@@ -119,15 +131,22 @@ fun AgentTimeline(
                     StatusPill(taskVisual)
                     Icon(
                         imageVector = if (localCollapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
-                        contentDescription = if (localCollapsed) "展开执行流程" else "收起执行流程",
-                        modifier = Modifier.size(18.dp),
+                        contentDescription = stringResource(
+                            if (localCollapsed) R.string.cd_agent_timeline_expand
+                            else R.string.cd_agent_timeline_collapse
+                        ),
+                        modifier = Modifier.size(AppIconSize.Small),
                         tint = cs.onSurfaceVariant
                     )
                 }
 
-                AnimatedVisibility(visible = !localCollapsed) {
+                AnimatedVisibility(
+                    visible = !localCollapsed,
+                    enter = expandVertically(AppMotion.enter()) + fadeIn(AppMotion.enter()),
+                    exit = shrinkVertically(AppMotion.exit()) + fadeOut(AppMotion.exit())
+                ) {
                     Column {
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(AgentTimelineMetrics.ContentVertical))
                         val shown = progress.steps.take(MAX_STEPS)
                         shown.forEachIndexed { index, step ->
                             TimelineStepRow(
@@ -140,17 +159,37 @@ fun AgentTimeline(
                             )
                         }
                         if (progress.steps.size > MAX_STEPS) {
+                            val hidden = progress.steps.size - MAX_STEPS
                             Text(
-                                "＋${progress.steps.size - MAX_STEPS} 个步骤",
+                                // count 传两次：一次选 quantity，一次做 %1$d 的实参
+                                pluralStringResource(R.plurals.agent_timeline_more_steps, hidden, hidden),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = cs.onSurfaceVariant,
-                                modifier = Modifier.padding(start = AiDesign.TimelineRail, top = 2.dp)
+                                modifier = Modifier.padding(start = AiDesign.TimelineRail, top = AppSpacing.Micro)
                             )
                         }
 
                         // 阻塞原因 / 结果摘要：步骤之外的附加信息，作为淡色提示行保留。
-                        progress.blockingReason?.let { reason -> NoteRow("阻塞", reason, cs.error) }
-                        progress.finalSummary?.let { summary -> NoteRow("结果", summary, cs.onSurfaceVariant) }
+                        // 两列存的是 AgentStatusCode 稳定码，查表后才有文案；认不出的值
+                        // （历史行、模型自己写的摘要）由 decode 按原文透出。
+                        progress.blockingReason?.let { reason ->
+                            AgentStatusCode.decode(reason)?.let { message ->
+                                NoteRow(
+                                    stringResource(R.string.agent_timeline_note_blocked),
+                                    message.resolve(),
+                                    cs.error
+                                )
+                            }
+                        }
+                        progress.finalSummary?.let { summary ->
+                            AgentStatusCode.decode(summary)?.let { message ->
+                                NoteRow(
+                                    stringResource(R.string.agent_timeline_note_result),
+                                    message.resolve(),
+                                    cs.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -171,7 +210,7 @@ private fun TimelineStepRow(
     pulse: Float
 ) {
     val visual = stepStatusVisual(status)
-    val connectorColor = MaterialTheme.colorScheme.outline
+    val connectorColor = MaterialTheme.colorScheme.outlineVariant
     val running = status == AgentTaskStepStatus.RUNNING
     val filled = status == AgentTaskStepStatus.DONE ||
         status == AgentTaskStepStatus.RUNNING ||
@@ -184,7 +223,7 @@ private fun TimelineStepRow(
             modifier = Modifier.width(AiDesign.TimelineRail).fillMaxHeight()
         ) {
             val cx = size.width / 2
-            val cy = DOT_CENTER_Y.toPx()
+            val cy = AgentTimelineMetrics.DotCenterY.toPx()
             val stroke = AiDesign.TimelineConnector.toPx()
             val r = AiDesign.TimelineDot.toPx() / 2
             if (!isFirst) drawLine(connectorColor, Offset(cx, 0f), Offset(cx, cy), stroke)
@@ -200,7 +239,7 @@ private fun TimelineStepRow(
             }
         }
 
-        Column(Modifier.weight(1f).padding(top = 4.dp, bottom = 4.dp)) {
+        Column(Modifier.weight(1f).padding(top = AppSpacing.Tight, bottom = AppSpacing.Tight)) {
             Text(
                 title,
                 style = MaterialTheme.typography.bodySmall,
@@ -220,7 +259,7 @@ private fun TimelineStepRow(
                 visual.label,
                 style = MaterialTheme.typography.labelSmall,
                 color = visual.color,
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier.padding(top = AppSpacing.Tight)
             )
         }
     }
@@ -231,14 +270,14 @@ private fun NoteRow(tag: String, text: String, accent: Color) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = AiDesign.TimelineRail, top = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+            .padding(start = AiDesign.TimelineRail, top = AppSpacing.Snug),
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.Snug)
     ) {
         Box(
             Modifier
                 .clip(RoundedCornerShape(AiDesign.PillCorner))
                 .background(accent.copy(alpha = 0.14f))
-                .padding(horizontal = 6.dp, vertical = 1.dp)
+                .padding(horizontal = AppSpacing.Snug, vertical = AgentTimelineMetrics.TagChipVertical)
         ) {
             Text(tag, style = MaterialTheme.typography.labelSmall, color = accent)
         }
@@ -268,5 +307,18 @@ private fun rememberPulse(): Float {
     return value
 }
 
-/** 状态点心相对行顶的固定偏移：对齐 bodySmall 首行中线。 */
-private val DOT_CENTER_Y = 12.dp
+/**
+ * 本屏特有的纵向 / 组件尺寸，刻意不并入全局 [AppSpacing] / [AppIconSize] 或 [AiDesign]：
+ * 均为离散于 8dp 标度的组件几何，保留原像素、不硬凑标度；时间轴自身几何（轨道宽 / 点径 /
+ * 连接线）仍走 AiDesign。按 FileListMetrics 先例落屏幕局部。
+ */
+private object AgentTimelineMetrics {
+    /** 左侧「推进中」强调竖条宽度。 */
+    val AccentBar = 3.dp
+    /** 卡片内容纵向节奏：内容区上下内距、头部↔步骤列表间隔共用此值。 */
+    val ContentVertical = 10.dp
+    /** NoteRow 标签片纵向内距（发丝级）。 */
+    val TagChipVertical = 1.dp
+    /** 状态点心相对行顶的固定偏移：对齐 bodySmall 首行中线。 */
+    val DotCenterY = 12.dp
+}

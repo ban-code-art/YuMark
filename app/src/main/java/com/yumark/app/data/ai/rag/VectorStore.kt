@@ -23,7 +23,7 @@ data class SearchResult(
  *
  * 纯线性扫描 + 手写余弦，无 ANN 库。启动时从 DB 全量 hydrate（文档量不大时可行）。
  * 混合检索：向量 topK*3 + 关键词 topK*3，按 chunkId 合并——双命中 `vectorScore*0.72 +
- * keywordScore*0.28 + 0.04`，单命中取 max；再按 contentHash 去重 + 按文档多样化轮询填到 topK。
+ * keywordScore*0.28 + 0.04`，单命中取 max；再按归一化正文去重 + 按文档多样化轮询填到 topK。
  */
 @Singleton
 class VectorStore @Inject constructor() {
@@ -82,10 +82,15 @@ class VectorStore @Inject constructor() {
 
     /** 按 score 降序截断到 topK，并按文档多样化轮询（避免单文档霸榜）。 */
     private fun sortAndTruncate(results: List<SearchResult>, topK: Int): List<SearchResult> {
-        // contentHash 去重：同一内容只保留最高分
+        // 同内容去重：只保留最高分的那一条。
+        // 去重键用归一化后的正文全串（[contentDedupKey]），不用 contentHash：后者是 FNV-1a 32 位摘要，
+        // 两段毫不相干的正文一旦撞上同一个值，分数低的那条会被当成「重复内容」从检索结果里删掉——
+        // 用户明明写了这段、embedding 也算过了，却永远检索不到，既不报错也没有提示。
+        // 候选集只有 topK*3 条（见 hybridSearch 的 candidateLimit），拿正文当键的额外开销可以忽略：
+        // Chunk 本来就整块在内存里，这里只是多引用一次它的正文。
         val bestByContent = LinkedHashMap<String, SearchResult>()
         for (r in results) {
-            val key = r.chunk.contentHash.ifEmpty { createContentHash(r.chunk.content) }
+            val key = contentDedupKey(r.chunk.content)
             val existing = bestByContent[key]
             if (existing == null || r.score > existing.score) bestByContent[key] = r
         }

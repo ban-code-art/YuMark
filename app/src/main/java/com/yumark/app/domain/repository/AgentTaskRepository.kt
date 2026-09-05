@@ -15,4 +15,10 @@ interface AgentTaskRepository {
     suspend fun replaceSteps(taskId: String, steps: List<AgentTaskStep>)
     suspend fun appendEvidence(evidence: AgentEvidence)
     suspend fun markStepStatus(stepId: String, status: AgentTaskStepStatus, resultSummary: String? = null)
+
+    /**
+     * 把仍停在 PLANNING/EXECUTING/REPLANNING 的任务改判 BLOCKED（原因写 [reason]），
+     * 并把它们的 RUNNING 步骤退回 PENDING。返回被改判的任务数。仅供启动期调用。
+     */
+    suspend fun reconcileInterruptedTasks(reason: String): Int
 }

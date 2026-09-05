@@ -1,33 +1,52 @@
 [versions]
-kotlin = "1.9.22"
-kotlinx-coroutines = "1.7.3"
-kotlinx-serialization = "1.6.2"
-kotlinx-datetime = "0.5.0"
-agp = "8.2.2"
-compose-bom = "2024.02.00"
-compose-compiler = "1.5.8"
-compose-navigation = "2.7.6"
-hilt = "2.50"
-hilt-navigation-compose = "1.1.0"
-room = "2.6.1"
-datastore = "1.0.0"
-coil = "2.5.0"
-core-ktx = "1.12.0"
-core-splashscreen = "1.0.1"
-lifecycle = "2.6.2"
-activity-compose = "1.8.2"
-compile-sdk = "34"
+# Kotlin 2.3.21：KSP 的版本线上限。KSP 从 Kotlin 2.3.0 起改用「2.3.x」独立编号
+# （之前是 <kotlin>-<ksp> 双段号），当前最新 2.3.11 仍属 2.3 线，因此不跟进 Kotlin 2.4.x。
+kotlin = "2.3.21"
+ksp = "2.3.11"
+kotlinx-coroutines = "1.11.0"
+kotlinx-serialization = "1.11.0"
+# 停在 0.6.2（0.6.x 末班车）：0.7.0 起 Instant/Clock 迁到 kotlin.time（官方为此额外发了
+# "-0.6.x-compat" 变体），涉及 8 个文件的类型替换与序列化器切换，作为独立议题处理。
+kotlinx-datetime = "0.6.2"
+agp = "9.4.0"
+compose-bom = "2026.08.00"
+compose-navigation = "2.10.0"
+hilt = "2.60.1"
+# androidx.hilt 1.4.0：hilt-navigation-compose 整个模块降级为弃用转发壳（三个成员全部
+# @Deprecated 指向新包），hiltViewModel() 迁到 androidx.hilt:hilt-lifecycle-viewmodel-compose
+# 的 androidx.hilt.lifecycle.viewmodel.compose 包 —— 该能力本就与 Navigation 无关。
+androidx-hilt = "1.4.0"
+# Room 2.8.4：2.6.1 的 XProcessing 无法处理 KSP2（Analysis API）下 @Query("DELETE/UPDATE …")
+# 返回 Unit 的 JVM 签名 V，会抛 IllegalStateException: unexpected jvm signature V。
+# KSP2 支持自 2.7.0 起补全，AGP 9 内置 Kotlin 只走 KSP2，故 Room 必须 ≥ 2.7。
+room = "2.8.4"
+datastore = "1.2.1"
+coil = "2.7.0"
+core-ktx = "1.19.0"
+core-splashscreen = "1.2.0"
+lifecycle = "2.11.0"
+activity-compose = "1.13.0"
+compile-sdk = "37"
 min-sdk = "26"
-target-sdk = "34"
-junit5 = "5.10.1"
-mockk = "1.13.9"
-truth = "1.1.5"
-turbine = "1.0.0"
-commonmark = "0.21.0"
-documentfile = "1.0.1"
+target-sdk = "36"
+# JUnit 停在 5.14.x（5.x 末班车）：6.x 是大版本，收益为零而迁移面不小，留作独立议题。
+junit5 = "5.14.4"
+mockk = "1.14.11"
+truth = "1.4.5"
+turbine = "1.2.1"
+# androidTest（instrumented）运行时。runner 1.6.x 与 ext-junit 1.2.x 是官方配套的一档，
+# 混搭版本会出现 AndroidJUnitRunner 与 AndroidJUnit4 依赖的 androidx.test:monitor 不一致。
+# 刻意不追最新：这两个库的 API 面多年未动，选「确定存在且配套」优于选「最新」。
+androidx-test-runner = "1.6.2"
+androidx-test-ext-junit = "1.2.1"
+commonmark = "0.30.0"
+documentfile = "1.1.0"
+# 1.3.7 与 coil 2.7.0 的运行时依赖同版（coil-base 的 exifinterface requires 1.3.7）：
+# 这个坐标本来就已经在 APK 里，声明它只是把它提到编译期类路径上，一个字节都不新增。
+exifinterface = "1.3.7"
 ktor = "2.3.7"
-security-crypto = "1.1.0-alpha06"
-window = "1.2.0"
+security-crypto = "1.1.0"
+window = "1.5.1"
 
 [libraries]
 # Kotlin
@@ -46,6 +65,9 @@ androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "l
 androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activity-compose" }
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
+# 用 androidx 版而不是 android.media.ExifInterface：平台那个只认 JPEG 的一小部分标签，
+# HEIC/AVIF/带 eXIf 块的 PNG 全读不出方向，而 lint 的 ExifInterface 检查也会点名它。
+androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
 androidx-window = { group = "androidx.window", name = "window", version.ref = "window" }
 
 # Compose
@@ -62,7 +84,7 @@ compose-navigation = { group = "androidx.navigation", name = "navigation-compose
 # Hilt
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
 hilt-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }
-hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hilt-navigation-compose" }
+hilt-lifecycle-viewmodel-compose = { group = "androidx.hilt", name = "hilt-lifecycle-viewmodel-compose", version.ref = "androidx-hilt" }
 
 # Room
 room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
@@ -73,6 +95,8 @@ room-compiler = { group = "androidx.room", name = "room-compiler", version.ref =
 datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 
 # Security (encrypted storage for API keys)
+# 1.1.0 已转正（1.1.0-alpha06 是三年前的预览版），EncryptedSharedPreferences 在此版本
+# 被标记 Deprecated 但仍可用；替换存储方案属独立议题，先离开 alpha 通道。
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "security-crypto" }
 
 # Coil
@@ -91,16 +115,49 @@ ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-conte
 ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
 
 # Testing
-junit-jupiter-api = { group = "org.junit.jupiter", name = "junit-jupiter-api", version.ref = "junit5" }
-junit-jupiter-engine = { group = "org.junit.jupiter", name = "junit-jupiter-engine", version.ref = "junit5" }
+# 用 junit-bom 统一 jupiter 与 platform 两条版本线（jupiter 5.14.4 ↔ platform 1.14.4），
+# 避免手写两个版本号导致错配。
+junit-bom = { group = "org.junit", name = "junit-bom", version.ref = "junit5" }
+junit-jupiter-api = { group = "org.junit.jupiter", name = "junit-jupiter-api" }
+junit-jupiter-engine = { group = "org.junit.jupiter", name = "junit-jupiter-engine" }
+# Gradle 9 不再自动注入 JUnit Platform launcher，必须显式声明，否则
+# testDebugUnitTest 直接报 "Failed to load JUnit Platform"。
+junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform-launcher" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 truth = { group = "com.google.truth", name = "truth", version.ref = "truth" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 
+# Testing / instrumented（androidTest，跑在真机或模拟器上）
+# 这一组刻意与上面的 junit-bom 分开：instrumented 测试用 **JUnit4**，不是 JUnit5。
+# AndroidJUnitRunner 本身就是一个 JUnit4 Runner，不带 JUnit Platform 引擎，
+# 因此 androidTest 源码必须 import org.junit.Test 而非 org.junit.jupiter.api.Test；
+# 把 jupiter 加进 androidTestImplementation 也不会让用例被发现，只会静默零执行。
+# 反过来 app/build.gradle.kts 里 testOptions { unitTests.all { useJUnitPlatform() } }
+# 只作用于 unit test，两套测试各用各的引擎，不要为了「统一」去改任何一边。
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidx-test-runner" }
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidx-test-ext-junit" }
+# MigrationTestHelper 在这个包里。版本必须跟 room 主版本走同一个 version.ref：
+# 它要反序列化 room-compiler 导出的 schema json，两边的 SchemaBundle 格式必须同版。
+room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+# Compose UI 测试（版本由 compose-bom 统一管，故不写版本号）。
+# 目前 app/build.gradle.kts 里**没有**声明这两个依赖 —— 还没有 Compose UI 用例，
+# 为零个用例改 manifest 与测试 APK 体积不划算。坐标先备在这里，写第一个用例时直接引用。
+# ui-test-manifest 只能进 debugImplementation：它靠 manifest 合并往被测应用注入一个
+# 空的 ComponentActivity 给 createComposeRule() 用，放到 androidTestImplementation
+# 会合并进测试 APK 而不是被测 APK，createComposeRule() 运行期报找不到 Activity。
+compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
-kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlin" }
+# 没有 kotlin-android：AGP 9 内置 Kotlin 支持，显式应用 org.jetbrains.kotlin.android 会直接报错。
+# Kotlin 2.0 起 Compose 编译器随 Kotlin 发布，改用独立 Gradle 插件，
+# 不再通过 composeOptions.kotlinCompilerExtensionVersion 单独指定版本。
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+# Room 2.7 起官方提供 Gradle 插件，用 room { schemaDirectory(...) } 替代 ksp.arg("room.schemaLocation")：
+# schema 目录成为任务的正式 input/output，增量构建与 up-to-date 判定才正确。
+room = { id = "androidx.room", version.ref = "room" }

@@ -3,7 +3,7 @@ package com.yumark.app.presentation.editor
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
@@ -15,9 +15,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.yumark.app.R
 import com.yumark.app.domain.model.ExportFormat
+import com.yumark.app.presentation.theme.AppSpacing
+import com.yumark.app.presentation.theme.extendedColors
 
 /**
  * 导出底部弹层：把原先平铺在「更多」菜单里的多种导出格式收纳到一处，
@@ -32,10 +33,10 @@ fun ExportSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).navigationBarsPadding()) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = AppSpacing.Screen).navigationBarsPadding()) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = AppSpacing.Default)) {
                 Icon(Icons.Default.Download, null)
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(AppSpacing.Default))
                 Text(stringResource(R.string.export_document), style = MaterialTheme.typography.titleLarge)
             }
 
@@ -64,7 +65,7 @@ fun ExportSheet(
             ) { onExport(ExportFormat.PDF) }
 
             ExportFormatRow(
-                icon = Icons.Default.Article,
+                icon = Icons.AutoMirrored.Filled.Article,
                 titleRes = R.string.export_word,
                 descRes = R.string.export_word_desc
             ) { onExport(ExportFormat.WORD) }
@@ -75,7 +76,7 @@ fun ExportSheet(
                 descRes = R.string.export_image_desc
             ) { onExport(ExportFormat.IMAGE) }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(AppSpacing.Default))
         }
     }
 }
@@ -91,11 +92,11 @@ private fun ExportFormatRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
+            .padding(vertical = AppSpacing.Cozy),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.width(16.dp))
+        Icon(icon, null, tint = extendedColors.primaryText)
+        Spacer(Modifier.width(AppSpacing.Screen))
         Column(Modifier.weight(1f)) {
             Text(stringResource(titleRes), style = MaterialTheme.typography.bodyLarge)
             Text(

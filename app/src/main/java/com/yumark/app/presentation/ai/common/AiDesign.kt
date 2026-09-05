@@ -23,10 +23,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.yumark.app.R
 import com.yumark.app.domain.model.AgentActionStatus
 import com.yumark.app.domain.model.AgentTaskStatus
 import com.yumark.app.domain.model.AgentTaskStepStatus
+import com.yumark.app.presentation.theme.AppSpacing
 
 /**
  * AI/Agent 界面共享设计 token。
@@ -67,11 +70,22 @@ object AiDesign {
 
     /** 容器色叠加在 surface 上的低强度填充透明度（药丸/卡片底）。 */
     const val SoftFill = 0.55f
+
+    /** 状态药丸内部：紧凑纵向内边距、图标↔文案间隔、徽章图标直径。药丸是 AI 界面共享徽章，
+     *  这些紧凑尺寸离散于 8dp 间距标度与图标标度，随 AI 视觉语言集中在此。横向内边距用全局
+     *  [AppSpacing.Default]（8dp 属通用节奏）。 */
+    val PillPaddingVertical = 3.dp
+    val PillGap = 3.dp
+    val PillIconSize = 12.dp
 }
 
 /**
  * 一个状态对应的视觉三件套：强调色、淡填充容器色、图标、文案。
  * 时间轴点、工具行图标、操作卡徽章都从这里取，保证语义色一致。
+ *
+ * label 仍然是**已经解析好的** String，不是 @StringRes id：下面三个工厂本来就是
+ * @Composable，在那里 stringResource 一次即可，调用点（StatusPill、时间轴、操作卡）
+ * 拿到的就是能直接渲染的文案，不必每处再解析。
  */
 data class StatusVisual(
     val color: Color,
@@ -85,12 +99,12 @@ data class StatusVisual(
 fun agentTaskStatusVisual(status: AgentTaskStatus): StatusVisual {
     val cs = MaterialTheme.colorScheme
     return when (status) {
-        AgentTaskStatus.PLANNING -> StatusVisual(cs.secondary, cs.secondaryContainer, Icons.Default.Schedule, "规划中")
-        AgentTaskStatus.EXECUTING -> StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Sync, "执行中")
-        AgentTaskStatus.REPLANNING -> StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Sync, "重新规划")
-        AgentTaskStatus.BLOCKED -> StatusVisual(cs.secondary, cs.secondaryContainer, Icons.Default.Block, "已阻塞")
-        AgentTaskStatus.COMPLETED -> StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Check, "已完成")
-        AgentTaskStatus.FAILED -> StatusVisual(cs.error, cs.errorContainer, Icons.Default.ErrorOutline, "失败")
+        AgentTaskStatus.PLANNING -> StatusVisual(cs.secondary, cs.secondaryContainer, Icons.Default.Schedule, stringResource(R.string.ai_task_status_planning))
+        AgentTaskStatus.EXECUTING -> StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Sync, stringResource(R.string.ai_task_status_executing))
+        AgentTaskStatus.REPLANNING -> StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Sync, stringResource(R.string.ai_task_status_replanning))
+        AgentTaskStatus.BLOCKED -> StatusVisual(cs.secondary, cs.secondaryContainer, Icons.Default.Block, stringResource(R.string.ai_task_status_blocked))
+        AgentTaskStatus.COMPLETED -> StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Check, stringResource(R.string.ai_task_status_completed))
+        AgentTaskStatus.FAILED -> StatusVisual(cs.error, cs.errorContainer, Icons.Default.ErrorOutline, stringResource(R.string.ai_task_status_failed))
     }
 }
 
@@ -99,12 +113,12 @@ fun agentTaskStatusVisual(status: AgentTaskStatus): StatusVisual {
 fun stepStatusVisual(status: AgentTaskStepStatus): StatusVisual {
     val cs = MaterialTheme.colorScheme
     return when (status) {
-        AgentTaskStepStatus.PENDING -> StatusVisual(cs.onSurfaceVariant, cs.surfaceVariant, Icons.Default.RadioButtonUnchecked, "待执行")
-        AgentTaskStepStatus.RUNNING -> StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Sync, "进行中")
-        AgentTaskStepStatus.DONE -> StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Check, "完成")
-        AgentTaskStepStatus.BLOCKED -> StatusVisual(cs.secondary, cs.secondaryContainer, Icons.Default.Block, "阻塞")
-        AgentTaskStepStatus.FAILED -> StatusVisual(cs.error, cs.errorContainer, Icons.Default.ErrorOutline, "失败")
-        AgentTaskStepStatus.SKIPPED -> StatusVisual(cs.onSurfaceVariant, cs.surfaceVariant, Icons.Default.SkipNext, "跳过")
+        AgentTaskStepStatus.PENDING -> StatusVisual(cs.onSurfaceVariant, cs.surfaceVariant, Icons.Default.RadioButtonUnchecked, stringResource(R.string.ai_step_status_pending))
+        AgentTaskStepStatus.RUNNING -> StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Sync, stringResource(R.string.ai_step_status_running))
+        AgentTaskStepStatus.DONE -> StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Check, stringResource(R.string.ai_step_status_done))
+        AgentTaskStepStatus.BLOCKED -> StatusVisual(cs.secondary, cs.secondaryContainer, Icons.Default.Block, stringResource(R.string.ai_step_status_blocked))
+        AgentTaskStepStatus.FAILED -> StatusVisual(cs.error, cs.errorContainer, Icons.Default.ErrorOutline, stringResource(R.string.ai_step_status_failed))
+        AgentTaskStepStatus.SKIPPED -> StatusVisual(cs.onSurfaceVariant, cs.surfaceVariant, Icons.Default.SkipNext, stringResource(R.string.ai_step_status_skipped))
     }
 }
 
@@ -113,10 +127,10 @@ fun stepStatusVisual(status: AgentTaskStepStatus): StatusVisual {
 fun actionStatusVisual(status: AgentActionStatus): StatusVisual {
     val cs = MaterialTheme.colorScheme
     return when (status) {
-        AgentActionStatus.PENDING -> StatusVisual(cs.secondary, cs.secondaryContainer, Icons.Default.Schedule, "待确认")
-        AgentActionStatus.APPROVED -> StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Check, "已批准")
-        AgentActionStatus.REJECTED -> StatusVisual(cs.error, cs.errorContainer, Icons.Default.Close, "已拒绝")
-        AgentActionStatus.EXECUTED -> StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Check, "已执行")
+        AgentActionStatus.PENDING -> StatusVisual(cs.secondary, cs.secondaryContainer, Icons.Default.Schedule, stringResource(R.string.ai_action_status_pending))
+        AgentActionStatus.APPROVED -> StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Check, stringResource(R.string.ai_action_status_approved))
+        AgentActionStatus.REJECTED -> StatusVisual(cs.error, cs.errorContainer, Icons.Default.Close, stringResource(R.string.ai_action_status_rejected))
+        AgentActionStatus.EXECUTED -> StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Check, stringResource(R.string.ai_action_status_executed))
     }
 }
 
@@ -133,11 +147,11 @@ fun StatusPill(visual: StatusVisual, modifier: Modifier = Modifier) {
         contentColor = visual.color
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            modifier = Modifier.padding(horizontal = AppSpacing.Default, vertical = AiDesign.PillPaddingVertical),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
+            horizontalArrangement = Arrangement.spacedBy(AiDesign.PillGap)
         ) {
-            Icon(visual.icon, contentDescription = null, modifier = Modifier.size(12.dp), tint = visual.color)
+            Icon(visual.icon, contentDescription = null, modifier = Modifier.size(AiDesign.PillIconSize), tint = visual.color)
             Text(visual.label, style = MaterialTheme.typography.labelSmall, color = visual.color)
         }
     }

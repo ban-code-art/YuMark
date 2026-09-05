@@ -169,6 +169,78 @@ class AgentTaskRepositoryImplTest {
         assertThat(capturedSteps.captured.single().toolHintsJson).isEqualTo("""["read_document","search_in_project"]""")
     }
 
+    @Test
+    fun `reconcileInterruptedTasks passes the exact status names the DB stores`() = runTest {
+        coEvery { dao.reconcileInterrupted(any(), any(), any(), any(), any(), any()) } returns 2
+
+        val affected = repository.reconcileInterruptedTasks("上次退出时被中断")
+
+        assertThat(affected).isEqualTo(2)
+        // 这四组字面量就是 status 列里真实存着的东西（见上面 `it.status == "BLOCKED"` 的断言）。
+        // 故意写死：枚举改名而这里没跟着改，复位 SQL 就会静默失配、一行都选不到。
+        coVerify {
+            dao.reconcileInterrupted(
+                liveStatuses = listOf("PLANNING", "EXECUTING", "REPLANNING"),
+                blocked = "BLOCKED",
+                running = "RUNNING",
+                pending = "PENDING",
+                now = any(),
+                reason = "上次退出时被中断"
+            )
+        }
+    }
+
+    @Test
+    fun `the reconcile transaction resets steps before re-judging tasks`() = runTest {
+        val calls = mutableListOf<String>()
+
+        val affected = OrderRecordingDao(calls).reconcileInterrupted(
+            liveStatuses = listOf("EXECUTING"),
+            blocked = "BLOCKED",
+            running = "RUNNING",
+            pending = "PENDING",
+            now = 7L,
+            reason = "中断"
+        )
+
+        // 顺序反了第一条 UPDATE 就选不到任何行：它靠父任务仍在 liveStatuses 里定位 RUNNING 步骤，
+        // 任务先被改判成 BLOCKED 的话子查询为空，RUNNING 步骤永远停在活动态。
+        assertThat(calls).containsExactly("steps", "tasks").inOrder()
+        // 返回的是被改判的任务数，不是退回的步骤数
+        assertThat(affected).isEqualTo(2)
+    }
+
+    /** 只实现复位涉及的两个 UPDATE，让 [AgentTaskDao.reconcileInterrupted] 的真实默认实现跑起来。 */
+    private class OrderRecordingDao(private val calls: MutableList<String>) : AgentTaskDao {
+        override suspend fun resetRunningSteps(
+            liveStatuses: List<String>,
+            running: String,
+            pending: String
+        ): Int {
+            calls += "steps"
+            return 5
+        }
+
+        override suspend fun blockInterruptedTasks(
+            liveStatuses: List<String>,
+            blocked: String,
+            now: Long,
+            reason: String
+        ): Int {
+            calls += "tasks"
+            return 2
+        }
+
+        override fun observeTaskByConversation(conversationId: String) = TODO()
+        override suspend fun getTaskByConversationId(conversationId: String) = TODO()
+        override suspend fun insertTask(task: AgentTaskEntity) = TODO()
+        override suspend fun updateTask(task: AgentTaskEntity) = TODO()
+        override suspend fun deleteSteps(taskId: String) = TODO()
+        override suspend fun insertSteps(steps: List<AgentTaskStepEntity>) = TODO()
+        override suspend fun insertEvidence(evidence: AgentEvidenceEntity) = TODO()
+        override suspend fun updateStepStatus(stepId: String, status: String, resultSummary: String?) = TODO()
+    }
+
     private fun task(status: AgentTaskStatus = AgentTaskStatus.PLANNING) = AgentTask(
         id = "task-1",
         conversationId = "conversation-1",

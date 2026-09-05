@@ -20,11 +20,6 @@ class SettingsRepositoryImpl @Inject constructor(
         return dataStore.settingsFlow.first()
     }
 
-    override suspend fun updateTheme(lightThemeId: String, darkThemeId: String): Result<Unit> = runCatching {
-        val current = getSettings()
-        dataStore.updateSettings(current.copy(lightThemeId = lightThemeId, darkThemeId = darkThemeId))
-    }
-
     override suspend fun updateFontSize(fontSize: Int): Result<Unit> = runCatching {
         dataStore.updateFontSize(fontSize)
     }

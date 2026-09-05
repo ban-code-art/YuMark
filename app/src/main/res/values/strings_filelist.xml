@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    文件列表 / 侧栏文件树 / 自适应外壳的文案（简体中文，基准语言）。
+
+    为什么单独一个文件而不是往 strings.xml 里加：
+    Android 资源合并器会把 res/values/ 下「所有」 <resources> 合并进同一个 R.string
+    命名空间，文件名不参与命名。写在这里的 filelist_search_title_match 与写在
+    strings.xml 里完全等价，运行时没有任何区别。拆分纯粹是协作需要：多个任务同时
+    改文案时不会在同一个文件上产生 merge 冲突。
+
+    三条硬规则：
+    1. 键名是全局唯一的（同一命名空间）。新增前先确认 strings.xml / strings_editor.xml
+       里没有同名键，否则合并阶段直接报重复资源。语义相同的键一律复用既有的
+       （ok / cancel / delete / rename / move_to_root / create_document / create_folder /
+       cd_more_options / editor_move_to_title …），不要在这里重造同义键。
+    2. 每个键必须同时出现在 values-en/strings_filelist.xml。缺一边 lint 的
+       MissingTranslation 会拦住构建（本项目无 lint.xml、无 baseline，它是 error 级）。
+       占位符个数与类型两边必须一致，一律用 %1$s / %1$d 这种带位置的写法。
+    3. <plurals> 每个语区都必须有 other（否则 MissingQuantity），英文另需 one。
+       调用点用 pluralStringResource，count 传两次：一次选 quantity，一次做格式化实参。
+-->
+<resources>
+
+    <!-- ========== FileListViewModel 的一次性提示 ==========
+         ViewModel 里没有 Context 也不该有，这些键由 presentation/common/UiMessage.Res
+         携带 id，到组合期才由 resolveOrNull() 解析。删除/重命名/移动/导入失败的文案由
+         core/util/ErrorHandler 拼装（那里的中文常量不在本次范围内，走 UiMessage.Raw
+         原样透出），所以这里只有本模块自己产生的文案。 -->
+    <string name="filelist_import_no_markdown">该文件夹中没有可导入的 Markdown/文本文件</string>
+    <!-- %1$d = 成功导入的文件数 -->
+    <plurals name="filelist_import_done">
+        <item quantity="other">已导入 %1$d 个文件</item>
+    </plurals>
+    <!-- 一个都没成功。%1$d = 读不出来的文件数 -->
+    <plurals name="filelist_import_failed">
+        <item quantity="other">导入失败（%1$d 个文件无法读取）</item>
+    </plurals>
+    <!-- 部分成功。quantity 按成功数选：%1$d = 成功数，%2$d = 失败数 -->
+    <plurals name="filelist_import_partial">
+        <item quantity="other">已导入 %1$d 个文件，%2$d 个失败</item>
+    </plurals>
+
+    <!-- ========== FileListScreen ========== -->
+    <!-- %1$s = 当前外部工作区（文件夹）名 -->
+    <string name="filelist_workspace_browsing">正在浏览「%1$s」</string>
+    <!-- %1$d = 该文档正文里命中的次数 -->
+    <plurals name="filelist_search_match_count">
+        <item quantity="other">%1$d 处匹配</item>
+    </plurals>
+    <!-- 只有标题命中、正文没有命中 -->
+    <string name="filelist_search_title_match">标题匹配</string>
+    <!-- %1$s = 导入库的显示名，取 @string/import_library（不是写进 Room 的那个中文常量） -->
+    <string name="filelist_import_target_default">%1$s（默认）</string>
+
+    <!-- ========== SidebarFileTree ========== -->
+    <!-- 拖动文档/文件夹时悬浮在树顶部的落区，松手即移到根目录 -->
+    <string name="sidebar_drop_to_root">根目录（松手移到此处）</string>
+
+    <!-- ========== 无障碍 contentDescription ==========
+         cd_ 前缀专指只读给读屏的文案。项目里已有的 *_desc 后缀是界面上可见的副标题
+         （export_pdf_desc 之类），两者语义不同，不能互相复用。 -->
+    <string name="cd_expand_folder">展开文件夹</string>
+    <string name="cd_collapse_folder">收起文件夹</string>
+    <!-- 文档行末尾的收藏标记：它是状态不是按钮，所以不复用 favorite（那是「收藏」这个动作） -->
+    <string name="cd_favorited">已收藏</string>
+    <!-- 搜索态左上角的返回箭头。原先复用 close（「关闭」），读屏念出来只有「关闭」，
+         用户不知道关的是什么；这个按钮退出的是搜索态，不是关闭页面。 -->
+    <string name="cd_exit_search">退出搜索</string>
+
+    <!-- ========== AppShell（平板 / 折叠屏展开态的双窗格） ========== -->
+    <string name="shell_detail_empty_hint">从左侧选择或新建文档开始编辑</string>
+
+</resources>

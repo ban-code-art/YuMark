@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  应用内语言列表（Android 13+ 的 per-app language）。
+
+  没有它的话，用户想把 YuMark 单独切成英文，只能把**整机**语言改成英文；
+  声明之后，系统设置 → 应用 → YuMark → 语言 里会出现这个列表，只影响本应用。
+
+  两个 tag 必须与实际存在的资源目录对得上，否则用户选了却拿不到对应翻译：
+  - zh-Hans → 默认目录 res/values/（本项目的源语言就是简体中文，没有 values-zh/，
+              系统请求 zh-Hans 时按资源回退规则落到默认目录，结果正确）
+  - en      → res/values-en/
+
+  新增语言时这里和 res/values-xx/ 必须同时加，只加一处等于给用户一个空选项。
+-->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="zh-Hans" />
+    <locale android:name="en" />
+</locale-config>

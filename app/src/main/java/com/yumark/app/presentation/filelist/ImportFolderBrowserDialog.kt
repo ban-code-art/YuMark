@@ -36,6 +36,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import com.yumark.app.R
+import com.yumark.app.presentation.theme.AppSpacing
+import com.yumark.app.presentation.theme.extendedColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -57,9 +59,12 @@ fun ImportFolderBrowserDialog(
     // null = 正在加载当前层
     var subDirs by remember { mutableStateOf<List<String>?>(null) }
 
-    val rootName = remember(treeUri) {
-        DocumentFile.fromTreeUri(context, treeUri)?.name
-            ?: context.getString(R.string.default_dir_picked_fallback)
+    // 不在 remember 块里用 context.getString()：Configuration 变化（切语言/深浅色）不会
+    // 让 LocalContext.current 的读取失效，取到的会是旧值。改成在 Composable 作用域里用
+    // stringResource() 先拿到字符串，再作为 remember 的 key 之一传进去。
+    val fallbackName = stringResource(R.string.default_dir_picked_fallback)
+    val rootName = remember(treeUri, fallbackName) {
+        DocumentFile.fromTreeUri(context, treeUri)?.name ?: fallbackName
     }
 
     LaunchedEffect(treeUri, path) {
@@ -93,10 +98,10 @@ fun ImportFolderBrowserDialog(
                 Text(
                     (listOf(rootName) + path).joinToString(" / "),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = extendedColors.primaryText,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    modifier = Modifier.padding(bottom = AppSpacing.Default)
                 )
                 HorizontalDivider()
 
@@ -106,7 +111,7 @@ fun ImportFolderBrowserDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { path = path.dropLast(1) }
-                            .padding(vertical = 10.dp),
+                            .padding(vertical = ImportBrowserMetrics.RowVerticalPadding),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -114,7 +119,7 @@ fun ImportFolderBrowserDialog(
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(AppSpacing.Cozy))
                         Text(
                             stringResource(R.string.import_browser_up),
                             style = MaterialTheme.typography.bodyMedium
@@ -127,29 +132,29 @@ fun ImportFolderBrowserDialog(
                     dirs == null -> LinearProgressIndicator(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 16.dp)
+                            .padding(vertical = AppSpacing.Screen)
                     )
                     dirs.isEmpty() -> Text(
                         stringResource(R.string.import_browser_empty),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 16.dp)
+                        modifier = Modifier.padding(vertical = AppSpacing.Screen)
                     )
-                    else -> LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                    else -> LazyColumn(modifier = Modifier.heightIn(max = ImportBrowserMetrics.ListMaxHeight)) {
                         items(dirs, key = { it }) { name ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { path = path + name }
-                                    .padding(vertical = 10.dp),
+                                    .padding(vertical = ImportBrowserMetrics.RowVerticalPadding),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
                                     Icons.Default.Folder,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = extendedColors.primaryText
                                 )
-                                Spacer(modifier = Modifier.width(12.dp))
+                                Spacer(modifier = Modifier.width(AppSpacing.Cozy))
                                 Text(
                                     name,
                                     style = MaterialTheme.typography.bodyMedium,
@@ -171,4 +176,16 @@ fun ImportFolderBrowserDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
     )
+}
+
+/**
+ * 本对话框特有的布局度量，刻意不并入全局 [AppSpacing]：目录 / 返回行的纵向内边距（10dp，
+ * 落在 Default(8) 与 Cozy(12) 之间的行高节拍）与子目录列表的最大高度上界（超出内部滚动），
+ * 均离散于 8dp 间距标度，保留原像素、不硬凑。按 FileListMetrics 先例落屏幕局部。
+ */
+private object ImportBrowserMetrics {
+    /** 目录行 / 返回上一级行的纵向内边距：与图标（24dp）合成约 44dp 触摸行高。 */
+    val RowVerticalPadding = 10.dp
+    /** 子目录列表最大高度：超出内部滚动，避免深目录把对话框顶出屏幕。 */
+    val ListMaxHeight = 320.dp
 }

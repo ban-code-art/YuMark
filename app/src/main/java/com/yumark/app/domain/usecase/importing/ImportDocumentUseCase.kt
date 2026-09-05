@@ -2,6 +2,10 @@ package com.yumark.app.domain.usecase.importing
 
 import android.content.Context
 import android.net.Uri
+import com.yumark.app.R
+import com.yumark.app.core.util.FriendlyIOException
+import com.yumark.app.core.util.FriendlyValidationException
+import com.yumark.app.core.util.UiMessage
 import com.yumark.app.domain.model.Document
 import com.yumark.app.domain.repository.DocumentRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -31,8 +35,10 @@ class ImportDocumentUseCase @Inject constructor(
         val fileName = getFileName(uri)
 
         // 3. 验证文件名
+        // 复用 validation_name_empty：去掉扩展名后为空（形如 ".md"）的确就是「文件名不能为空」，
+        // 与手动新建文档时 FileNameValidator 给的判定一致，用户看到的也是同一句话。
         if (fileName.isBlank()) {
-            throw IllegalArgumentException("Invalid file name")
+            throw FriendlyValidationException(UiMessage.Res(R.string.validation_name_empty))
         }
 
         // 4. 创建文档
@@ -47,11 +53,17 @@ class ImportDocumentUseCase @Inject constructor(
     }
 
     /**
-     * 读取文件内容
+     * 读取文件内容。
+     *
+     * 打不开时抛 [FriendlyIOException]，与 [ImportFolderUseCase.readContent] 同一套理由：
+     * 从前这里是 `IllegalArgumentException("Cannot open file: $uri")`，两处不对——
+     * 裸异常过不了 [com.yumark.app.core.util.ErrorHandler.classify]（归 `Unknown` →
+     * 「出现未知问题，请重试」，同时占一格崩溃日志配额），而且 `content://` URI 被拼进了
+     * 异常 message，那条 message 恰好会被 `worthRecording` 写进崩溃日志。
      */
     private fun readFileContent(uri: Uri): String {
         val inputStream = context.contentResolver.openInputStream(uri)
-            ?: throw IllegalArgumentException("Cannot open file: $uri")
+            ?: throw FriendlyIOException(UiMessage.Res(R.string.saf_error_read_source))
 
         return BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8)).use { reader ->
             reader.readText()

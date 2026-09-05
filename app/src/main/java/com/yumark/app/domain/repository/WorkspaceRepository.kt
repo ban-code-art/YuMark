@@ -1,5 +1,6 @@
 package com.yumark.app.domain.repository
 
+import com.yumark.app.core.util.UiMessage
 import com.yumark.app.domain.model.Workspace
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,9 +32,15 @@ interface WorkspaceRepository {
 
     /**
      * 应用启动时从持久化恢复工作区；优先恢复默认目录，失败回退到上次会话的工作区。
+     *
+     * 返回 [UiMessage] 而不是 `String`：这句提示由 data 层产生、在侧栏错误条显示，
+     * 直接返回成句的中文会让英文环境原样看到中文（而它指的菜单名在 en 下是另一套字），
+     * 且没有任何资源 id 可挂 —— 消费点只能 `UiMessage.Raw` 透出。带 `@StringRes` id
+     * 走到界面层再解析，是本项目 core/domain/data 一律遵循的做法（见 core/util/UiMessage.kt）。
+     *
      * @return 用户可见的失败提示（如默认目录授权已失效）；一切正常或本就无可恢复项时返回 null
      */
-    suspend fun restoreOnLaunch(): String?
+    suspend fun restoreOnLaunch(): UiMessage?
 
     suspend fun readDocument(docUri: String): Result<String>
     suspend fun writeDocument(docUri: String, content: String): Result<Unit>

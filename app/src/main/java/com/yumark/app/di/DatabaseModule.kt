@@ -6,6 +6,7 @@ import com.yumark.app.data.local.db.AppDatabase
 import com.yumark.app.data.local.db.dao.AgentTaskDao
 import com.yumark.app.data.local.db.dao.ConversationDao
 import com.yumark.app.data.local.db.dao.DocumentDao
+import com.yumark.app.data.local.db.dao.DocumentSearchDao
 import com.yumark.app.data.local.db.dao.DocumentVersionDao
 import com.yumark.app.data.local.db.dao.FolderDao
 import com.yumark.app.data.local.db.dao.ImageDao
@@ -13,6 +14,7 @@ import com.yumark.app.data.local.db.dao.MemoryDao
 import com.yumark.app.data.local.db.dao.MessageDao
 import com.yumark.app.data.local.db.dao.RagDao
 import com.yumark.app.data.local.db.dao.SyncStateDao
+import com.yumark.app.data.local.db.dao.SyncTombstoneDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -91,6 +93,12 @@ object DatabaseModule {
 
     @Provides
     @Singleton
+    fun provideSyncTombstoneDao(database: AppDatabase): SyncTombstoneDao {
+        return database.syncTombstoneDao()
+    }
+
+    @Provides
+    @Singleton
     fun provideMemoryDao(database: AppDatabase): MemoryDao {
         return database.memoryDao()
     }
@@ -99,5 +107,11 @@ object DatabaseModule {
     @Singleton
     fun provideRagDao(database: AppDatabase): RagDao {
         return database.ragDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideDocumentSearchDao(database: AppDatabase): DocumentSearchDao {
+        return database.documentSearchDao()
     }
 }

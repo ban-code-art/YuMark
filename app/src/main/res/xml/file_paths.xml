@@ -1,7 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 可授权根。每加一条就等于「允许把这棵目录树下任意文件的读权限授给外部应用」，
+  所以只登记确有 getUriForFile 调用点的目录，并收窄到该调用点真正写入的子目录。
+  尤其不要用 path="." ——它会把整个卷（external-path 时是整个外部存储）变成可授权范围。
+  改这里必须同步核对调用点，否则 getUriForFile 会抛 Failed to find configured root。
+-->
 <paths>
+
+    <!--
+      服务于编辑器导出后的系统分享（EditorScreen 的 ACTION_SEND）。
+      导出产物只由 FileManager.getExportsDir() 产生，全部落在 filesDir/exports/ 内。
+    -->
     <files-path name="exports" path="exports/" />
-    <external-path name="external_files" path="." />
-    <external-files-path name="external_app_files" path="." />
+
+    <!--
+      服务于应用内更新：ApkDownloader.installApk 把下载好的 APK 交给系统安装器（ACTION_VIEW）读取。
+      路径与 ApkDownloader.UPDATES_DIR 一一对应，只改一边就会在安装时找不到 root。
+    -->
+    <external-files-path name="updates" path="updates/" />
 
 </paths>

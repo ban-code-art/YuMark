@@ -15,9 +15,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.yumark.app.R
 import com.yumark.app.domain.model.ConversationStatus
+import com.yumark.app.presentation.theme.extendedColors
 
 /**
  * Agent 状态指示器
@@ -29,7 +34,7 @@ import com.yumark.app.domain.model.ConversationStatus
 fun AgentStatusIndicator(
     status: ConversationStatus,
     modifier: Modifier = Modifier,
-    size: Dp = 40.dp
+    size: Dp = AgentStatusMetrics.DefaultSize
 ) {
     Box(
         modifier = modifier.size(size),
@@ -39,18 +44,25 @@ fun AgentStatusIndicator(
             ConversationStatus.IDLE -> {
                 Icon(
                     Icons.Default.SmartToy,
-                    contentDescription = "Agent",
+                    // 两个语区都念作 "Agent"：读屏播报的是产品里这个功能的名字
+                    contentDescription = stringResource(R.string.cd_agent_status_idle),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             ConversationStatus.WORKING -> {
-                WorkingAnimation(size = size)
+                // Canvas 自己不产生任何语义节点，读屏原先会整块跳过 WORKING 态
+                // （既没有图标也没有文字），这里补一句播报。
+                val workingDescription = stringResource(R.string.cd_agent_status_working)
+                WorkingAnimation(
+                    size = size,
+                    modifier = Modifier.semantics { contentDescription = workingDescription }
+                )
             }
             ConversationStatus.COMPLETED -> {
                 Icon(
                     Icons.Default.CheckCircle,
-                    contentDescription = "已完成",
-                    tint = MaterialTheme.colorScheme.primary,
+                    contentDescription = stringResource(R.string.cd_agent_status_completed),
+                    tint = extendedColors.primaryText,
                     modifier = Modifier.size(size * 0.6f)
                 )
             }
@@ -60,9 +72,12 @@ fun AgentStatusIndicator(
 
 /**
  * 工作中的水波扩散动画
+ *
+ * modifier 参数是为了让调用方挂 semantics：Canvas 本身没有语义节点，
+ * 读屏需要外部补 contentDescription。
  */
 @Composable
-private fun WorkingAnimation(size: Dp) {
+private fun WorkingAnimation(size: Dp, modifier: Modifier = Modifier) {
     val infiniteTransition = rememberInfiniteTransition(label = "ripple")
 
     // 第一个波纹
@@ -70,7 +85,7 @@ private fun WorkingAnimation(size: Dp) {
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = FastOutSlowInEasing),
+            animation = tween(AgentStatusMetrics.RippleDurationMs, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "ripple1"
@@ -81,7 +96,7 @@ private fun WorkingAnimation(size: Dp) {
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = FastOutSlowInEasing),
+            animation = tween(AgentStatusMetrics.RippleDurationMs, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "ripple2"
@@ -92,7 +107,7 @@ private fun WorkingAnimation(size: Dp) {
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = FastOutSlowInEasing),
+            animation = tween(AgentStatusMetrics.RippleDurationMs, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "ripple3"
@@ -100,7 +115,7 @@ private fun WorkingAnimation(size: Dp) {
 
     val primaryColor = MaterialTheme.colorScheme.primary
 
-    Canvas(modifier = Modifier.size(size)) {
+    Canvas(modifier = modifier.size(size)) {
         val centerX = this.size.width / 2
         val centerY = this.size.height / 2
         val maxRadius = this.size.minDimension / 2
@@ -119,7 +134,7 @@ private fun WorkingAnimation(size: Dp) {
                     color = primaryColor.copy(alpha = alpha),
                     radius = radius,
                     center = androidx.compose.ui.geometry.Offset(centerX, centerY),
-                    style = Stroke(width = 2.dp.toPx())
+                    style = Stroke(width = AgentStatusMetrics.RippleStroke.toPx())
                 )
             }
         }
@@ -131,4 +146,18 @@ private fun WorkingAnimation(size: Dp) {
             center = androidx.compose.ui.geometry.Offset(centerX, centerY)
         )
     }
+}
+
+/**
+ * 本指示器特有的度量，刻意不并入全局图标 / 间距标度：默认整体直径（40dp，介于 Avatar32 与
+ * Hero48）、水波圆环描边宽度（绘制轴）、水波单程时长。离散于全局标度，保留原像素与原时长、不硬凑。
+ * 按 FileListMetrics 先例落屏幕局部。
+ */
+private object AgentStatusMetrics {
+    /** 指示器默认直径：调用方可覆盖；off-grid（介于 Avatar32/Hero48）。 */
+    val DefaultSize = 40.dp
+    /** 水波扩散圆环描边宽度：绘制轴，非间距。 */
+    val RippleStroke = 2.dp
+    /** 单个水波从生到灭的时长（毫秒），三环同时长、错相位。 */
+    const val RippleDurationMs = 2000
 }

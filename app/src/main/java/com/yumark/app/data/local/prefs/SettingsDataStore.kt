@@ -45,9 +45,7 @@ class SettingsDataStore @Inject constructor(
                 autoSaveEnabled = prefs[Keys.AUTO_SAVE_ENABLED] ?: true,
                 autoSaveInterval = prefs[Keys.AUTO_SAVE_INTERVAL] ?: 30,
                 autoCompressImages = prefs[Keys.AUTO_COMPRESS] ?: true,
-                imageCompressionQuality = CompressionQuality.valueOf(
-                    prefs[Keys.COMPRESSION_QUALITY] ?: "MEDIUM"
-                ),
+                imageCompressionQuality = readQuality(prefs[Keys.COMPRESSION_QUALITY]),
                 maxImageWidth = prefs[Keys.MAX_IMAGE_WIDTH] ?: 1920,
                 defaultPreviewMode = prefs[Keys.DEFAULT_PREVIEW_MODE] ?: true,
                 themeId = prefs[Keys.THEME_ID] ?: "default",
@@ -80,5 +78,20 @@ class SettingsDataStore @Inject constructor(
             it[Keys.AUTO_SAVE_ENABLED] = enabled
             it[Keys.AUTO_SAVE_INTERVAL] = interval
         }
+    }
+
+    private companion object {
+        /**
+         * 存的是枚举名字，读的时候不能直接 `valueOf` —— 那会抛 [IllegalArgumentException]，
+         * 而它**不是** IOException，line 39 的 [catch] 拦不住，异常一路窜到冷启动的
+         * `MainActivity` 里 collect 设置流的那一步，结果是**开机即崩、且清数据才能救**。
+         *
+         * 不是杞人忧天：这个文件在 Auto Backup 的范围内（`data_extraction_rules.xml` 只排除了
+         * `workspace.preferences_pb`），换机恢复时可能带回旧版本/别的构建写下的枚举名；
+         * 手动改 preferences_pb 更不用说。认不出就退回 MEDIUM——用户顶多发现压缩档位被重置。
+         */
+        fun readQuality(stored: String?): CompressionQuality =
+            stored?.let { name -> CompressionQuality.entries.firstOrNull { it.name == name } }
+                ?: CompressionQuality.MEDIUM
     }
 }

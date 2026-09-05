@@ -1,6 +1,7 @@
 package com.yumark.app.domain.usecase.ai.agent
 
 import com.google.common.truth.Truth.assertThat
+import com.yumark.app.core.text.ContentHash
 import com.yumark.app.domain.model.AgentActionType
 import com.yumark.app.domain.model.Document
 import com.yumark.app.domain.model.ToolCall
@@ -69,5 +70,31 @@ class BuildWriteProposalUseCaseTest {
         val r = useCase(call, currentDocumentId = null)
         assertThat(r.isFailure).isTrue()
         assertThat(r.exceptionOrNull()!!.message).contains("缺少目标文档")
+    }
+
+    @Test
+    fun `edit records the fingerprint of the base it edited`() = runTest {
+        // 提议里必须留下「我是按哪一份原文改的」：批准可能晚到下一次冷启动之后，
+        // ExecuteAgentActionUseCase 靠这个指纹认出文档已被改过，否则整篇覆盖会吃掉那些改动。
+        val base = "# 标题\n旧句子。"
+        coEvery { loadDocument("doc-1") } returns Result.success(doc(base))
+        val call = ToolCall(
+            "c1", "edit_document",
+            """{"document_id":"doc-1","edits":[{"old_string":"旧句子。","new_string":"新句子。"}]}"""
+        )
+
+        val action = useCase(call, currentDocumentId = null).getOrThrow()
+
+        // 是**编辑前**的原文，不是合成后的新全文
+        assertThat(action.baseContentHash).isEqualTo(ContentHash.of(base))
+        assertThat(action.baseContentHash).isNotEqualTo(ContentHash.of(action.content))
+    }
+
+    @Test
+    fun `create carries no base fingerprint`() = runTest {
+        // 新建没有原文可比，留 null；执行侧见 null 即放行
+        val call = ToolCall("c1", "create_document", """{"title":"我的文档","content":"# 正文"}""")
+        val action = useCase(call, currentDocumentId = null).getOrThrow()
+        assertThat(action.baseContentHash).isNull()
     }
 }

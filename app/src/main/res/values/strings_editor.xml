@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    编辑器模块文案（简体中文，基准语言）。
+
+    为什么单独一个文件而不是往 strings.xml 里加：
+    Android 资源合并器会把 res/values/ 下「所有」 <resources> 文件合并进同一个 R.string
+    命名空间，文件名不参与命名。写在这里的 find_hint 与写在 strings.xml 里的 R.string.find_hint
+    完全等价，运行时没有任何区别。拆分纯粹是协作需要：编辑器模块的文案与全局文案分片存放，
+    多个任务同时改文案时不会在同一个文件上产生 merge 冲突。
+
+    两条硬规则：
+    1. 键名是全局唯一的（同一命名空间）。新增前先确认 strings.xml 里没有同名键，
+       否则合并阶段直接报重复资源。能复用 strings.xml 已有键（cancel / ok / delete /
+       history_versions / error_create_folder 等）的就复用，不要在这里重造。
+    2. 每个键必须同时出现在 values-en/strings_editor.xml。缺一边 lint 的
+       MissingTranslation 会拦住构建。占位符个数与类型两边必须一致，一律用
+       %1$s / %2$d 这种带位置的写法，方便英文调整语序。
+-->
+<resources>
+
+    <!-- ========== 查找 / 替换栏 FindReplaceBar ========== -->
+    <string name="find_hint">查找</string>
+    <string name="find_replace_hint">替换为</string>
+    <string name="find_replace">替换</string>
+    <string name="find_replace_all">全部替换</string>
+    <string name="find_no_match">无匹配</string>
+    <string name="find_regex_invalid">正则非法</string>
+    <!-- %1$d = 当前第几个匹配，%2$d = 匹配总数 -->
+    <string name="find_status_position">第 %1$d / 共 %2$d 个</string>
+    <!-- %1$d = 匹配总数。做成 plurals 是为了英文的 "1 match" / "N matches"；
+         中文没有单复数变化，只需要 other。读取用 pluralStringResource（组合期）。 -->
+    <plurals name="find_status_total">
+        <item quantity="other">共 %1$d 个</item>
+    </plurals>
+    <string name="find_case_sensitive">区分大小写</string>
+    <string name="find_whole_word">全词</string>
+    <string name="find_regex">正则</string>
+    <!-- %1$d = 匹配上限 FindReplace.MAX_MATCHES。
+         这两条刻意**不做** plurals：实参是编译期常量 MAX_MATCHES，恒大于 1，
+         做出来的 one 分支永远渲染不到，只是多一份要维护的翻译。 -->
+    <string name="find_truncated">结果过多，仅显示前 %1$d 个</string>
+    <string name="find_replaced_truncated">已替换前 %1$d 处，可再次执行</string>
+    <!-- %1$d = 实际替换处数（运行期真值，可能为 1）。
+         调用点在 replaceAllMatches() —— 那是组合内的**普通局部函数**，读不了
+         pluralStringResource（@Composable），所以走 resources.getQuantityString。 -->
+    <plurals name="find_replaced_count">
+        <item quantity="other">已替换 %1$d 处</item>
+    </plurals>
+    <string name="find_replace_none">没有可替换的匹配</string>
+    <string name="cd_find_prev">上一个匹配</string>
+    <string name="cd_find_next">下一个匹配</string>
+    <string name="cd_find_close">关闭查找栏</string>
+
+    <!-- ========== 工具栏 MarkdownToolbar（其余按钮文案在 strings.xml 的 toolbar_* 里） ========== -->
+    <string name="toolbar_undo">撤销</string>
+    <string name="toolbar_redo">重做</string>
+    <string name="toolbar_find">查找</string>
+
+    <!-- ========== 历史版本 VersionHistorySheet（标题复用 strings.xml 的 history_versions） ========== -->
+    <string name="version_history_empty">暂无历史版本——编辑并保存后会自动记录。</string>
+    <string name="version_history_restore_title">恢复此版本</string>
+    <!-- %1$s = 该版本的时间，形如 09-02 14:30 -->
+    <string name="version_history_restore_message">将文档内容恢复到「%1$s」的版本？当前内容会先存为一条历史，可再恢复回来。</string>
+    <string name="version_history_restore">恢复</string>
+    <!-- %1$d = 字数，%2$s = version_history_collapse 或 version_history_expand。
+         做成 plurals 的直接原因：英文原来恒定读作 "1 words"。中文只需要 other。
+         plurals 允许在 quantity 之外再带别的占位符，所以 %2$s 照旧。 -->
+    <plurals name="version_history_row_meta">
+        <item quantity="other">%1$d 字 · 点按%2$s</item>
+    </plurals>
+    <string name="version_history_collapse">收起</string>
+    <string name="version_history_expand">查看改动</string>
+    <string name="version_history_no_diff">与当前内容一致。</string>
+
+    <!-- ========== 划词 AI 面板 AiQuickDialog ==========
+         注意：这里只放「屏幕上给人看」的文案。发给模型的系统提示词、工具描述、
+         意图判定关键词全部留在代码里，翻译它们会直接改变模型行为。 -->
+    <string name="ai_quick_title">✨ AI 助手</string>
+    <string name="ai_quick_mode_ask">💬 询问</string>
+    <string name="ai_quick_mode_agent">🤖 处理</string>
+    <string name="ai_quick_agent_hint">💡 仅当输入含 yy 时才会修改选中文本，否则仅作答</string>
+    <string name="ai_quick_about_label">关于：</string>
+    <string name="ai_quick_selection_label">选中的文本：</string>
+    <string name="ai_quick_selection_placeholder">粘贴或输入要处理的文本…</string>
+    <!-- 改写卡片上的一句话说明 -->
+    <string name="ai_quick_edit_action_desc">按你的要求改写选中文本</string>
+    <string name="ai_quick_thinking">AI 思考中…</string>
+    <string name="ai_quick_agent_working">Agent 处理中…</string>
+    <string name="ai_quick_input_hint_ask">输入你的问题…</string>
+    <string name="ai_quick_input_hint_agent">输入 yy 可让 AI 直接改写选中文本，如：yy 改成专业表达</string>
+    <string name="cd_ai_quick_stop">停止</string>
+    <string name="cd_ai_quick_send">发送</string>
+    <string name="ai_quick_exit_title">确认退出</string>
+    <string name="ai_quick_exit_message">你有未发送的内容，确定要退出吗？退出后内容将被保留，下次打开可以继续编辑。</string>
+    <string name="ai_quick_exit_confirm">退出</string>
+    <string name="ai_quick_exit_dismiss">继续编辑</string>
+    <string name="ai_quick_error_no_config">请先在设置中配置 API Key 和模型</string>
+
+    <!-- ========== 编辑器主屏 EditorScreen ========== -->
+    <string name="editor_link_no_app">没有可打开链接的应用</string>
+    <!-- 预览里的远端图片证书校验失败被拦截时的提示。不写「加载失败」：那会让用户以为
+         是网络问题反复重试，实际是证书不可信，重试永远不会成功。 -->
+    <string name="editor_preview_ssl_blocked">部分远端图片的证书不可信，已拦截未加载</string>
+    <!-- 既做侧栏按钮的 contentDescription，也做入口条目的可见文案，故不另建 cd_ 键 -->
+    <string name="editor_ai_assistant">AI 助手</string>
+    <string name="cd_more_options">更多选项</string>
+    <!-- 编辑器空正文的唯一占位文案。strings.xml 里曾有一条语义重复的 start_writing（开始写作…），
+         已删除——两条键并存时哪一条真正显示取决于调用点，改文案永远只改到一半，别再加回来。 -->
+    <string name="editor_write_placeholder">开始书写 Markdown…</string>
+    <!-- %1$d = 字符数。注意与 strings.xml 里的 <plurals name="word_count">（%1$d 字）不是一回事：
+         那个数的是字数，这个数的是字符数，不能互相复用 -->
+    <plurals name="editor_char_count">
+        <item quantity="other">%1$d 字符</item>
+    </plurals>
+    <string name="editor_retry">重试</string>
+    <!-- %1$s = 被移动的文档名或文件夹名 -->
+    <string name="editor_move_to_title">移动「%1$s」到</string>
+
+    <!-- ========== 插入图片来源选择（工具栏图片按钮） ==========
+         两条路都留着：相册要么没授权、要么图不在本机（想引用网图 / 已在库里的相对路径），
+         只给相册就把这些情况堵死了。第二项走的是原来的 `![](url)` 语法壳子。 -->
+    <string name="editor_image_source_title">插入图片</string>
+    <string name="editor_image_from_gallery">从相册选择</string>
+    <string name="editor_image_from_gallery_desc">复制进应用并写入相对路径，随文档一起导出</string>
+    <string name="editor_image_manual_link">手动输入链接</string>
+    <string name="editor_image_manual_link_desc">插入 ![](url) 语法，自己填地址</string>
+
+    <!-- ========== 编辑器 ViewModel 的一次性提示 ==========
+         ViewModel 里不能调 stringResource，这些键由 presentation/common/UiMessage.Res 携带 id，
+         在 Composable 侧解析。删除/重命名/导出等失败提示由 core/util/ErrorHandler
+         拼装（那里的中文不在本模块范围内），故此处只有本模块自己产生的文案。 -->
+    <string name="editor_error_create_document">创建文档失败</string>
+    <string name="editor_error_create_subfolder">创建子文件夹失败</string>
+    <string name="editor_error_locate_selection">无法在文档中定位该选区，请切换到编辑模式后选中并重试</string>
+
+</resources>

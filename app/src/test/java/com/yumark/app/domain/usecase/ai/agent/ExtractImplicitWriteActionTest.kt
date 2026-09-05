@@ -175,4 +175,90 @@ class ExtractImplicitWriteActionTest {
         )
         assertThat(action).isNull()
     }
+
+    // ==== 截断保护 ====
+    // 这一组钉的是整条链路里最贵的一次失误：正文被 max_tokens 砍掉后半截，照样满足
+    // 「像不像文档」的判定，于是 EDIT_DOCUMENT 把半成品整篇覆盖到用户已有文档上
+    // （ExecuteAgentActionUseCase 的 EDIT 分支是整篇替换，隐式提案又没有 baseContentHash
+    // 可供 requireUnchangedBase 拦截）。用户在 diff 卡片上点一下批准就生效——
+    // 而那张卡片默认勾选了每一个 hunk。
+
+    @Test
+    fun `truncated response never becomes an EDIT action`() {
+        val action = extractImplicitWriteAction(
+            text = docText,
+            userMessage = "给这部分增加一些内容",
+            currentDocumentId = "doc-7",
+            currentDocumentName = "我的笔记",
+            truncated = true
+        )
+        assertThat(action).isNull()
+    }
+
+    @Test
+    fun `truncated edit request does not fall back to creating a new document`() {
+        // 拒绝编辑之后不能顺手改成「新建一篇」：用户要的是改这一篇，
+        // 凭空多出一篇半截新文档同样是意外，而且它会带着 CREATE 的审批卡片出现。
+        // 这句话同时命中新建词（"新建"+"文档"）和编辑词（"优化"），先用不截断的一次
+        // 证明两种意图都真的被识别到了，否则下面那个 null 可能只是「压根没识别出意图」。
+        val message = "帮我把这篇文档优化一下，另外新建也行"
+
+        val normal = extractImplicitWriteAction(
+            text = docText,
+            userMessage = message,
+            currentDocumentId = "doc-7",
+            currentDocumentName = "我的笔记"
+        )
+        assertThat(normal?.type).isEqualTo(AgentActionType.EDIT_DOCUMENT)
+
+        val action = extractImplicitWriteAction(
+            text = docText,
+            userMessage = message,
+            currentDocumentId = "doc-7",
+            currentDocumentName = "我的笔记",
+            truncated = true
+        )
+        assertThat(action).isNull()
+    }
+
+    @Test
+    fun `truncated response can still create a brand new document`() {
+        // 只挡覆盖，不挡新建：新建毁不到已有数据，半截内容顶多是废稿，用户删掉即可。
+        // 拦到这一层的话，「让 AI 写一篇长文」在 max tokens 偏小时会变成什么都不产出。
+        val text = """
+            我已为你创建一份文档，你可预览确认。
+
+            ```markdown
+            # 主流AI发展全景
+
+            **编制**: YuMark
+            这里是足够长的正文内容用于通过文档结构与长度判定，确保被识别为文档而非短回复。
+            ```
+        """.trimIndent()
+
+        val action = extractImplicitWriteAction(
+            text = text,
+            userMessage = "帮我创建一份主流ai的文档",
+            currentDocumentId = null,
+            currentDocumentName = null,
+            truncated = true
+        )
+
+        assertThat(action).isNotNull()
+        assertThat(action!!.type).isEqualTo(AgentActionType.CREATE_DOCUMENT)
+    }
+
+    @Test
+    fun `truncated flag defaults to false so existing callers keep working`() {
+        // 默认值存在的意义：适配器之外的构造点（连接测试等）不必关心这一位。
+        // 这条同时保证上面那些不传 truncated 的用例仍在测「没截断」这一支。
+        val action = extractImplicitWriteAction(
+            text = docText,
+            userMessage = "给这部分增加一些内容",
+            currentDocumentId = "doc-7",
+            currentDocumentName = "我的笔记"
+        )
+        assertThat(action).isNotNull()
+        assertThat(action!!.type).isEqualTo(AgentActionType.EDIT_DOCUMENT)
+    }
 }

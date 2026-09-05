@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  English counterpart of values/strings_errors.xml. Key sets must stay identical:
+  MissingTranslation is error-severity in this project, so a key added on one side
+  and not the other fails :app:lintDebug.
+-->
+<resources>
+
+    <!-- ==== Failure reasons: the six AppError categories (see ErrorMessages) ==== -->
+    <string name="error_reason_network">Network connection failed. Please check your connection.</string>
+    <string name="error_reason_timeout">The request timed out. Check your connection and try again.</string>
+    <string name="error_reason_storage">Could not read or write the file. Check available storage and try again.</string>
+    <string name="error_reason_database">Local data access failed. Please try again.</string>
+    <string name="error_reason_permission">Invalid path or insufficient permission. The operation was refused.</string>
+    <string name="error_reason_unknown">Something went wrong. Please try again.</string>
+
+    <!-- "<action> failed: <reason>". Both arguments are already-resolved strings, hence %s. -->
+    <string name="error_action_failed">%1$s failed: %2$s</string>
+
+    <!-- ==== AI request failures: the AiErrorMapper table; response bodies are never echoed ==== -->
+    <string name="ai_error_http_401">Invalid or expired API key. Check it in Settings.</string>
+    <string name="ai_error_http_403">Access denied. Check your API key and account permissions.</string>
+    <string name="ai_error_http_404">Endpoint not found. Check the base URL.</string>
+    <string name="ai_error_http_400">Malformed request. The model or parameters may be wrong.</string>
+    <string name="ai_error_http_429">Too many requests — rate limited. Please try again later.</string>
+    <string name="ai_error_http_server">The AI service is temporarily unavailable (HTTP %1$d). Try again later.</string>
+    <string name="ai_error_http_other">Request failed (HTTP %1$d)</string>
+    <!-- The only branch that keeps raw exception text; already redacted and truncated -->
+    <string name="ai_error_unknown_detail">Unexpected error: %1$s</string>
+    <string name="ai_error_not_configured">Configure an API key and a model in Settings first.</string>
+    <string name="ai_error_empty_response">The AI returned no content. The model may not support this request, max tokens may be too small, or it may be a reasoning model (the text lands in the reasoning field). Retry, or switch models / raise max tokens in Settings.</string>
+    <!--
+      Blocked by a content policy, so nothing at all was produced (signals: data.ai.isBlockedStopReason).
+      Kept apart from the empty-response line above because the remedies are opposites: that one
+      sends the user off to raise max tokens, whereas here the fix is to reword. %1$s is the
+      provider's own term (SAFETY / content_filter / RECITATION …), sanitized by
+      presentableBlockReason and otherwise left verbatim so it stays searchable.
+    -->
+    <string name="ai_error_content_blocked">The model\'s content policy blocked this request, so nothing was generated. Reword your prompt and retry, or switch models in Settings.</string>
+    <string name="ai_error_content_blocked_reason">The model\'s content policy blocked this request (%1$s), so nothing was generated. Reword your prompt and retry, or switch models in Settings.</string>
+    <!-- The agent's final text contained [[ACTION]] but no applicable change could be parsed -->
+    <string name="agent_notice_bad_action_block">The AI\'s action block was malformed, so no applicable change was produced.</string>
+    <!-- Server stop reason was length / max_tokens / MAX_TOKENS: the reply was cut off by the
+         output limit. The agent also refuses to overwrite a document with such a partial body,
+         hence the explicit "nothing was changed". -->
+    <string name="ai_notice_response_truncated">The reply hit the output limit and is incomplete (your document was left untouched). Raise max tokens in Settings and retry, or ask the AI to answer in several parts.</string>
+
+    <!-- ==== Action labels: one per core.util.UserAction entry ==== -->
+    <string name="action_read_file">Read file</string>
+    <string name="action_open_document">Open document</string>
+    <string name="action_create_document">Create document</string>
+    <string name="action_rename_document">Rename document</string>
+    <string name="action_delete_document">Delete document</string>
+    <string name="action_move_document">Move document</string>
+    <string name="action_create_folder">Create folder</string>
+    <string name="action_create_subfolder">Create subfolder</string>
+    <string name="action_rename_folder">Rename folder</string>
+    <string name="action_delete_folder">Delete folder</string>
+    <string name="action_move_folder">Move folder</string>
+    <string name="action_open_folder">Open folder</string>
+    <string name="action_search">Search</string>
+    <string name="action_refresh">Refresh</string>
+    <string name="action_save">Save</string>
+    <string name="action_save_on_exit">Save on exit</string>
+    <string name="action_export">Export</string>
+    <string name="action_version_snapshot">Version snapshot</string>
+    <string name="action_open_link">Open link</string>
+    <string name="action_create_import_library">Create import library</string>
+    <string name="action_import">Import</string>
+    <string name="action_import_folder">Import folder</string>
+    <string name="action_scan_folder">Scan folder</string>
+    <string name="action_add_image">Add image</string>
+    <string name="action_load_target_document">Load target document</string>
+    <string name="action_fetch_models">Fetch model list</string>
+    <string name="action_rag_enqueue">Queue RAG indexing</string>
+    <!-- Fallback label for agent actions: the model decides what the step actually does -->
+    <string name="action_apply_action">Operation</string>
+    <string name="action_check_update">Check for updates</string>
+    <string name="action_save_settings">Save settings</string>
+    <string name="action_export_config">Export settings</string>
+    <string name="action_import_config">Import settings</string>
+    <string name="action_export_crash_logs">Export crash logs</string>
+    <string name="action_connect">Connect</string>
+    <string name="action_sync">Sync</string>
+    <string name="action_list_remote_dir">List directory</string>
+    <string name="action_download_remote_file">Download</string>
+    <string name="action_upload_remote_file">Upload</string>
+    <string name="action_create_remote_dir">Create directory</string>
+
+    <!-- ==== File-name validation: the nine FileNameValidator branches ==== -->
+    <string name="validation_name_empty">The name cannot be empty.</string>
+    <string name="validation_name_too_long">The name is too long (%1$d characters max).</string>
+    <string name="validation_name_edge_space">The name cannot start or end with a space.</string>
+    <string name="validation_name_leading_dot">The name cannot start with a dot.</string>
+    <string name="validation_name_trailing_dot">The name cannot end with a dot.</string>
+    <string name="validation_name_dot_dot">The name cannot contain \'..\'.</string>
+    <string name="validation_name_invalid_chars">The name contains invalid characters: / \\ : * ? \" &lt; &gt; |</string>
+    <!-- %1$s is the name the user typed (CON / PRN …); echo it so they know which word to change -->
+    <string name="validation_name_reserved">\'%1$s\' is a reserved system name and cannot be used.</string>
+
+    <!-- ==== Image attachments: core.image.ImageProcessor ==== -->
+    <string name="image_error_unsupported_format">Unsupported image format. Choose a JPG, PNG, GIF or WEBP file.</string>
+    <string name="image_error_too_large">The image is too large (over %1$d MB). Choose a smaller one.</string>
+    <string name="image_error_decode_failed">Could not read the image. Please try again.</string>
+
+    <!-- ==== Folder-move cycle checks: data.repository.FolderRepositoryImpl ==== -->
+    <string name="folder_error_move_into_self">A folder cannot be moved into itself.</string>
+    <string name="folder_error_move_into_descendant">A folder cannot be moved into one of its own subfolders.</string>
+
+    <!--
+      ==== Same-level name clashes: DocumentRepositoryImpl / FolderRepositoryImpl ====
+      The clashing name (%1$s) is echoed back: a directory may hold several similar names,
+      and without naming one the user cannot tell which to change.
+    -->
+    <string name="document_error_duplicate_name">A document named \"%1$s\" already exists in this folder.</string>
+    <string name="folder_error_duplicate_name">A folder named \"%1$s\" already exists here.</string>
+
+    <!--
+      ==== Row missing from the database: DocumentRepositoryImpl ====
+      Only one cause: the document was deleted before this operation reached it (on expanded
+      layouts both panes are alive, so deleting on one side and renaming/moving on the other
+      races). An expected race — say "it is gone" rather than "something went wrong", and do
+      not spend crash-log quota on it.
+    -->
+    <string name="document_error_not_found">This document no longer exists.</string>
+    <string name="folder_error_not_found">This folder no longer exists.</string>
+
+    <!-- ==== Sync preconditions — both are fixable by the user in sync settings ==== -->
+    <string name="sync_error_disabled">Cloud sync is turned off.</string>
+    <string name="sync_error_config_incomplete">The WebDAV configuration is incomplete.</string>
+
+    <!-- ==== Export preconditions. No absolute paths: private storage paths mean nothing to users ==== -->
+    <string name="export_error_dir_missing">The export folder does not exist. Please try again.</string>
+    <string name="export_error_dir_not_writable">The export folder is not writable. Check available storage and try again.</string>
+
+    <!--
+      ==== WebDAV HTTP failures: data.remote.webdav.WebDavClient ====
+      401/403 get their own sentence: the server *did* answer, so "connection failed" would
+      send the user off to check the network instead of the credentials. Response bodies are
+      never echoed — WebDAV error pages are frequently whole HTML documents.
+    -->
+    <string name="webdav_error_unauthorized">Incorrect username or password (HTTP 401)</string>
+    <string name="webdav_error_forbidden">This account cannot access that directory (HTTP 403)</string>
+    <string name="webdav_error_insufficient_storage">The server is out of space, or the file is too large (HTTP %1$d)</string>
+    <!--
+      Each of the four below points at something the user can act on, so none may fall back to
+      "Upload failed: HTTP 412": 409 means create the parent folder, 412 means do nothing (the
+      next sync handles it as a conflict), 423/429 mean come back in a moment.
+    -->
+    <string name="webdav_error_conflict_path">Remote path unavailable (HTTP 409): the parent folder is missing, or a file already occupies that name.</string>
+    <string name="webdav_error_precondition_failed">The remote file was just changed on another device (HTTP 412). Skipped this time; the next sync handles it as a conflict.</string>
+    <string name="webdav_error_locked">The remote file is locked (HTTP 423). Please try again later.</string>
+    <string name="webdav_error_rate_limited">Too many requests; the server is rate limiting (HTTP 429). Please try again later.</string>
+    <!-- Fallback: used as the "reason" half of error_action_failed, hence status code only -->
+    <string name="webdav_error_http_status">HTTP %1$d</string>
+
+    <!--
+      ==== Update-package verification: core.update.ApkVerification / ApkDownloader ====
+      All four end with "The file was deleted": a package that fails verification is removed
+      on the spot, so the user does not have to clean it up.
+    -->
+    <string name="update_error_digest_mismatch">Update verification failed: the checksum differs from the published value. The file was deleted.</string>
+    <string name="update_error_package_mismatch">Update verification failed: this is not this app\'s installer (package %1$s). The file was deleted.</string>
+    <string name="update_error_signer_mismatch">Update verification failed: the signing certificate differs from the installed app; it may have been tampered with. The file was deleted.</string>
+    <string name="update_error_unreadable">Update verification failed: the file cannot be parsed as an APK. The file was deleted.</string>
+    <!--
+      Failures of the download itself, as opposed to the four "downloaded but untrustworthy" above.
+      %2$s carries the last candidate's real reason (a verdict or already-redacted exception text),
+      never a vague "all sources are unreachable": "signature mismatch" and "no network" call for
+      completely different user actions.
+    -->
+    <string name="update_error_storage_unavailable">Storage is unavailable. Check the storage state and try again.</string>
+    <string name="update_error_download_failed">Download failed</string>
+    <string name="update_error_all_sources_failed">Download failed after trying %1$d source(s): %2$s</string>
+    <!-- The installer was refused: package and signer are checked once more before launching it -->
+    <string name="update_error_install_refused">Installation blocked: %1$s</string>
+    <!--
+      Failures of launching the installer itself, kept apart from the verification verdicts above:
+      none of these three is a problem with the package — the path is bad, the file is already gone,
+      or startActivity threw.
+    -->
+    <string name="update_error_install_bad_path">Installation failed: invalid path.</string>
+    <string name="update_error_install_missing_file">Installation failed: the installer file is gone. Please download it again.</string>
+    <!-- %1$s is already redacted, flattened and truncated by ErrorHandler.safeDetail -->
+    <string name="update_error_install_failed_detail">Installation failed: %1$s</string>
+
+    <!-- ==== SAF open failures: the location the user picked is not readable/writable ==== -->
+    <string name="saf_error_write_target">Could not write to the selected location.</string>
+    <string name="saf_error_read_source">Could not read the selected file.</string>
+
+    <!-- ==== External folder (SAF workspace): data.repository.WorkspaceRepositoryImpl ====
+         The first two are shared with domain.usecase.importing.ImportFolderUseCase.scan:
+         two different features, but the same failure (the SAF tree the user just picked is
+         unreachable / unreadable) with the same remedy, so they deliberately share one sentence. -->
+    <string name="workspace_error_open_failed">Can\'t access the selected folder. Please choose it again.</string>
+    <string name="workspace_error_no_read_permission">No read permission for that folder. Please choose it again and grant access.</string>
+    <string name="workspace_error_none_open">No folder is currently open.</string>
+    <string name="workspace_error_file_unreadable">Can\'t open this file. It may have been moved or deleted.</string>
+    <string name="workspace_error_file_not_writable">Can\'t write to this file. It may be read-only.</string>
+    <string name="workspace_error_default_dir_invalid">The default folder is no longer available. Pick a new one in Settings → Default folder.</string>
+
+    <!-- ==== Folder import: domain.usecase.importing.ImportFolderUseCase ====
+         A race, not user error: some ROMs' picker returns as soon as a folder is tapped, so deeper
+         folders are chosen by browsing in-app, and the subfolder may be renamed or deleted between
+         browsing and scanning. %1$s echoes the folder name the user just tapped (not a full path). -->
+    <string name="import_error_subfolder_missing">Subfolder \"%1$s\" is gone. It may have been moved or deleted. Please go back and choose again.</string>
+
+    <!--
+      ==== Settings backup files: core.config.ConfigBackupCodec / domain.usecase.config ====
+      This file is user-editable external input, so each message must name the exact problem.
+    -->
+    <!-- %1$s is already redacted by ErrorHandler.safeDetail: kotlinx echoes the source text
+         around the failure, which may hold an API key or a WebDAV password -->
+    <string name="config_error_not_json">Could not parse the file as JSON: %1$s</string>
+    <string name="config_error_not_yumark">This is not a YuMark settings file (no format=\"%1$s\" marker).</string>
+    <string name="config_error_bad_schema">Schema version %1$d is not valid.</string>
+    <string name="config_error_schema_too_new">Schema version %1$d is newer than the supported %2$d. Please update YuMark first.</string>
+    <string name="config_error_no_sections">The file contains no importable settings sections.</string>
+    <string name="config_error_too_large">The file is larger than %1$d KB, which does not look like a YuMark settings file.</string>
+
+    <!--
+      ==== WebView failures: core.webview.WebViewFailure ====
+      URLs and descriptions are never echoed; HTTP status codes stay, they are a
+      searchable clue for the user.
+    -->
+    <string name="webview_error_not_ready">The renderer did not become ready. Please try again.</string>
+    <string name="webview_error_generic">The page failed to load. Please try again.</string>
+    <string name="webview_error_host_lookup">Could not resolve the host. Please check your connection.</string>
+    <string name="webview_error_unsupported_auth">Unsupported authentication scheme.</string>
+    <string name="webview_error_auth">Authentication failed.</string>
+    <string name="webview_error_proxy_auth">Proxy authentication failed.</string>
+    <string name="webview_error_connect">Could not connect. Please check your connection.</string>
+    <string name="webview_error_io">Failed to read the content. Please try again.</string>
+    <string name="webview_error_timeout">Loading timed out. Please try again.</string>
+    <string name="webview_error_redirect_loop">Too many redirects.</string>
+    <string name="webview_error_unsupported_scheme">Unsupported link type.</string>
+    <string name="webview_error_ssl">Could not establish a secure connection.</string>
+    <string name="webview_error_bad_url">The link is malformed.</string>
+    <string name="webview_error_file">Failed to read the file. Please check available storage.</string>
+    <string name="webview_error_file_not_found">The file to load was not found.</string>
+    <string name="webview_error_too_many_requests">Too many requests. Please try again later.</string>
+    <string name="webview_error_unsafe_resource">The content was blocked by a security policy.</string>
+    <string name="webview_http_forbidden">You do not have access to this content (HTTP %1$d)</string>
+    <string name="webview_http_not_found">The content does not exist (HTTP %1$d)</string>
+    <string name="webview_http_timeout">The server response timed out (HTTP %1$d)</string>
+    <!-- Only ever used for 429, so the status code is inlined -->
+    <string name="webview_http_too_many">Too many requests. Please try again later (HTTP 429)</string>
+    <string name="webview_http_server">Server error (HTTP %1$d)</string>
+    <string name="webview_http_client">Loading the content was refused (HTTP %1$d)</string>
+    <string name="webview_render_crash">The rendering process quit unexpectedly. Please try again.</string>
+    <!-- Routine on low-end devices, not a defect: say "low memory", not "error" -->
+    <string name="webview_render_reclaimed">The system is low on memory and reclaimed the rendering process. Please try again.</string>
+    <!-- Whole-render timeout in WebViewDocumentRenderer, distinct from a single load timeout -->
+    <string name="webview_render_timeout">Rendering timed out — the page never became ready. Please try again.</string>
+    <!--
+      Long-image export height ceiling. %1$d is the rendered height, %2$d the limit; both numbers
+      are shown because "slightly over" and "ten times over" call for different user actions.
+      This used to be a silent crop plus one Log.w — the export still reported success and the
+      user got an image that ends mid-sentence.
+    -->
+    <string name="export_image_too_tall">This document is too long for a single image (rendered height %1$d px, limit %2$d px). Export as PDF instead, or split the document and retry.</string>
+    <!--
+      Encrypted-storage write failure. Shared by the AI API key and the WebDAV password: same cause,
+      same consequence, same user remedy, so a second key would add a translation without adding meaning.
+      Saying "other settings were saved" is required — the write is split, and the plaintext half still lands.
+    -->
+    <string name="secret_write_failed">Could not write to encrypted storage: your password / API key was not saved, but the other settings were. This usually means the encryption key was invalidated by a screen-lock change or a system restore. Restart the app and retry; if it keeps failing, set your screen lock again.</string>
+</resources>

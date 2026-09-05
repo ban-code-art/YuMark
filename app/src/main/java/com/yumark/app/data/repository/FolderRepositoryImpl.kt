@@ -1,5 +1,10 @@
 package com.yumark.app.data.repository
 
+import android.util.Log
+import com.yumark.app.R
+import com.yumark.app.core.util.FriendlyValidationException
+import com.yumark.app.core.util.PathSafety
+import com.yumark.app.core.util.UiMessage
 import com.yumark.app.data.local.db.dao.DocumentDao
 import com.yumark.app.data.local.db.dao.FolderDao
 import com.yumark.app.data.local.file.FileManager
@@ -13,6 +18,7 @@ import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.cancellation.CancellationException
 
 @Singleton
 class FolderRepositoryImpl @Inject constructor(
@@ -23,7 +29,7 @@ class FolderRepositoryImpl @Inject constructor(
 ) : FolderRepository {
 
     override suspend fun getFolderById(id: String): Result<Folder> = runCatching {
-        val entity = folderDao.getById(id) ?: throw Exception("Folder not found: $id")
+        val entity = folderDao.getById(id) ?: folderNotFound()
         mapper.toDomain(entity)
     }
 
@@ -32,7 +38,7 @@ class FolderRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getFoldersByParent(parentId: String?): Result<List<Folder>> = runCatching {
-        folderDao.getByParent(parentId).map { mapper.toDomain(it) }
+        folderDao.getByParentIncludingRoot(parentId).map { mapper.toDomain(it) }
     }
 
     override suspend fun getFolderTree(): Result<FolderTree> = runCatching {
@@ -46,6 +52,7 @@ class FolderRepositoryImpl @Inject constructor(
     }
 
     override suspend fun createFolder(name: String, parentId: String?): Result<Folder> = runCatching {
+        requireNoFolderNameConflict(name, parentId, excludeId = null)
         val id = UUID.randomUUID().toString()
         // order 取 MAX(order)+1，避免并发创建同父文件夹时 size 竞态导致 order 重复
         val order = folderDao.maxOrder(parentId) + 1
@@ -73,41 +80,37 @@ class FolderRepositoryImpl @Inject constructor(
     }
 
     override suspend fun renameFolder(id: String, newName: String): Result<Unit> = runCatching {
-        val entity = folderDao.getById(id) ?: throw Exception("Folder not found: $id")
+        val entity = folderDao.getById(id) ?: folderNotFound()
+        requireNoFolderNameConflict(newName, entity.parentId, excludeId = id)
         // 改名前先算出旧镜像目录（依赖旧名称链）
         val oldMirror = importMirrorDir(id)
         folderDao.update(entity.copy(name = newName))
-        // 导入库子树：同步重命名 import_assets 镜像目录，否则该子树下文档的图片全部失效
-        if (oldMirror != null && oldMirror != fileManager.getImportAssetsDir() && oldMirror.exists()) {
-            oldMirror.renameTo(File(oldMirror.parentFile, FileManager.sanitizeImportSegment(newName)))
-        }
+        // 导入库子树：同步搬走 import_assets 镜像目录，否则该子树下文档的图片全部失效
+        relocateImportMirror(oldMirror, id)
     }
 
     override suspend fun deleteFolder(id: String, deleteContents: Boolean): Result<Unit> = runCatching {
         // 删除前先算镜像目录（删完 Room 记录就找不到名称链了）
         val mirror = importMirrorDir(id)
         if (!deleteContents) {
-            // 不删除内容时，检查是否为空
-            val documents = documentDao.getByFolder(id)
-            if (documents.isNotEmpty()) throw Exception("Folder is not empty")
-            val subfolders = folderDao.getByParent(id)
-            if (subfolders.isNotEmpty()) throw Exception("Folder has subfolders")
+            // 不删除内容时，检查是否为空。
+            // 这两条刻意保留裸 IllegalStateException、不配资源文案：全仓库两个调用点
+            // （FileListScreen.kt:716、EditorViewModel.kt:778）都传 deleteContents = true，
+            // 这条分支只是接口契约的守卫。真跑到这儿说明有新调用方用错了参数——那是编程错误，
+            // 归到 Unknown 去占一格崩溃日志正是想要的行为，而为不可达分支加两个字符串键是纯浪费。
+            val documents = documentDao.getByFolderIncludingRoot(id)
+            if (documents.isNotEmpty()) throw IllegalStateException("Folder is not empty")
+            val subfolders = folderDao.getByParentIncludingRoot(id)
+            if (subfolders.isNotEmpty()) throw IllegalStateException("Folder has subfolders")
 
             // 仅删除空文件夹
             folderDao.deleteById(id)
         } else {
             // 级联删除所有内容
-            deleteFolderRecursively(id)
+            deleteFolderSubtree(id)
         }
         // 导入库子树：清理 import_assets 镜像，避免图片孤儿文件占用存储
-        if (mirror != null) {
-            if (mirror == fileManager.getImportAssetsDir()) {
-                // 删除导入库根：清空镜像内容但保留目录本身
-                mirror.listFiles()?.forEach { it.deleteRecursively() }
-            } else {
-                mirror.deleteRecursively()
-            }
-        }
+        deleteImportMirror(mirror)
     }
 
     /**
@@ -130,39 +133,161 @@ class FolderRepositoryImpl @Inject constructor(
     }
 
     /**
-     * 递归删除文件夹及其所有内容
-     * @param folderId 要删除的文件夹 ID
+     * 把 import_assets 镜像目录从 [oldMirror] 搬到 [folderId] 当前名称链对应的位置。
+     *
+     * 改名和移动都要调，且必须在 Room 记录已经更新**之后**——新位置是照着新名称链算的。
+     *
+     * 选「搬目录」而不是「改写正文里的相对路径」：图片引用的 base 就是文件夹名称链
+     * （见 EditorViewModel 的导入库图片解析），把目录搬到新链上，整棵子树的引用一次就全对了，
+     * 子孙文件夹的镜像本来就躺在这个目录里面。改写正文得逐篇读写用户数据，
+     * 正则出一次错就是把文档改坏，代价完全不对等。
+     *
+     * 失败只记日志：库里的改名/移动已经生效，为一次搬目录失败把它回滚，用户看到的是
+     * 「重命名失败」却又找不到哪里不对；而图片失效是可逆的（改回原名即可）。
      */
-    private suspend fun deleteFolderRecursively(folderId: String) {
-        // 1. 递归删除所有子文件夹
-        val subfolders = folderDao.getByParent(folderId)
-        subfolders.forEach { subfolder ->
-            deleteFolderRecursively(subfolder.id)
+    private suspend fun relocateImportMirror(oldMirror: File?, folderId: String) {
+        val assetsRoot = fileManager.getImportAssetsDir()
+        // oldMirror 等于镜像根说明动的是导入库根本身：镜像根不跟着改名，它是导入时的固定落点
+        if (oldMirror == null || oldMirror == assetsRoot || !oldMirror.isDirectory) return
+        val newMirror = importMirrorDir(folderId) ?: return
+        if (newMirror == oldMirror || newMirror == assetsRoot) return
+        try {
+            PathSafety.requireInside(oldMirror, assetsRoot, label = "Import mirror")
+            PathSafety.requireInside(newMirror, assetsRoot, label = "Import mirror")
+            // 目标已存在：不覆盖别人的镜像，宁可让这一棵子树的图片暂时失效
+            if (newMirror.exists()) return
+            newMirror.parentFile?.mkdirs()
+            if (oldMirror.renameTo(newMirror)) return
+            // 同分区内 renameTo 正常都会成功；失败时退回复制+删除，宁可多占一次磁盘也别丢图
+            if (oldMirror.copyRecursively(newMirror, overwrite = false)) oldMirror.deleteRecursively()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "迁移导入库镜像目录失败：${oldMirror.path}", e)
         }
+    }
 
-        // 2. 删除该文件夹下的所有文档
-        val documents = documentDao.getByFolder(folderId)
-        documents.forEach { document ->
-            documentDao.deleteById(document.id)
-            // 注意：这里不删除文档文件，因为那是 DocumentRepository 的职责
-            // 实际应用中应该调用 DocumentRepository.deleteDocument()
+    /** 清理 [mirror] 镜像目录；失败只记日志，理由同 [deleteFilesOf]。 */
+    private fun deleteImportMirror(mirror: File?) {
+        if (mirror == null) return
+        val assetsRoot = fileManager.getImportAssetsDir()
+        runCatching {
+            PathSafety.requireInside(mirror, assetsRoot, label = "Import mirror")
+            if (mirror == assetsRoot) {
+                // 删的是导入库根：清空镜像内容但保留目录本身
+                mirror.listFiles()?.forEach { it.deleteRecursively() }
+            } else {
+                mirror.deleteRecursively()
+            }
+        }.onFailure { e -> Log.w(TAG, "清理导入库镜像目录失败：${mirror.path}", e) }
+    }
+
+    /**
+     * 级联删除 [folderId] 子树：先算出待删集合，再在一个事务里删库，最后删磁盘。
+     *
+     * 三段的先后就是这个函数的全部要点：
+     * - 集合必须先算完。边查边删的话，父文件夹一没，`documents.folder_id` 上的外键
+     *   （SET_NULL）会把还没处理到的文档冲进根目录，正文文件和索引行就永远回收不了了。
+     * - 库改动收进一个事务（[FolderDao.deleteSubtree]），任一条失败整体回滚，
+     *   不会留下「文件夹没了、文档还挂在上面」的中间态。同步墓碑也在那个事务里立
+     *   （否则这一子树里同步过的文档下次同步会被整棵地拉回来）。
+     * - 磁盘删除放最后，且失败只记日志（见 [deleteFilesOf]）。反过来先删盘，
+     *   失败时就是正文没了、库行还在，用户点进去是空白文档——比留几个垃圾文件坏得多。
+     */
+    private suspend fun deleteFolderSubtree(folderId: String) {
+        // 一次取全表再在内存里走链：比逐层 getByParent 少很多次往返，也绕开了
+        // getByParent 在 parentId 为 null 时恒返回空表的 NULL 陷阱
+        val parentById = folderDao.getAll().associate { it.id to it.parentId }
+        val folderIds = folderSubtreeIds(folderId, parentById)
+        val documentIds = folderIds.chunked(SQL_BIND_CHUNK)
+            .flatMap { chunk -> folderDao.documentIdsInFolders(chunk) }
+        // 图片文件名要在删库前拿：images 行会被 documents 的 CASCADE 带走，
+        // 删完再查就只剩磁盘上一堆再也没人引用得到的文件（cleanOrphanedImages 也找不到它们）
+        val imageFileNames = documentIds.chunked(SQL_BIND_CHUNK)
+            .flatMap { chunk -> folderDao.imageFileNamesOf(chunk) }
+
+        folderDao.deleteSubtree(folderIds, documentIds, System.currentTimeMillis())
+        deleteFilesOf(documentIds, imageFileNames)
+    }
+
+    /**
+     * 删除已经从库里摘掉的正文文件与图片文件。
+     *
+     * 每一处失败都只记日志：事务已经提交，为了一个删不掉的文件回滚整次删除，
+     * 只会让用户卡在一个永远删不掉的文件夹上；留下来的是垃圾文件，不是数据不一致。
+     *
+     * 图片那半交给 [FileManager.deleteImageFiles]（同样是逐个 runCatching + PathSafety 段比较
+     * 校验 + 失败记日志）：删单篇文档也要做同一件事，两处各抄一份的话，那道包含校验的实际
+     * 强度就等于其中更弱的那一份。
+     */
+    private suspend fun deleteFilesOf(documentIds: List<String>, imageFileNames: List<String>) {
+        documentIds.forEach { docId ->
+            fileManager.deleteDocumentFile(docId)
+                .onFailure { e -> Log.w(TAG, "删除文档正文文件失败：${docId}", e) }
         }
-
-        // 3. 最后删除文件夹本身
-        folderDao.deleteById(folderId)
+        fileManager.deleteImageFiles(imageFileNames)
     }
 
     override suspend fun moveFolder(id: String, targetParentId: String?): Result<Unit> = runCatching {
-        val entity = folderDao.getById(id) ?: throw Exception("Folder not found: $id")
+        val entity = folderDao.getById(id) ?: folderNotFound()
         // 防环:不能移动到自身,也不能移动到自己的子孙(否则子树脱离根、构建树时死循环)
-        if (targetParentId == id) throw IllegalArgumentException("不能移动到自身")
+        if (targetParentId == id) throw FriendlyValidationException(
+            UiMessage.Res(R.string.folder_error_move_into_self)
+        )
         if (targetParentId != null && isDescendant(targetParentId, ancestorId = id)) {
-            throw IllegalArgumentException("不能移动到自己的子文件夹")
+            throw FriendlyValidationException(
+                UiMessage.Res(R.string.folder_error_move_into_descendant)
+            )
         }
+        // 目标位置已有同名文件夹就先拦住：两棵子树会算出同一个镜像目录，
+        // 下面的镜像迁移也就无处可搬（会看到目标已存在而放弃）
+        requireNoFolderNameConflict(entity.name, targetParentId, excludeId = id)
+        // 移动前先算旧镜像目录（依赖旧名称链）
+        val oldMirror = importMirrorDir(id)
         // 追加到目标文件夹末尾,避免与目标内既有 order 冲突
         val newOrder = folderDao.maxOrder(targetParentId) + 1
         folderDao.update(entity.copy(parentId = targetParentId, order = newOrder))
+        // 跨导入库边界移动会改变名称链：镜像目录必须跟着搬，否则整棵子树的相对图片引用失效。
+        // 移出导入库时 importMirrorDir 返回 null，此时旧镜像原地留着——那些图片已经没有
+        // 名称链能指到它们了，清理留给「孤儿资源清理」，这里绝不能删（用户还可能移回来）。
+        relocateImportMirror(oldMirror, id)
     }
+
+    /**
+     * 同一父级下不许出现同名文件夹。
+     *
+     * 挡住的不只是「列表里两行长得一样」：导入库镜像目录是按**文件夹名**逐段拼出来的
+     * （见 [importMirrorDir]），两个同名兄弟会指向同一个镜像目录，图片直接互相覆盖。
+     *
+     * 抛 [FriendlyValidationException] 而不是普通异常：它带 [UiMessage] 且被 ErrorHandler
+     * 认作用户可见错误，文案会原样进 Snackbar，而不是被兜底成「出现未知问题，请重试」。
+     */
+    private suspend fun requireNoFolderNameConflict(
+        name: String,
+        parentId: String?,
+        excludeId: String?
+    ) {
+        val siblings = folderDao.getByParentIncludingRoot(parentId).map { NamedEntry(it.id, it.name) }
+        val conflict = findNameConflict(siblings, name, excludeId) ?: return
+        throw FriendlyValidationException(
+            UiMessage.of(R.string.folder_error_duplicate_name, conflict.name)
+        )
+    }
+
+    /**
+     * 库里查不到这一行。与 `DocumentRepositoryImpl.documentNotFound()` 同一套理由：
+     *
+     * 从前三处都是 `throw Exception("Folder not found: $id")`，代价有两笔——
+     *  - `ErrorHandler.classify` 把裸 `Exception` 归到 `Unknown`，用户看到「出现未知问题，
+     *    请重试」，而真正发生的事是「这个文件夹已经被删掉了」，说不清就会一直重试；
+     *  - `Unknown` 的 `worthRecording` 为 true，每一次并发删除都吃掉一格崩溃日志配额
+     *    （总共 20 格）。平板双栏下一栏删文件夹、另一栏对同一行点改名/移动是很平常的竞态。
+     *
+     * 返回 [Nothing] 以便直接写在 `?:` 右边。刻意不带 id：文案是给用户看的，
+     * 而这条失败按设计不进日志，UUID 没有去处。
+     */
+    private fun folderNotFound(): Nothing =
+        throw FriendlyValidationException(UiMessage.Res(R.string.folder_error_not_found))
 
     /** folderId 是否是 ancestorId 的后代(沿 parentId 链上溯,带深度/循环 guard)。 */
     private suspend fun isDescendant(folderId: String, ancestorId: String): Boolean {
@@ -201,7 +326,9 @@ class FolderRepositoryImpl @Inject constructor(
         }
 
         val folder = parentId?.let { folderDao.getById(it) }?.let { mapper.toDomain(it) }
-        val children = folderDao.getByParent(parentId)
+        // 必须走 IncludingRoot 版本：这个递归的入口就是 parentId = null（见 [getFolderTree]），
+        // 用 `parent_id = NULL` 的那版时根级子文件夹一个都查不到，整棵树恒为空。
+        val children = folderDao.getByParentIncludingRoot(parentId)
 
         // 将当前文件夹添加到已访问集合
         if (parentId != null) {
@@ -212,11 +339,75 @@ class FolderRepositoryImpl @Inject constructor(
             buildFolderTree(child.id, depth + 1, visited)
         }
 
-        val documentCount = documentDao.getByFolder(parentId).size
+        val documentCount = documentDao.getByFolderIncludingRoot(parentId).size
         return FolderTree(folder, childTrees, documentCount)
     }
 
     companion object {
         private const val MAX_FOLDER_DEPTH = 100  // 最大文件夹层级
+        private const val TAG = "FolderRepository"
+
+        /**
+         * 单条 `IN (:ids)` 里最多塞多少个 id。
+         *
+         * SQLite 的绑定变量上限在旧版 Android 上是 999，超了直接抛
+         * `too many SQL variables`——删一个装了上千篇文档的文件夹正好会撞上。
+         * 取 400 是留足余量，反正多切几段的代价只是多几次语句执行。
+         */
+        private const val SQL_BIND_CHUNK = 400
     }
+}
+
+/**
+ * 一条「有 id 有名字」的条目，重名判定只需要这两样。
+ *
+ * 刻意不用 Room 实体：判定逻辑因此能在 JVM 单测里直接跑，不必拖上整个数据库。
+ */
+internal data class NamedEntry(val id: String, val name: String)
+
+/**
+ * 在同级条目 [siblings] 里找出与 [name] 重名的那一个，没有则返回 null。
+ *
+ * 两个细节是刻意的：
+ * - [excludeId] 用来在改名时排掉自己，否则任何一次「名字没改」的保存都会被自己挡下来；
+ * - 比较前 trim，但**不**忽略大小写。忽略大小写会让导入侧的「同名子文件夹复用」判定和这里
+ *   打起来：源目录同时有 `Notes/` 和 `notes/` 时，复用找不到、创建又被拦，整次导入直接失败。
+ *   只差大小写的两个条目留给导出侧去消重。
+ *
+ * 导入侧（`ImportFolderUseCase.resolveFolderPath`）复用的就是本函数，不再自己写一遍比较——
+ * 它从前是裸 `it.name == segment`，少了 trim 这一步，于是「Notes 」这样的段落正好撞上上面
+ * 描述的死局。规则只留一份，两侧才不会再分家。
+ *
+ * 返回的是**已存在**的那一条，好让提示语回显库里真实的名字，而不是用户刚敲的那个。
+ */
+internal fun findNameConflict(
+    siblings: List<NamedEntry>,
+    name: String,
+    excludeId: String? = null
+): NamedEntry? {
+    val target = name.trim()
+    return siblings.firstOrNull { it.id != excludeId && it.name.trim() == target }
+}
+
+/**
+ * 从 [rootId] 出发，按 parentId 关系列出整棵子树的文件夹 id（含 [rootId] 本身，广度优先）。
+ *
+ * [parentById] 是「id → parentId」的全量快照（一次 `getAll()` 就够），因此这里是纯内存计算：
+ * 删除前先把待删集合算完，才能在删库之后还知道该去磁盘上删哪些文件。
+ *
+ * 已访问集合同时兼作环检测：库里真出现 A→B→A 时只会各访问一次然后停下，
+ * 不会像沿链递归那样栈溢出。[rootId] 不在 [parentById] 里（已被并发删掉）时只返回它自己。
+ */
+internal fun folderSubtreeIds(rootId: String, parentById: Map<String, String?>): List<String> {
+    val childrenByParent = parentById.entries.groupBy({ it.value }, { it.key })
+    val result = mutableListOf<String>()
+    val seen = mutableSetOf(rootId)
+    val queue = ArrayDeque<String>()
+    queue.addLast(rootId)
+    while (queue.isNotEmpty()) {
+        val id = queue.removeFirst()
+        result += id
+        childrenByParent[id]?.forEach { child -> if (seen.add(child)) queue.addLast(child) }
+    }
+    return result
 }

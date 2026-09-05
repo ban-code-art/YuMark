@@ -1,6 +1,9 @@
 package com.yumark.app.data.mapper
 
 import com.google.common.truth.Truth.assertThat
+import com.yumark.app.data.local.db.entity.MessageEntity
+import com.yumark.app.domain.model.AgentAction
+import com.yumark.app.domain.model.AgentActionType
 import com.yumark.app.domain.model.AgentStep
 import com.yumark.app.domain.model.Message
 import com.yumark.app.domain.model.MessageAttachment
@@ -53,5 +56,49 @@ class AiMappersTest {
     fun `empty attachments map to null json`() {
         val msg = Message(id = "m4", conversationId = "c1", role = MessageRole.USER, content = "hi")
         assertThat(msg.toEntity().attachmentsJson).isNull()
+    }
+
+    @Test
+    fun `agent action base fingerprint survives entity round trip`() {
+        val msg = Message(
+            id = "m5",
+            conversationId = "c1",
+            role = MessageRole.ASSISTANT,
+            content = "我改好了",
+            agentAction = AgentAction(
+                type = AgentActionType.EDIT_DOCUMENT,
+                description = "编辑文档",
+                targetDocumentId = "doc-1",
+                content = "新全文",
+                baseContentHash = "a".repeat(64)
+            )
+        )
+        val back = msg.toEntity().toDomain()
+        assertThat(back.agentAction).isEqualTo(msg.agentAction)
+    }
+
+    @Test
+    fun `legacy agent action json without the fingerprint key decodes to null`() {
+        // baseContentHash 落地之前存进 agentActionJson 的提议：解码必须成功且指纹为 null，
+        // 而不是整条 agentAction 解不出来（runCatching 会把它吞成 null，那张卡片就凭空消失）。
+        val legacyJson = """
+            {"type":"EDIT_DOCUMENT","description":"编辑文档","targetDocumentId":"doc-1",
+             "content":"新全文","status":"PENDING"}
+        """.trimIndent()
+        val entity = MessageEntity(
+            id = "m6",
+            conversationId = "c1",
+            role = MessageRole.ASSISTANT.name,
+            content = "我改好了",
+            agentActionJson = legacyJson,
+            timestamp = 0L
+        )
+
+        val action = entity.toDomain().agentAction
+
+        assertThat(action).isNotNull()
+        assertThat(action!!.baseContentHash).isNull()
+        assertThat(action.content).isEqualTo("新全文")
+        assertThat(action.targetDocumentId).isEqualTo("doc-1")
     }
 }

@@ -4,7 +4,6 @@ import com.yumark.app.domain.model.RemoteEntry
 import org.w3c.dom.Element
 import org.xml.sax.InputSource
 import java.io.StringReader
-import java.net.URLDecoder
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -36,41 +35,45 @@ object WebDavXml {
         for (i in 0 until responses.length) {
             val response = responses.item(i) as? Element ?: continue
             val href = firstText(response, "href") ?: continue
-            val decoded = decodeHref(href)
-            val isDir = hasCollection(response) || decoded.endsWith("/")
-            val name = nameFromPath(decoded)
+            // 尾斜杠判目录必须看**未解码**的 href：那个斜杠是结构字符，永远不会被百分号编码，
+            // 而解码后的名字里可能本来就带斜杠（`%2F`）。
+            val isDir = hasCollection(response) || href.trim().endsWith("/")
+            val name = WebDavPaths.nameFromHref(href)
             if (name.isEmpty()) continue
+            // 弱/强这一位必须在规范化**之前**取：剥掉 `W/` 就再也认不出来了，而「条件上传能不能用」
+            // 全看它——弱验证器拿去当 If-Match 是永久 412，理由写在 [WebDavEtags] 的注释里。
+            val rawEtag = firstText(response, "getetag")
             result.add(
                 RemoteEntry(
                     name = name,
-                    etag = firstText(response, "getetag")?.let(::normalizeEtag),
+                    etag = WebDavEtags.normalize(rawEtag),
                     lastModifiedMs = firstText(response, "getlastmodified")?.let(::parseHttpDate),
-                    isDirectory = isDir
+                    isDirectory = isDir,
+                    etagWeak = WebDavEtags.isWeak(rawEtag)
                 )
             )
         }
         return result
     }
 
+    /**
+     * 取 [scope] 下第一个**有内容**的同名元素文本。
+     *
+     * 不能只看 `item(0)`：一个 `<response>` 允许挂多个 `<propstat>`，服务器常把取到的属性放 200 那块、
+     * 把取不到的放 404 那块（`<d:getetag/>` 空元素）。两块的先后顺序不保证，若 404 那块在前，
+     * 取 item(0) 会拿到空串，于是「远端有 ETag」被误判成「服务器不给 ETag」，同步退化成只比内容哈希。
+     */
     private fun firstText(scope: Element, localName: String): String? {
         val nodes = scope.getElementsByTagNameNS(DAV_NS, localName)
-        if (nodes.length == 0) return null
-        return nodes.item(0).textContent?.trim()?.ifEmpty { null }
+        for (i in 0 until nodes.length) {
+            val text = nodes.item(i).textContent?.trim()
+            if (!text.isNullOrEmpty()) return text
+        }
+        return null
     }
 
     private fun hasCollection(response: Element): Boolean =
         response.getElementsByTagNameNS(DAV_NS, "collection").length > 0
-
-    private fun decodeHref(href: String): String =
-        runCatching { URLDecoder.decode(href, "UTF-8") }.getOrDefault(href)
-
-    /** 取路径末段为文件名；目录（末尾 '/'）先去尾斜杠。 */
-    private fun nameFromPath(path: String): String =
-        path.trimEnd('/').substringAfterLast('/')
-
-    /** 去掉弱标记 `W/` 与包裹引号。 */
-    private fun normalizeEtag(raw: String): String =
-        raw.removePrefix("W/").trim().trim('"')
 
     /** RFC 1123（HTTP-date）→ epoch 毫秒；解析失败返回 null。 */
     private fun parseHttpDate(raw: String): Long? {

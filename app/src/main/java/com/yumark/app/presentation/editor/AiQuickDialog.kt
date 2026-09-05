@@ -17,11 +17,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.yumark.app.R
+import com.yumark.app.core.util.AiErrorMapper
+import com.yumark.app.core.util.UiMessage
 import com.yumark.app.domain.model.AgentAction
 import com.yumark.app.domain.model.AgentActionStatus
 import com.yumark.app.domain.model.AgentActionType
@@ -33,7 +37,10 @@ import com.yumark.app.domain.repository.AiConfigRepository
 import com.yumark.app.data.ai.AiAdapterFactory
 import com.yumark.app.presentation.ai.agent.AgentActionCard
 import com.yumark.app.presentation.ai.common.MessageBubble
-import com.yumark.app.presentation.common.isNearBottom
+import com.yumark.app.presentation.common.resolveOrNull
+import com.yumark.app.presentation.theme.AppIconSize
+import com.yumark.app.presentation.theme.AppShapes
+import com.yumark.app.presentation.theme.AppSpacing
 import com.yumark.app.domain.model.Message
 import com.yumark.app.domain.model.MessageRole
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -46,11 +53,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 
 enum class QuickAiMode {
     AI_QUERY,    // 询问 AI（只读显示）
@@ -59,6 +63,38 @@ enum class QuickAiMode {
 
 /** 注入 system prompt 的文档上下文字符预算。超过则截取并提示模型已截断。 */
 private const val DOC_CONTEXT_CHAR_BUDGET = 12000
+
+/**
+ * 修改通道的触发词：独立成词的 `yy`（大小写不敏感）。
+ *
+ * 授权判定与「剥离后交给模型的指令」**必须共用这一个 Regex**。从前授权用
+ * `lowercase().contains("yy")`、剥离用 `Regex("(?i)yy")` 全局替换，两套规则各说一套：
+ * 「把日期格式改成 yyyy-MM-dd」既会被误判成授权修改，还会被剥成「把日期格式改成 -MM-dd」——
+ * 模型收到的需求已经被改坏，输出必然是错的，而用户完全看不出发生了什么。
+ *
+ * 前后各一个拉丁字母的否定环视，是为了只放行「yy」这个独立触发词：`yyyy`、`yyyy-MM-dd`、
+ * `myyy` 都不匹配，而中文紧贴着写的「这段yy改写」照样匹配（CJK 不是 `[a-z]`），
+ * 因为用户就是这么打字的。`(?i)` 让环视里的 `[a-z]` 同时挡住大写。
+ */
+private val EDIT_TRIGGER = Regex("(?i)(?<![a-z])yy(?![a-z])")
+
+/**
+ * 回放给模型的历史条数上限（不含本轮新消息）。
+ *
+ * 划词对话是「就这一段文本来回几轮」的场景，10 条足够覆盖真实追问深度；再往上加只是把
+ * 早已被后续轮次覆盖掉的内容重新塞进上下文窗口，挤掉 system prompt 里的文档全文。
+ */
+private const val HISTORY_MAX_MESSAGES = 10
+
+/**
+ * 回放历史的字符预算。
+ *
+ * 与 [DOC_CONTEXT_CHAR_BUDGET] 分开算：文档全文在 system prompt 里，历史在 messages 里，
+ * 两者加起来才是一次请求的体积。6000 字约等于 3–4k token，留给文档 12000 字之后仍有余量。
+ * 超预算时从**最旧**的一端丢（见 [AiQuickViewModel.buildRequestMessages]），因为最近的追问
+ * 才是模型必须看懂的那部分。
+ */
+private const val HISTORY_CHAR_BUDGET = 6000
 
 /**
  * 划词编辑工具：用新文本替换用户选中的文本。与主 Agent 的 edit_document 一致走函数调用，
@@ -97,6 +133,20 @@ data class ConversationMessage(
     val editContent: String? = null,   // AI 提议的改写文本；仅当确实是「编辑」意图时非空
     val editStatus: AgentActionStatus? = null  // 「应用修改」状态
 )
+
+/**
+ * 本屏特有的两处组件尺寸，刻意不并入全局 [AppSpacing] / [AppIconSize] 标度：它们是「组件自身
+ * 尺寸」而非「间距」——分段控件的紧凑行高、小尺寸转圈的描边宽，语义上与间距标度是两回事，
+ * 按 FileListMetrics / AiConfigMetrics 的先例落在屏幕局部。圆角（20 / 8dp）则留给跨屏统一的
+ * 形状 token 一次性收敛，不在此就地命名，免得那趟又得把它们搬出去。
+ */
+private object AiQuickMetrics {
+    /** 模式切换分段控件的紧凑行高（与 M3 FilterChip 默认一致，显式钉住避免被父布局拉伸）。 */
+    val ModeSwitchChipHeight = 32.dp
+
+    /** 思考中小转圈的描边宽（20dp 小尺寸 spinner，比 M3 默认 4dp 细才协调）。 */
+    val ThinkingStrokeWidth = 2.dp
+}
 
 /**
  * 文本选择快捷 AI/Agent 对话框
@@ -195,36 +245,46 @@ fun AiQuickDialog(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = AppSpacing.Screen, vertical = AppSpacing.Cozy),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "✨ AI 助手",
+                    text = stringResource(R.string.ai_quick_title),
                     style = MaterialTheme.typography.titleLarge
                 )
 
                 // 模式切换按钮（加载时禁用，完成后可切换）
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(AppShapes.Large),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(
                         alpha = if (isLoading) 0.3f else 0.5f
                     )
                 ) {
-                    Row(modifier = Modifier.padding(4.dp)) {
+                    Row(modifier = Modifier.padding(AppSpacing.Tight)) {
                         FilterChip(
                             selected = currentMode == QuickAiMode.AI_QUERY,
                             onClick = { viewModel.setMode(QuickAiMode.AI_QUERY) },
-                            label = { Text("💬 询问", style = MaterialTheme.typography.labelMedium) },
-                            modifier = Modifier.height(32.dp),
+                            label = {
+                                Text(
+                                    stringResource(R.string.ai_quick_mode_ask),
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            },
+                            modifier = Modifier.height(AiQuickMetrics.ModeSwitchChipHeight),
                             enabled = !isLoading
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(AppSpacing.Tight))
                         FilterChip(
                             selected = currentMode == QuickAiMode.AGENT_EDIT,
                             onClick = { viewModel.setMode(QuickAiMode.AGENT_EDIT) },
-                            label = { Text("🤖 处理", style = MaterialTheme.typography.labelMedium) },
-                            modifier = Modifier.height(32.dp),
+                            label = {
+                                Text(
+                                    stringResource(R.string.ai_quick_mode_agent),
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            },
+                            modifier = Modifier.height(AiQuickMetrics.ModeSwitchChipHeight),
                             enabled = !isLoading
                         )
                     }
@@ -234,10 +294,10 @@ fun AiQuickDialog(
             // 处理模式说明：仅输入含 yy 才改写选中文本，否则仅作答
             if (currentMode == QuickAiMode.AGENT_EDIT) {
                 Text(
-                    text = "💡 仅当输入含 yy 时才会修改选中文本，否则仅作答",
+                    text = stringResource(R.string.ai_quick_agent_hint),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = AppSpacing.Screen, vertical = AppSpacing.Tight)
                 )
             }
 
@@ -251,12 +311,16 @@ fun AiQuickDialog(
                     .weight(1f)
                     .fillMaxWidth()
                     .verticalScroll(scrollState)
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = AppSpacing.Screen)
             ) {
                 // 显示选中的文本（始终显示在顶部）
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(AppSpacing.Screen))
                 Text(
-                    text = if (currentMode == QuickAiMode.AI_QUERY) "关于：" else "选中的文本：",
+                    text = if (currentMode == QuickAiMode.AI_QUERY) {
+                        stringResource(R.string.ai_quick_about_label)
+                    } else {
+                        stringResource(R.string.ai_quick_selection_label)
+                    },
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -267,32 +331,35 @@ fun AiQuickDialog(
                         onValueChange = { editableSelectedText = it },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 8.dp),
+                            .padding(vertical = AppSpacing.Default),
                         minLines = 3,
                         maxLines = 6,
-                        placeholder = { Text("粘贴或输入要处理的文本...") }
+                        placeholder = { Text(stringResource(R.string.ai_quick_selection_placeholder)) }
                     )
                 } else {
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        shape = RoundedCornerShape(8.dp),
+                            .padding(vertical = AppSpacing.Default),
+                        shape = RoundedCornerShape(AppShapes.Small),
                         color = MaterialTheme.colorScheme.surfaceVariant
                     ) {
                         Text(
                             text = editableSelectedText,
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(12.dp)
+                            modifier = Modifier.padding(AppSpacing.Cozy)
                         )
                     }
                 }
 
                 if (hasMessages) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = AppSpacing.Default))
                 }
 
                 // 对话历史
+                // 卡片说明文案在循环外先取好：省掉每条消息重复查一次资源，
+                // 也不必依赖 extraContent lambda 的 @Composable 作用域。
+                val editCardDescription = stringResource(R.string.ai_quick_edit_action_desc)
                 conversationHistory.forEachIndexed { index, message ->
                     // 仅当 AI 确实给出改写(editContent 非空)时才挂「应用修改」卡片；
                     // 纯提问/总结不会有 editContent,因此不弹卡片。
@@ -308,13 +375,13 @@ fun AiQuickDialog(
                             role = message.role,
                             content = message.content
                         ),
-                        modifier = Modifier.padding(vertical = 4.dp),
-                        extraContent = if (showEditCard && edit != null) {
+                        modifier = Modifier.padding(vertical = AppSpacing.Tight),
+                        extraContent = if (showEditCard) {
                             {
                                 AgentActionCard(
                                     action = AgentAction(
                                         type = AgentActionType.EDIT_DOCUMENT,
-                                        description = "按你的要求改写选中文本",
+                                        description = editCardDescription,
                                         content = edit,
                                         status = message.editStatus ?: AgentActionStatus.PENDING
                                     ),
@@ -335,16 +402,20 @@ fun AiQuickDialog(
                 // 加载指示器
                 if (isLoading) {
                     Row(
-                        modifier = Modifier.padding(vertical = 16.dp),
+                        modifier = Modifier.padding(vertical = AppSpacing.Screen),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp
+                            modifier = Modifier.size(AppIconSize.Medium),
+                            strokeWidth = AiQuickMetrics.ThinkingStrokeWidth
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(AppSpacing.Cozy))
                         Text(
-                            text = if (currentMode == QuickAiMode.AI_QUERY) "AI 思考中..." else "Agent 处理中...",
+                            text = if (currentMode == QuickAiMode.AI_QUERY) {
+                                stringResource(R.string.ai_quick_thinking)
+                            } else {
+                                stringResource(R.string.ai_quick_agent_working)
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -352,20 +423,22 @@ fun AiQuickDialog(
                 }
             }
 
-            // 错误提示
-            error?.let {
+            // 错误提示：ViewModel 里调不了 stringResource，本模块自己的文案与 core/domain 层
+            // 给过来的 UiMessage 都是延迟解析的，统一在这里落成字符串。
+            val errorText = error.resolveOrNull()
+            errorText?.let {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = AppSpacing.Screen, vertical = AppSpacing.Default),
                     color = MaterialTheme.colorScheme.errorContainer,
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(AppShapes.Small)
                 ) {
                     Text(
                         text = it,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(12.dp)
+                        modifier = Modifier.padding(AppSpacing.Cozy)
                     )
                 }
             }
@@ -376,7 +449,7 @@ fun AiQuickDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
+                    .padding(AppSpacing.Screen)
             ) {
                 // 输入框
                 OutlinedTextField(
@@ -385,8 +458,12 @@ fun AiQuickDialog(
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = {
                         Text(
-                            if (currentMode == QuickAiMode.AI_QUERY) "输入你的问题..."
-                            else "输入 yy 可让 AI 直接改写选中文本，如：yy 改成专业表达"
+                            if (currentMode == QuickAiMode.AI_QUERY) {
+                                stringResource(R.string.ai_quick_input_hint_ask)
+                            } else {
+                                // 提示里的 yy 是功能触发词，任何语言下都保持原样，不要翻译
+                                stringResource(R.string.ai_quick_input_hint_agent)
+                            }
                         )
                     },
                     minLines = 1,
@@ -395,14 +472,14 @@ fun AiQuickDialog(
                         if (isLoading) {
                             // 思考中可手动中断，与外部 AI/Agent 一致
                             IconButton(onClick = { viewModel.stop() }) {
-                                Icon(Icons.Filled.Stop, "停止")
+                                Icon(Icons.Filled.Stop, stringResource(R.string.cd_ai_quick_stop))
                             }
                         } else if (userInput.isNotBlank()) {
                             IconButton(onClick = {
                                 autoScroll = true   // 发送新消息 → 恢复跟随，确保能看到回复
                                 viewModel.send()
                             }) {
-                                Icon(Icons.AutoMirrored.Filled.Send, "发送")
+                                Icon(Icons.AutoMirrored.Filled.Send, stringResource(R.string.cd_ai_quick_send))
                             }
                         }
                     }
@@ -415,8 +492,8 @@ fun AiQuickDialog(
     if (showExitConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showExitConfirmDialog = false },
-            title = { Text("确认退出") },
-            text = { Text("你有未发送的内容，确定要退出吗？退出后内容将被保留，下次打开可以继续编辑。") },
+            title = { Text(stringResource(R.string.ai_quick_exit_title)) },
+            text = { Text(stringResource(R.string.ai_quick_exit_message)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -424,12 +501,12 @@ fun AiQuickDialog(
                         onDismiss()
                     }
                 ) {
-                    Text("退出")
+                    Text(stringResource(R.string.ai_quick_exit_confirm))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showExitConfirmDialog = false }) {
-                    Text("继续编辑")
+                    Text(stringResource(R.string.ai_quick_exit_dismiss))
                 }
             }
         )
@@ -451,8 +528,11 @@ class AiQuickViewModel @Inject constructor(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
+    // 错误来源有三种：本模块自己的文案、[AiErrorMapper] 的映射结果、[StreamEvent.Error] 透传的
+    // 适配层文案——三者现在都是 [UiMessage]（带资源 id 或已成句的 Raw），本类不再自己包壳。
+    // ViewModel 里拿不到 Context 也不该拿，解析统一放在 Composable 侧。
+    private val _error = MutableStateFlow<UiMessage?>(null)
+    val error: StateFlow<UiMessage?> = _error.asStateFlow()
 
     private val _currentMode = MutableStateFlow(QuickAiMode.AI_QUERY)
     val currentMode: StateFlow<QuickAiMode> = _currentMode.asStateFlow()
@@ -530,12 +610,16 @@ class AiQuickViewModel @Inject constructor(
 
         val userMessage = _userInput.value
         val currentModeSnapshot = _currentMode.value
-        // 仅「处理」模式 + 输入含 yy（大小写不敏感）才授权修改通道：下发 apply_edit 工具、
+        // 本轮之前的对话，必须在追加这条用户消息**之前**抓快照：下面 launch 里第一件事就是把
+        // 新消息塞进 _conversationHistory，之后再读就会把本轮消息当成历史发两遍。
+        val priorHistory = _conversationHistory.value
+        // 仅「处理」模式 + 输入含独立的 yy（大小写不敏感）才授权修改通道：下发 apply_edit 工具、
         // 挂「应用修改」卡片。其余情况纯文本输出，不调工具、不修改选中文本。
         val editAuthorized = currentModeSnapshot == QuickAiMode.AGENT_EDIT &&
-            userMessage.lowercase().contains("yy")
+            EDIT_TRIGGER.containsMatchIn(userMessage)
         // 剥离 yy，得到传给 AI 的干净指令；剥离后为空（用户只输入了 yy）则用占位。
-        val instructionForAi = userMessage.replace(Regex("(?i)yy"), "").trim()
+        // 与授权判定共用 [EDIT_TRIGGER]，两套规则不会再走岔。
+        val instructionForAi = userMessage.replace(EDIT_TRIGGER, "").trim()
             .ifBlank { "请改写选中文本" }
 
         sendJob = viewModelScope.launch {
@@ -554,7 +638,7 @@ class AiQuickViewModel @Inject constructor(
             try {
                 val config = configRepository.observeConfig().first()
                 if (config.apiKey.isBlank() || config.modelName.isBlank()) {
-                    _error.value = "请先在设置中配置 API Key 和模型"
+                    _error.value = UiMessage.Res(R.string.ai_quick_error_no_config)
                     _isLoading.value = false
                     return@launch
                 }
@@ -565,9 +649,10 @@ class AiQuickViewModel @Inject constructor(
                 val systemPrompt = buildSystemPrompt(currentModeSnapshot)
                 val fullUserMessage = buildUserMessage(instructionForAi, currentModeSnapshot)
 
-                val messages = listOf(
+                // 带上前几轮对话：从前这里只发本轮一条，界面上是多轮、模型看到的永远是单轮，
+                // 于是「再短一点」「换个说法」这类纯追问在模型侧没有指代对象，只能瞎猜。
+                val messages = buildRequestMessages(priorHistory) +
                     ChatMessage(role = "user", content = fullUserMessage)
-                )
 
                 // 流式接收回复
                 val fullResponse = StringBuilder()
@@ -589,7 +674,7 @@ class AiQuickViewModel @Inject constructor(
                             fullResponse.append(event.text)
                             // 处理模式下流式显示时去掉 [[EDIT]] 标记,避免标记一闪而过
                             val display = if (currentModeSnapshot == QuickAiMode.AGENT_EDIT)
-                                stripEditMarkers(fullResponse.toString())
+                                QuickEditHeuristics.stripEditMarkers(fullResponse.toString())
                             else fullResponse.toString()
                             // 临时更新最后一条消息（流式显示）
                             val currentHistory = _conversationHistory.value
@@ -617,7 +702,7 @@ class AiQuickViewModel @Inject constructor(
                             if (editAuthorized && pendingEditNewText == null) {
                                 val call = event.calls.firstOrNull { it.name == "apply_edit" }
                                 if (call != null) {
-                                    parseApplyEditArgs(call.arguments)?.let { pendingEditNewText = it }
+                                    QuickEditHeuristics.parseApplyEditArgs(call.arguments)?.let { pendingEditNewText = it }
                                 }
                             }
                             android.util.Log.d("YuMarkQuick",
@@ -627,16 +712,41 @@ class AiQuickViewModel @Inject constructor(
                         is StreamEvent.Done -> {
                             val finalText = event.fullText.ifBlank { fullResponse.toString() }
                             // 仅授权时才可能产生 edit（工具调用 → [[EDIT]] → 兜底）；未授权恒 null，不挂卡片。
-                            val edit = if (editAuthorized)
-                                pendingEditNewText ?: resolveEdit(finalText, selectedText, instructionForAi) else null
+                            val parsedEdit = if (editAuthorized)
+                                pendingEditNewText ?: QuickEditHeuristics.resolveEdit(finalText, selectedText, instructionForAi) else null
+                            // 被输出上限砍断的回复绝不当成可应用的改写。这一路自己挡不住截断：
+                            // [[EDIT]] 缺收尾标记时 parseEditContent 会一路 substring 到末尾
+                            // （QuickEditHeuristics.kt:36），兜底启发式更是只看长度与结构——于是半截
+                            // 改写照样挂上 PENDING 卡片，用户点「应用」就把选中的正文换成写到一半的
+                            // 版本，后半截当场消失（卡片预览长了根本读不完，跟审批等于没审）。
+                            // 只压卡片、不动气泡：那段半截文本仍留在对话里，用户想自取还能取。
+                            val edit = if (event.truncated) null else parsedEdit
                             android.util.Log.d("YuMarkQuick",
                                 "Done mode=$currentModeSnapshot editAuthorized=$editAuthorized finalTextLen=${finalText.length} " +
+                                    "truncated=${event.truncated} " +
                                     "edit=${edit?.let { "len=${it.length}" } ?: "null"} " +
+                                    "parsedEdit=${parsedEdit?.let { "len=${it.length}" } ?: "null"} " +
                                     "toolUsed=${pendingEditNewText != null} userMsg=${userMessage.take(40)}")
+                            // 截断本身也要让人看见：正文停在半句上，不说一声用户只会以为模型就这水平。
+                            if (event.truncated) {
+                                _error.value = UiMessage.Res(R.string.ai_notice_response_truncated)
+                            }
+                            // 气泡正文与 edit 是两回事，删除时必须分开取。
+                            //
+                            // 约定「空串 = 删除选中内容」（见 [QuickEditHeuristics]）。直接令
+                            // display = edit 时，删除这一路的 display 恒为空串，被下面的空正文守卫
+                            // 判成「模型什么都没说」→ 气泡收掉、报 ai_error_empty_response、return，
+                            // 于是**「应用修改」卡片永远挂不上，删除永远无法应用**，模型同轮的解释
+                            // 正文也一起丢。所以空/纯空白的 edit 走解释文本；解释也没有时留空气泡
+                            // ——卡片在 extraContent 里（`MessageBubble.kt:95` 在正文判空之外），
+                            // 空正文照样渲染，而 `AgentActionCard` 拿空 content 出的正是「整段删掉」
+                            // 的 diff，语义刚好对上。
+                            val explanation = QuickEditHeuristics.stripEditMarkers(finalText)
                             val display = when {
-                                edit != null -> edit
-                                currentModeSnapshot == QuickAiMode.AGENT_EDIT -> stripEditMarkers(finalText)
-                                else -> finalText
+                                edit == null ->
+                                    if (currentModeSnapshot == QuickAiMode.AGENT_EDIT) explanation else finalText
+                                edit.isNotBlank() -> edit
+                                else -> explanation
                             }
                             // 确保最后一条消息是完整的。
                             // 纯工具调用（无正文流式）时 Content 分支不会插入助手消息，
@@ -644,6 +754,24 @@ class AiQuickViewModel @Inject constructor(
                             val currentHistory = _conversationHistory.value
                             val lastAssistant = currentHistory.lastOrNull()?.takeIf { it.role == MessageRole.ASSISTANT }
                             val lastIsAssistant = lastAssistant != null
+                            if (display.isBlank() && edit == null) {
+                                // 空正文的 Done 是真实结果而非异常：适配层把「重试若干次仍是空补全」
+                                // 也收敛成 Done("")。挂一个空气泡等于什么都没说，用户只能自己猜是不是
+                                // 模型选错了 —— 按错误提示，并且把这一轮的空气泡收掉。
+                                //
+                                // 必须同时要求 edit == null：edit 非 null 意味着这一轮**有**结果
+                                // （空串就是「删除」），此时正文空只是模型没多说一句话，不是空回复。
+                                _conversationHistory.value =
+                                    if (lastIsAssistant) currentHistory.dropLast(1) else currentHistory
+                                // 截断已经给过更准确的提示，且它才是这里空正文的真正成因（纯工具调用
+                                // 被砍断时正文本来就是空的），不要覆盖成「AI 没有返回任何内容」——
+                                // 那会把用户推去换模型，而该做的是调大 max tokens。
+                                if (!event.truncated) {
+                                    _error.value = UiMessage.Res(R.string.ai_error_empty_response)
+                                }
+                                _isLoading.value = false
+                                return@collect
+                            }
                             // 替换末条助手消息时保留其 id（流式期间同一轮回复身份不变，缓存/动画才连贯）
                             _conversationHistory.value =
                                 (if (lastIsAssistant) currentHistory.dropLast(1) else currentHistory) + ConversationMessage(
@@ -657,13 +785,20 @@ class AiQuickViewModel @Inject constructor(
                             _isLoading.value = false
                         }
                         is StreamEvent.Error -> {
+                            // 适配层给的已经是 UiMessage，原样透出即可
                             _error.value = event.message
                             _isLoading.value = false
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                // 必须排在 Exception 之前：CancellationException 是 IllegalStateException 的子类，
+                // 被下面那条捕获后，用户点「停止」就会看到「发生错误: StandaloneCoroutine was cancelled」。
+                // stop() 已经复位过 isLoading，这里只需把取消原样抛回给协程框架。
+                throw e
             } catch (e: Exception) {
-                _error.value = "发生错误: ${e.message}"
+                // 不拼 e.message：Ktor 的异常消息里带完整请求 URL（Gemini 的密钥就在 ?key= 里）。
+                _error.value = AiErrorMapper.mapException(e)
                 _isLoading.value = false
             }
         }
@@ -704,112 +839,49 @@ class AiQuickViewModel @Inject constructor(
         }
     }
 
-    private fun buildUserMessage(userMessage: String, mode: QuickAiMode): String {
-        return when (mode) {
-            QuickAiMode.AI_QUERY -> """
-                选中的文本：
-                ```
-                $selectedText
-                ```
-
-                我的问题：
-                $userMessage
-            """.trimIndent()
-
-            QuickAiMode.AGENT_EDIT -> """
-                选中的文本：
-                ```
-                $selectedText
-                ```
-
-                我的需求：
-                $userMessage
-            """.trimIndent()
+    /**
+     * 把已有对话折成请求消息（本轮那条由调用方追加在后面）。
+     *
+     * 三条约束决定了这段的写法：
+     * - **倒着挑、正着发**：预算不够时必须丢最旧的，留最近的——追问的指代对象在近处。
+     *   所以从末尾往前累加，再翻回时间正序（模型只认时间顺序）。
+     * - **首条必须是 user**：Claude 与 Gemini 都要求消息以 user 开头、user/assistant 交替。
+     *   预算恰好在一条 assistant 上截断时它会成为首条，必须丢掉，否则整个请求被端点拒绝。
+     * - **不回放历史里的选中文本**：本轮消息由 [buildUserMessage] 重新嵌一份最新的选区，
+     *   历史里再嵌一遍只会让模型在多份「选中的文本」之间挑错对象（用户可能已经改过选区）。
+     */
+    private fun buildRequestMessages(history: List<ConversationMessage>): List<ChatMessage> {
+        val picked = ArrayDeque<ChatMessage>()
+        var budget = HISTORY_CHAR_BUDGET
+        for (msg in history.asReversed().take(HISTORY_MAX_MESSAGES)) {
+            val text = historyTextFor(msg)
+            if (text.isBlank()) continue
+            // 超预算就停，不是跳过：跳过会让更旧的短消息越过一条长消息挤进来，
+            // 上下文变成跳跃的碎片，比少几轮更难读懂。
+            if (text.length > budget) break
+            budget -= text.length
+            val role = if (msg.role == MessageRole.USER) "user" else "assistant"
+            picked.addFirst(ChatMessage(role = role, content = text))
         }
-    }
-
-    /** 去掉处理模式回复里的 [[EDIT]]/[[/EDIT]] 标记,用于气泡展示。 */
-    private fun stripEditMarkers(text: String): String =
-        text.replace("[[EDIT]]", "").replace("[[/EDIT]]", "").trim()
-
-    /** 解析 [[EDIT]]...[[/EDIT]] 包裹的改写文本;无标记返回 null(表示这是普通问答/总结,不挂卡片)。
-     *  注意:标记存在但内容为空(模型表示"删除")时返回空串而非 null——空串代表删除,必须走审批门。 */
-    private fun parseEditContent(text: String): String? {
-        val start = text.indexOf("[[EDIT]]")
-        if (start < 0) return null
-        val afterStart = start + "[[EDIT]]".length
-        val end = text.indexOf("[[/EDIT]]", afterStart)
-        val inner = if (end >= 0) text.substring(afterStart, end) else text.substring(afterStart)
-        return inner.trim()
-    }
-
-    /** 从 apply_edit 工具调用参数解析 new_text。空串=删除（非 null）；仅当缺字段/解析失败才返回 null。 */
-    private fun parseApplyEditArgs(argsJson: String): String? {
-        return runCatching {
-            Json.parseToJsonElement(argsJson).jsonObject["new_text"]?.jsonPrimitive?.contentOrNull
-        }.getOrNull()
+        while (picked.firstOrNull()?.role == "assistant") picked.removeFirst()
+        return picked.toList()
     }
 
     /**
-     * 处理模式下决定回复是否应作为「可应用改写」。
+     * 一条历史消息回放给模型时的文本。
      *
-     * 1) 优先按 [[EDIT]] 标记解析(空串=删除)。
-     * 2) apply_edit 工具调用已在上游处理(空串=删除)。
-     * 3) 明确的删除意图（"删除/删掉/去掉 这一段"）且模型未给新文本 → 空替换 = 删除整段选中。
-     * 4) 其余走兜底启发式：回复「看起来像改写」才当 editContent；否则按普通问答/总结处理。
+     * 带 [ConversationMessage.editContent] 的助手消息要特殊处理：它是上一轮提议的改写正文，
+     * 展示时 `content` 已经就是这段正文（见 send 里的 `display`）。不加说明地回放，模型会把它
+     * 当成自己的普通回答，「再润色一次」就无从对照；而 `[[EDIT]]` 标记不能带上——那是给解析器
+     * 看的，回放进上下文会诱导模型下一轮继续输出标记而不是调工具。
      */
-    private fun resolveEdit(text: String, selected: String, userMessage: String): String? {
-        parseEditContent(text)?.let { return it }
-        if (isDeletionIntent(userMessage)) return ""   // 删除整段选中 = 空替换
-        val reply = text.trim()
-        if (!looksLikeRewrite(reply, selected.trim())) return null
-        return reply.ifBlank { null }
+    private fun historyTextFor(msg: ConversationMessage): String {
+        val edit = msg.editContent ?: return msg.content
+        val prefix = "（上一轮提议的改写结果）\n"
+        return if (msg.content == edit) prefix + edit
+        else msg.content + "\n\n" + prefix + edit
     }
 
-    /** 判定用户是否要求「删除整段选中文本」（模型未给新文本时的兜底，空替换=删除）。 */
-    private fun isDeletionIntent(userMessage: String): Boolean {
-        val m = userMessage.lowercase()
-        val deleteVerb = listOf(
-            "删除", "删掉", "删去", "去掉", "移除", "清除", "抹掉", "删了",
-            "delete", "remove", "erase"
-        ).any { m.contains(it) }
-        if (!deleteVerb) return false
-        // 目标指向选区本身，而非文档别处
-        return listOf(
-            "这段", "这一段", "选中", "这段话", "这段文字", "这些", "那段",
-            "this", "it", "selection", "paragraph"
-        ).any { m.contains(it) }
-    }
-
-    /**
-     * 兜底判定:回复是否「看起来像直接改写」而非问答/总结。
-     *
-     * - 含明显解释性结构(标题行、解释性引导语)→ 视为问答/总结,抑制。
-     * - 长度远超选区(>2.5× 且选区非平凡)→ 视为扩写型解释,抑制。
-     * - 其余视为改写。
-     *
-     * 偏向保守:拿不准时倾向当作改写,以救援弱模型的改写;但因有结构/长度双闸,
-     * 典型的长篇总结仍不会误弹卡片。
-     */
-    private fun looksLikeRewrite(reply: String, selected: String): Boolean {
-        if (reply.isBlank()) return false
-        if (hasExplanationStructure(reply)) return false
-        if (selected.length > 16 && reply.length > selected.length * 2.5f) return false
-        return true
-    }
-
-    /** 高精度识别「明显是解释/总结而非改写」的结构信号。 */
-    private fun hasExplanationStructure(reply: String): Boolean {
-        val firstLine = reply.lineSequence().firstOrNull()?.trim().orEmpty()
-        // 以 Markdown 标题开头 → 几乎不是直接改写
-        if (firstLine.startsWith("#")) return true
-        // 解释性引导语
-        val cues = listOf(
-            "以下是", "建议如下", "总结一下", "总结：", "总结:", "原因如下", "修改建议",
-            "这段话", "这段文字", "这段文本", "选中的文本", "选中的文本",
-            "我建议", "可以这样修改", "作为一个", "作为一"
-        )
-        if (cues.any { reply.contains(it) }) return true
-        return false
-    }
+    private fun buildUserMessage(userMessage: String, mode: QuickAiMode): String =
+        buildQuickUserMessage(selectedText, userMessage, mode)
 }

@@ -41,12 +41,7 @@ class ExecuteDocumentToolUseCase @Inject constructor(
             throw IllegalArgumentException("无法读取文档内容: $docId")
         }
 
-        return """
-            【文档名称】${doc.name}
-            【文档路径】${doc.folderId ?: "根目录"}
-            【文档内容】
-            $content
-        """.trimIndent()
+        return formatDocumentForTool(doc.name, doc.folderId, content)
     }
 
     private suspend fun executeListDocuments(args: Map<String, JsonElement>): String {
@@ -107,3 +102,26 @@ class ExecuteDocumentToolUseCase @Inject constructor(
         }
     }
 }
+
+/**
+ * `read_document` 交给模型的返回体：三行表头 + **原封不动**的正文。
+ *
+ * 不要改回 `"""…" + "$content…""".trimIndent()` 那种写法。`trimIndent()` 作用在**插值之后**的
+ * 整串上，取的是所有非空行的最小公共缩进，于是正文的形状反过来决定模板会被怎么裁：
+ * - 正文多行且有任意一行顶格（`# 标题` 开头的文档就是）→ 最小缩进 0，`trimIndent()` 一个字符
+ *   都不裁，模板那几行的 12 个空格全部留下，正文**第一行**还额外顶着这 12 个空格。
+ *   在 Markdown 里 4 个以上前导空格就是缩进代码块，模型看到的第一行不再是标题。
+ * - 正文每行都缩进（整篇是缩进代码块、或深层嵌套列表）→ 最小缩进落在正文自己身上，
+ *   `trimIndent()` 把这份公共缩进从**正文**上剥掉，代码块直接不再是代码块。
+ *
+ * 两种情况都是同一个后果：模型读到的正文与磁盘上的不是同一份。而模型正是照这份正文提
+ * `edit_document` 的 `old_string`——原文错一个空格，外科式编辑就永远定位不到，用户看到的是
+ * 反复「未命中」。
+ */
+internal fun formatDocumentForTool(name: String, folderId: String?, content: String): String =
+    buildString {
+        append("【文档名称】").append(name).append('\n')
+        append("【文档路径】").append(folderId ?: "根目录").append('\n')
+        append("【文档内容】\n")
+        append(content)
+    }

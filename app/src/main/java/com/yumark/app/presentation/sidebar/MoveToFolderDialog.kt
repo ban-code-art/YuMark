@@ -17,6 +17,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yumark.app.R
 import com.yumark.app.domain.model.Folder
+import com.yumark.app.presentation.common.displayName
+import com.yumark.app.presentation.theme.AppIconSize
+import com.yumark.app.presentation.theme.AppSpacing
+import com.yumark.app.presentation.theme.extendedColors
 
 /**
  * 「移动到…」目标文件夹选择器。
@@ -33,6 +37,8 @@ fun MoveToFolderDialog(
     onDismiss: () -> Unit,
     onPick: (targetFolderId: String?) -> Unit
 ) {
+    // 导入库的显示名在组合期取好：下面 remember 的 block 与 pathOf 都不是 @Composable。
+    val importLibraryName = stringResource(R.string.import_library)
     val rows = remember(folders) {
         val byId = folders.associateBy { it.id }
         fun depthOf(f: Folder): Int {
@@ -40,6 +46,7 @@ fun MoveToFolderDialog(
             while (p != null && guard++ < 100) { d++; p = byId[p]?.parentId }
             return d
         }
+        // 只用来排序，不显示（下面 items 里第三项被丢弃），所以这里不过 displayName()
         fun pathOf(f: Folder): String {
             val names = ArrayDeque<String>()
             var cur: Folder? = f; var guard = 0
@@ -57,7 +64,7 @@ fun MoveToFolderDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
+            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = MoveToFolderMetrics.ListMaxHeight)) {
                 item {
                     MoveTargetRow(
                         label = stringResource(R.string.move_to_root),
@@ -70,7 +77,7 @@ fun MoveToFolderDialog(
                 items(rows) { (folder, depth, _) ->
                     val enabled = folder.id !in disabledFolderIds
                     MoveTargetRow(
-                        label = folder.name,
+                        label = folder.displayName(importLibraryName),
                         depth = depth + 1,
                         enabled = enabled,
                         icon = Icons.Default.Folder,
@@ -100,16 +107,16 @@ private fun MoveTargetRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(start = (depth * 16).dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+            .padding(start = MoveToFolderMetrics.IndentPerLevel * depth, end = AppSpacing.Default, top = MoveToFolderMetrics.RowVerticalPadding, bottom = MoveToFolderMetrics.RowVerticalPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             icon,
             contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = if (enabled) MaterialTheme.colorScheme.primary else contentColor
+            modifier = Modifier.size(AppIconSize.Medium),
+            tint = if (enabled) extendedColors.primaryText else contentColor
         )
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(AppSpacing.Default))
         Text(
             label,
             style = MaterialTheme.typography.bodyMedium,
@@ -133,4 +140,18 @@ fun selfAndDescendantFolderIds(folders: List<Folder>, folderId: String): Set<Str
         }
     }
     return result
+}
+
+/**
+ * 本对话框特有的布局度量，刻意不并入全局 [AppSpacing]：目标列表最大高度上界（超出内部滚动）、
+ * 每层级树缩进步长、目录行纵向内边距（10dp 行高节拍，介于 Default(8) 与 Cozy(12)），均离散于
+ * 8dp 间距标度，保留原像素、不硬凑。按 WorkspaceTreeMetrics / FileListMetrics 先例落屏幕局部。
+ */
+private object MoveToFolderMetrics {
+    /** 目标文件夹列表最大高度：超出内部滚动，避免文件夹多时把对话框顶出屏幕。 */
+    val ListMaxHeight = 360.dp
+    /** 每下探一层的水平缩进步长；实际缩进 = 本值 × depth。 */
+    val IndentPerLevel = 16.dp
+    /** 目录 / 根目录行纵向内边距：与 20dp 图标合成约 40dp 触摸行高。 */
+    val RowVerticalPadding = 10.dp
 }

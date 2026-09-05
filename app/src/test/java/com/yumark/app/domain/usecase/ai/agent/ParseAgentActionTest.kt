@@ -56,6 +56,48 @@ class ParseAgentActionTest {
     }
 
     @Test
+    fun `EDIT_DOCUMENT without open document degrades to CREATE_DOCUMENT`() {
+        val text = """
+            [[ACTION]]
+            type: EDIT_DOCUMENT
+            description: 把这篇文档改得更有条理
+            [[CONTENT]]
+            # 周报模板
+
+            ## 本周进展
+            [[/ACTION]]
+        """.trimIndent()
+
+        val action = parseAgentAction(text, currentDocumentId = null)
+
+        assertThat(action).isNotNull()
+        // 没有可编辑的目标时不能留下一张点了就报「操作失败」的死卡片
+        assertThat(action!!.type).isEqualTo(AgentActionType.CREATE_DOCUMENT)
+        assertThat(action.targetDocumentId).isNull()
+        // 标题取正文首个 Markdown 标题，而不是"把这篇文档改得更有条理"这种编辑指令
+        assertThat(action.description).isEqualTo("周报模板")
+        assertThat(action.content).contains("## 本周进展")
+    }
+
+    @Test
+    fun `degraded title falls back to first non-blank line`() {
+        val text = """
+            [[ACTION]]
+            type: EDIT_DOCUMENT
+            description: 重写
+            [[CONTENT]]
+            没有标题行的纯段落正文。
+
+            第二段。
+            [[/ACTION]]
+        """.trimIndent()
+
+        val action = parseAgentAction(text, currentDocumentId = null)
+
+        assertThat(action!!.description).isEqualTo("没有标题行的纯段落正文。")
+    }
+
+    @Test
     fun `returns null when content is empty`() {
         val text = """
             [[ACTION]]

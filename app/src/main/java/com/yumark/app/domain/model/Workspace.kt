@@ -7,8 +7,19 @@ data class Workspace(
     val name: String,
     val treeUri: String,
     val root: WorkspaceNode,
-    val truncated: Boolean = false
-)
+    /** 文档数收满 WorkspaceScanner.MAX_FILES，后面的文档没收进来 */
+    val fileLimitHit: Boolean = false,
+    /** 目录深度到了 WorkspaceScanner.MAX_DEPTH，更深的文件夹整棵没读 */
+    val depthLimitHit: Boolean = false
+) {
+    /**
+     * 两个上限必须分开保留，不能在这一层合成一个 boolean：界面要说的话完全不同。
+     * 撞文件数上限该说「文档太多，只显示前 2000 个」；撞深度上限时文档总数可能只有十几个，
+     * 同一句话就是在骗用户——他会反复找那 2000 个文档在哪。
+     * 这个派生属性只给「有没有缺东西」这类不关心原因的判断用。
+     */
+    val truncated: Boolean get() = fileLimitHit || depthLimitHit
+}
 
 data class WorkspaceNode(
     val name: String,

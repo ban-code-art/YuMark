@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Editor module strings (English).
+
+    Mirrors values/strings_editor.xml key for key. Every key added there MUST be added here,
+    otherwise lint's MissingTranslation check fails the build. Placeholder count and type must
+    match the Chinese source exactly; positional specifiers (%1$s / %2$d) are used so English
+    word order can differ from Chinese.
+
+    Do not "translate" the yy trigger word: it is a literal keyword the user types to make the
+    AI rewrite the selection, not prose.
+-->
+<resources>
+
+    <!-- ========== FindReplaceBar ========== -->
+    <string name="find_hint">Find</string>
+    <string name="find_replace_hint">Replace with</string>
+    <string name="find_replace">Replace</string>
+    <string name="find_replace_all">Replace all</string>
+    <string name="find_no_match">No matches</string>
+    <string name="find_regex_invalid">Invalid regex</string>
+    <!-- %1$d = index of the current match, %2$d = total matches -->
+    <string name="find_status_position">%1$d of %2$d</string>
+    <!-- %1$d = total matches -->
+    <plurals name="find_status_total">
+        <item quantity="one">%1$d match</item>
+        <item quantity="other">%1$d matches</item>
+    </plurals>
+    <string name="find_case_sensitive">Match case</string>
+    <string name="find_whole_word">Whole word</string>
+    <string name="find_regex">Regex</string>
+    <!-- %1$d = FindReplace.MAX_MATCHES, a compile-time constant greater than 1,
+         which is why these two are plain strings rather than plurals. -->
+    <string name="find_truncated">Too many results. Showing the first %1$d.</string>
+    <string name="find_replaced_truncated">Replaced the first %1$d. Run it again for more.</string>
+    <!-- %1$d = number of matches actually replaced; can legitimately be 1 -->
+    <plurals name="find_replaced_count">
+        <item quantity="one">Replaced %1$d match</item>
+        <item quantity="other">Replaced %1$d matches</item>
+    </plurals>
+    <string name="find_replace_none">No matches to replace</string>
+    <string name="cd_find_prev">Previous match</string>
+    <string name="cd_find_next">Next match</string>
+    <string name="cd_find_close">Close find bar</string>
+
+    <!-- ========== MarkdownToolbar ========== -->
+    <string name="toolbar_undo">Undo</string>
+    <string name="toolbar_redo">Redo</string>
+    <string name="toolbar_find">Find</string>
+
+    <!-- ========== VersionHistorySheet ========== -->
+    <string name="version_history_empty">No versions yet. Editing and saving records one automatically.</string>
+    <string name="version_history_restore_title">Restore this version</string>
+    <!-- %1$s = timestamp of that version, e.g. 09-02 14:30 -->
+    <string name="version_history_restore_message">Restore the document to the version from %1$s? The current content is saved as a version first, so you can switch back.</string>
+    <string name="version_history_restore">Restore</string>
+    <!-- %1$d = word count, %2$s = version_history_collapse or version_history_expand.
+         A plurals entry, not a string: the singular case used to read "1 words". -->
+    <plurals name="version_history_row_meta">
+        <item quantity="one">%1$d word · Tap to %2$s</item>
+        <item quantity="other">%1$d words · Tap to %2$s</item>
+    </plurals>
+    <string name="version_history_collapse">collapse</string>
+    <string name="version_history_expand">view changes</string>
+    <string name="version_history_no_diff">Identical to the current content.</string>
+
+    <!-- ========== AiQuickDialog ========== -->
+    <string name="ai_quick_title">✨ AI Assistant</string>
+    <string name="ai_quick_mode_ask">💬 Ask</string>
+    <string name="ai_quick_mode_agent">🤖 Act</string>
+    <string name="ai_quick_agent_hint">💡 Only input containing yy rewrites the selected text, otherwise it just answers</string>
+    <string name="ai_quick_about_label">About:</string>
+    <string name="ai_quick_selection_label">Selected text:</string>
+    <string name="ai_quick_selection_placeholder">Paste or type the text to work on…</string>
+    <string name="ai_quick_edit_action_desc">Rewrites the selected text as you asked</string>
+    <string name="ai_quick_thinking">AI is thinking…</string>
+    <string name="ai_quick_agent_working">Agent is working…</string>
+    <string name="ai_quick_input_hint_ask">Type your question…</string>
+    <string name="ai_quick_input_hint_agent">Type yy to rewrite the selected text, e.g. yy make it more formal</string>
+    <string name="cd_ai_quick_stop">Stop</string>
+    <string name="cd_ai_quick_send">Send</string>
+    <string name="ai_quick_exit_title">Leave without sending?</string>
+    <string name="ai_quick_exit_message">You have unsent content. Leave anyway? It will be kept, so you can continue next time.</string>
+    <string name="ai_quick_exit_confirm">Leave</string>
+    <string name="ai_quick_exit_dismiss">Keep editing</string>
+    <string name="ai_quick_error_no_config">Configure your API key and model in Settings first</string>
+
+    <!-- ========== EditorScreen ========== -->
+    <string name="editor_link_no_app">No app available to open this link</string>
+    <string name="editor_preview_ssl_blocked">Some remote images were blocked: untrusted certificate</string>
+    <string name="editor_ai_assistant">AI Assistant</string>
+    <string name="cd_more_options">More options</string>
+    <string name="editor_write_placeholder">Start writing Markdown…</string>
+    <!-- %1$d = character count, not the same thing as <plurals name="word_count"> in strings.xml -->
+    <plurals name="editor_char_count">
+        <item quantity="one">%1$d character</item>
+        <item quantity="other">%1$d characters</item>
+    </plurals>
+    <string name="editor_retry">Retry</string>
+    <!-- %1$s = name of the document or folder being moved -->
+    <string name="editor_move_to_title">Move “%1$s” to</string>
+
+    <!-- ========== Image source picker (toolbar image button) ========== -->
+    <string name="editor_image_source_title">Insert image</string>
+    <string name="editor_image_from_gallery">Choose from gallery</string>
+    <string name="editor_image_from_gallery_desc">Copies it into the app and writes a relative path, so it travels with exports</string>
+    <string name="editor_image_manual_link">Enter a link</string>
+    <string name="editor_image_manual_link_desc">Inserts ![](url) syntax for you to fill in</string>
+
+    <!-- ========== EditorViewModel one-off messages ========== -->
+    <string name="editor_error_create_document">Failed to create document</string>
+    <string name="editor_error_create_subfolder">Failed to create subfolder</string>
+    <string name="editor_error_locate_selection">Unable to find that selection in the document. Switch to edit mode, select it again, then retry.</string>
+
+</resources>

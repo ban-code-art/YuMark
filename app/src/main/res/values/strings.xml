@@ -14,23 +14,24 @@
     <string name="settings">设置</string>
 
     <!-- 文件列表 -->
-    <string name="file_list">文件列表</string>
     <string name="all_documents">所有文档</string>
     <string name="create_document">新建文档</string>
     <string name="create_folder">新建文件夹</string>
     <string name="import_file">导入文件</string>
     <string name="export">导出</string>
     <string name="sort">排序</string>
+    <!-- 收藏功能只做了一半，这个键留给它缺的那一半：Document.isFavorite 已经落库、列表行
+         能点收藏（favorite / unfavorite）、侧栏也会显示已收藏徽标，但没有任何「只看收藏」
+         的入口，所以这条暂时无人引用。留着不删的理由：缺的只是列表侧一个筛选入口，
+         FileListViewModel 已经在按文件夹过滤，再加一个条件就是这个视图；而它与 favorite
+         （那是「收藏」这个动作）语义不同，不能互相顶替。 -->
     <string name="favorites">收藏夹</string>
 
     <!-- 文件夹操作 -->
-    <string name="new_folder">新建文件夹</string>
     <string name="folder_name">文件夹名称</string>
     <string name="delete_folder">删除文件夹</string>
-    <string name="delete_folder_confirm">确定要删除文件夹"%1$s"吗？</string>
     <string name="delete_folder_with_contents">删除文件夹及其中所有内容？</string>
     <string name="create_subfolder">新建子文件夹</string>
-    <string name="move_to_folder">移动到文件夹</string>
 
     <!-- 文档操作 -->
     <string name="document_name">文档名称</string>
@@ -39,21 +40,34 @@
     <string name="rename_document">重命名文档</string>
     <string name="favorite">收藏</string>
     <string name="unfavorite">取消收藏</string>
-    <string name="word_count">%d 字</string>
+    <!--
+      「字」这个词在这里是准确的，不要改成「字符」：SaveDocumentUseCase.calculateWordCount
+      算的是「CJK 字符数 + 拉丁词数」的混合值（先剥掉代码块与 Markdown 符号）。中文段落里
+      一个汉字算一个，正是「字」；英文段落里按空白分词，正是 word。Word / WPS 的字数统计
+      用的就是这套混合口径，所以英文侧译成 word(s) 也是对的，不是 character(s)。
+    -->
+    <plurals name="word_count">
+        <item quantity="other">%1$d 字</item>
+    </plurals>
     <string name="updated_just_now">刚刚</string>
-    <string name="updated_minutes_ago">%d 分钟前</string>
-    <string name="updated_hours_ago">%d 小时前</string>
-    <string name="updated_days_ago">%d 天前</string>
-    <string name="updated_weeks_ago">%d 周前</string>
+    <plurals name="updated_minutes_ago">
+        <item quantity="other">%1$d 分钟前</item>
+    </plurals>
+    <plurals name="updated_hours_ago">
+        <item quantity="other">%1$d 小时前</item>
+    </plurals>
+    <plurals name="updated_days_ago">
+        <item quantity="other">%1$d 天前</item>
+    </plurals>
+    <plurals name="updated_weeks_ago">
+        <item quantity="other">%1$d 周前</item>
+    </plurals>
 
     <!-- 编辑器 -->
     <string name="editor">编辑器</string>
     <string name="preview_mode">预览模式</string>
     <string name="edit_mode">编辑模式</string>
-    <string name="toggle_preview">切换预览</string>
     <string name="toggle_sidebar">切换侧边栏</string>
-    <string name="start_writing">开始写作...</string>
-    <string name="saving">保存中...</string>
     <string name="saved">已保存</string>
     <string name="auto_save">自动保存</string>
 
@@ -73,6 +87,13 @@
     <string name="toolbar_horizontal_rule">分隔线</string>
 
     <!-- 菜单 -->
+    <!-- 桌面式菜单栏（未实现）的顶层菜单名，目前没有任何代码引用。手机形态走的是顶栏图标 +
+         「更多」下拉（EditorScreen 里的 save / export / history_versions / settings），
+         根本没有菜单栏这一层。留着不删的理由：平板与折叠屏展开态已经是双窗格外壳
+         （presentation/AppShell.kt），顶部菜单栏是同一形态上还没做的一块；这五条与下面
+         「文件菜单」里剩下的 open_file / save_as 属于同一套（App 现有的「导入文件」与
+         「导出」语义不同，顶不了「打开文件 / 另存为」）。删掉只会在真做的时候按同样的
+         键名重造一遍，白丢一次翻译。 -->
     <string name="menu_file">文件</string>
     <string name="menu_edit">编辑</string>
     <string name="menu_view">视图</string>
@@ -80,11 +101,8 @@
     <string name="menu_help">帮助</string>
 
     <!-- 文件菜单 -->
-    <string name="new_document">新建文档</string>
     <string name="open_file">打开文件</string>
-    <string name="save_file">保存</string>
     <string name="save_as">另存为</string>
-    <string name="export_as">导出为</string>
     <string name="export_html">导出为 HTML</string>
     <string name="export_rich_html">导出为富 HTML</string>
     <string name="export_pdf">导出为 PDF</string>
@@ -93,27 +111,51 @@
     <string name="history_versions">历史版本</string>
 
     <!-- 视图菜单 -->
-    <string name="show_sidebar">显示侧边栏</string>
-    <string name="hide_sidebar">隐藏侧边栏</string>
+    <!-- 三种编辑器视图模式，整组都还没实现：代码里搜不到任何 sourceMode / typewriter /
+         focusMode 状态，编辑器只有「编辑 / 预览」两态（edit_mode / preview_mode）。
+         留着不删的理由：这三条是一整组，删一条留两条毫无意义；它们要挂的位置（顶栏
+         「更多」下拉）已经存在，缺的是模式本身而不是文案。 -->
     <string name="source_code_mode">源代码模式</string>
     <string name="typewriter_mode">打字机模式</string>
     <string name="focus_mode">专注模式</string>
 
     <!-- 设置 -->
+    <!-- 分区标题（未实现），三条一组：SettingsScreen 现在是一条平铺的长列表（主题 / 深色
+         模式 / 字号 / 自动保存 / 默认预览 / 默认目录 / AI / 同步 / 配置备份 / 崩溃日志 /
+         重置 / 检查更新 / 关于），里面只有「主题」「深色模式」两个小标题，没有分区结构，
+         所以这三条无人引用。留着不删：设置项还在往里加，迟早要按「通用 / 编辑器 / 外观」
+         分区，届时照用；现在删掉等于把已经定好的分区名连英文一起丢掉。 -->
     <string name="general_settings">通用设置</string>
     <string name="editor_settings">编辑器设置</string>
     <string name="appearance">外观</string>
     <string name="font_size">字体大小</string>
     <string name="theme">主题</string>
+    <!-- 整句形态的深浅选项标签，当前无人引用：设置页用的是 settings_dark_mode_* 那三条短
+         标签，strings_settings.xml 里已经写明「刻意不复用 auto_theme / light_theme /
+         dark_theme」——三个 FilterChip 挤在一行，塞整句会把行撑破。留着不删：这三条与那三
+         条是同一组选项的两种形态，深浅切换一旦改成列表或对话框（放得下整句）要的就是它们，
+         不算重复定义。 -->
     <string name="light_theme">浅色主题</string>
     <string name="dark_theme">深色主题</string>
     <string name="auto_theme">跟随系统</string>
-    <string name="auto_save_enabled">启用自动保存</string>
+    <!-- 下面五条是 UserSettings 里「已经落库、也真的生效」的项在设置页上的标题文案：
+         autoSaveInterval 被 EditorViewModel 拿去起自动保存定时器，autoCompressImages /
+         imageCompressionQuality / maxImageWidth 在 ImageRepositoryImpl 里真的按值缩图压图，
+         配置备份（ConfigBackupCodec）也会把这四个值一起导出导入。 -->
     <string name="auto_save_interval">自动保存间隔（秒）</string>
     <string name="image_compression">图片压缩</string>
     <string name="auto_compress_images">自动压缩图片</string>
     <string name="compression_quality">压缩质量</string>
     <string name="max_image_width">最大图片宽度</string>
+    <!-- 自动保存间隔的候选档位标签。%1$d = 秒数。做成 FilterChip 的几个离散档而不是滑块：
+         合法区间是 5..3600（见 ConfigBackupCodec 的 AUTO_SAVE_INTERVAL），一个跨度 3595 的
+         滑块拖一格就跳几十秒，落不准任何一个整数值。 -->
+    <string name="settings_seconds_short">%1$d 秒</string>
+    <!-- 压缩质量三档。括号里的数字是真正写进 Bitmap.compress 的 quality 参数
+         （CompressionQuality 枚举的 value），摆出来是因为「中」「高」本身说明不了差多少。 -->
+    <string name="compression_quality_low">低（60）</string>
+    <string name="compression_quality_medium">中（80）</string>
+    <string name="compression_quality_high">高（90）</string>
     <string name="reset_settings">重置设置</string>
     <string name="reset_settings_confirm">确定要重置所有设置为默认值吗？</string>
 
@@ -126,32 +168,32 @@
     <string name="sort_by_word_count_desc">按字数（多到少）</string>
 
     <!-- 错误信息 -->
-    <string name="error_load_document">加载文档失败</string>
-    <string name="error_save_document">保存文档失败</string>
-    <string name="error_delete_document">删除文档失败</string>
+    <!-- 这一块曾有 8 条「XX失败」，其余 7 条在错误文案改走 UiMessage + ErrorHandler 之后
+         没有任何引用了（失败原因现在由 ErrorHandler 按异常类型拼，不再是一句笼统的「失败」），
+         已删除。只剩 error_create_folder 仍被 EditorViewModel 用着。 -->
     <string name="error_create_folder">创建文件夹失败</string>
-    <string name="error_delete_folder">删除文件夹失败</string>
-    <string name="error_import_file">导入文件失败</string>
-    <string name="error_export_file">导出文件失败</string>
-    <string name="error_empty_name">名称不能为空</string>
 
     <!-- 提示信息 -->
     <string name="hint_document_name">输入文档名称</string>
     <string name="hint_folder_name">输入文件夹名称</string>
-    <string name="hint_search">搜索文档...</string>
+    <string name="hint_search">搜索文档…</string>
 
     <!-- 空状态 -->
     <string name="empty_documents">还没有文档</string>
     <string name="empty_documents_hint">点击 + 按钮创建第一个文档</string>
     <string name="empty_search_results">没有找到匹配的文档</string>
-    <string name="empty_folder">文件夹为空</string>
 
     <!-- 工作区与大纲 -->
     <string name="outline">大纲</string>
     <string name="outline_empty">没有检测到标题</string>
     <string name="close_workspace">关闭文件夹</string>
     <string name="refresh">刷新</string>
-    <string name="workspace_truncated">文件过多，仅显示前 2000 个文档</string>
+    <!-- %1$d = WorkspaceScanner.MAX_FILES。刻意不做 plurals：实参是编译期常量，恒大于 1，
+         做出来的 one 分支永远渲染不到（同 strings_editor.xml 的 find_truncated）。 -->
+    <string name="workspace_truncated">文件过多，仅显示前 %1$d 个文档</string>
+    <!-- %1$d = WorkspaceScanner.MAX_DEPTH。必须与上一条分开：撞深度上限时文档总数可能只有
+         十几个，那时说「仅显示前 2000 个文档」是在骗用户，他会反复找那 2000 个文档在哪。 -->
+    <string name="workspace_truncated_depth">目录层级过深，超过 %1$d 层的文件夹未显示</string>
     <string name="workspace_reselect">重新选择</string>
     <string name="workspace_goto_settings">去设置</string>
     <string name="workspace_main_hint">从左侧栏选择要打开的文档</string>
@@ -182,7 +224,14 @@
     <string name="import_target">导入位置</string>
     <string name="import_target_change">更改</string>
     <string name="import_target_pick">选择导入位置</string>
-    <string name="import_files_count">将导入 %1$d 个文件</string>
+    <!--
+      中文没有单复数变化，只给 other 就够（Android 要求默认语言至少有 other）。
+      写成 plurals 是为了英文等有数变化的语言：`1 files` 这种错在 <string> 形态下无法修。
+      调用点必须用 pluralStringResource，且 count 要传两次（一次选 quantity，一次做格式化实参）。
+    -->
+    <plurals name="import_files_count">
+        <item quantity="other">将导入 %1$d 个文件</item>
+    </plurals>
 
     <!-- 导出 -->
     <string name="export_markdown">导出为 Markdown</string>
@@ -193,4 +242,79 @@
     <string name="export_pdf_desc">固定版式，便于打印与分享</string>
     <string name="export_word_desc">Microsoft Word 文档（.docx）</string>
     <string name="export_image_desc">整篇渲染为一张长图</string>
+
+    <!-- 配置备份（设置项导出/导入） -->
+    <string name="config_backup">配置备份</string>
+    <string name="config_backup_desc">把外观、AI、同步设置导出为 JSON，或从文件恢复</string>
+    <string name="config_backup_export">导出</string>
+    <string name="config_backup_import">导入</string>
+    <string name="config_export_title">导出配置</string>
+    <string name="config_export_message">导出外观与编辑器设置、AI 配置、WebDAV 同步配置。是否把 API Key 与 WebDAV 密码一并写入文件？</string>
+    <string name="config_export_warning">文件中的密钥为明文，请勿分享给他人。</string>
+    <string name="config_export_with_secrets">包含密钥</string>
+    <string name="config_export_without_secrets">不含密钥</string>
+    <string name="config_import_title">导入配置</string>
+    <string name="config_import_message">将用文件中的设置覆盖当前配置。文件里没有的项保持不变；不含密钥的文件不会清空已保存的 API Key 与密码。</string>
+    <string name="config_import_confirm">导入</string>
+    <string name="config_running">处理中…</string>
+    <string name="config_export_done_title">导出完成</string>
+    <string name="config_export_done_message">配置已写入所选文件。</string>
+    <string name="config_export_done_secrets">文件包含明文密钥，请妥善保管。</string>
+    <string name="config_import_done_title">导入完成</string>
+    <string name="config_import_nothing">文件里没有可应用的配置分段。</string>
+    <string name="config_import_applied">已应用：%1$s</string>
+    <string name="config_section_settings">外观与编辑器</string>
+    <string name="config_section_ai">AI 配置</string>
+    <string name="config_section_sync">云端同步</string>
+    <string name="config_import_secrets_applied">已写入文件中的密钥。</string>
+    <string name="config_import_secrets_kept">文件不含密钥，本机已保存的密钥保持不变。</string>
+    <string name="config_import_warnings_title">以下取值被调整或忽略：</string>
+    <string name="config_failed_title">操作失败</string>
+    <string name="config_dialog_close">知道了</string>
+    <string name="config_dialog_cancel">取消</string>
+
+    <!-- 崩溃日志 -->
+    <string name="crash_logs">崩溃日志</string>
+    <string name="crash_logs_desc">只存在本机、不联网上报；导出前会自动抹掉疑似密钥</string>
+    <string name="crash_logs_empty">暂无记录</string>
+    <plurals name="crash_logs_count">
+        <item quantity="other">%1$d 条记录，点按查看最近一条</item>
+    </plurals>
+    <string name="crash_logs_export">导出</string>
+    <string name="crash_logs_clear">清除</string>
+    <string name="crash_view_title">最近一条记录</string>
+    <string name="crash_clear_title">清除崩溃日志？</string>
+    <plurals name="crash_clear_message">
+        <item quantity="other">%1$d 条记录将被删除，且无法恢复。</item>
+    </plurals>
+    <string name="crash_clear_confirm">清除</string>
+    <string name="crash_export_done_title">导出完成</string>
+    <plurals name="crash_export_done_message">
+        <item quantity="other">已写出 %1$d 条记录。</item>
+    </plurals>
+    <string name="crash_export_failed_title">导出失败</string>
+
+    <!-- 同步删除的正文备份（sync_trash 救援副本）：DeleteLocal 删除前落盘的兜底 -->
+    <string name="sync_trash">同步删除的正文备份</string>
+    <string name="sync_trash_desc">远端删除传播到本机前，正文会先备份一份（最多 100 份，超出删最旧的）</string>
+    <string name="sync_trash_empty">暂无备份</string>
+    <plurals name="sync_trash_count">
+        <item quantity="other">%1$d 份备份，点按查看</item>
+    </plurals>
+    <string name="sync_trash_export">导出</string>
+    <string name="sync_trash_clear">清除</string>
+    <string name="sync_trash_view_title">备份内容（最新的在最前）</string>
+    <string name="sync_trash_clear_title">清除正文备份？</string>
+    <plurals name="sync_trash_clear_message">
+        <item quantity="other">%1$d 份备份将被删除，且无法恢复。</item>
+    </plurals>
+    <string name="sync_trash_clear_confirm">清除</string>
+    <plurals name="sync_trash_export_done_message">
+        <item quantity="other">已写出 %1$d 份备份的正文。</item>
+    </plurals>
+
+    <!-- ========== 外部打开（MainActivity） ==========
+         第三方应用发来的 VIEW intent 被 IncomingUriGuard 拒绝时的 Toast。走 Toast 而不是
+         Snackbar：这时 Compose 树还没建起来，没有 SnackbarHost 可用。 -->
+    <string name="open_external_rejected">无法打开该文件：来源不受支持</string>
 </resources>

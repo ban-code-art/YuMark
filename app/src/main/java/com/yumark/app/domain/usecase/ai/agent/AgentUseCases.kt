@@ -1,9 +1,14 @@
 package com.yumark.app.domain.usecase.ai.agent
 
+import com.yumark.app.R
+import com.yumark.app.core.text.ContentHash
+import com.yumark.app.core.util.ErrorHandler
+import com.yumark.app.core.util.UiMessage
 import com.yumark.app.domain.model.AgentAction
 import com.yumark.app.domain.model.AgentActionStatus
 import com.yumark.app.domain.model.AgentActionType
 import com.yumark.app.domain.model.AgentStep
+import com.yumark.app.domain.model.AgentStatusCode
 import com.yumark.app.domain.model.AgentTask
 import com.yumark.app.domain.model.AgentTaskStatus
 import com.yumark.app.domain.model.AgentTaskStep
@@ -26,6 +31,7 @@ import com.yumark.app.domain.usecase.CreateDocumentUseCase
 import com.yumark.app.domain.usecase.LoadDocumentUseCase
 import com.yumark.app.domain.usecase.SaveDocumentUseCase
 import com.yumark.app.domain.usecase.ai.DocumentContextTools
+import com.yumark.app.domain.usecase.ai.EditException
 import com.yumark.app.domain.usecase.ai.ExecuteDocumentToolUseCase
 import com.yumark.app.data.ai.AiAdapterFactory
 import kotlinx.serialization.Serializable
@@ -45,9 +51,16 @@ sealed class AgentMessageState {
     data class Streaming(val text: String) : AgentMessageState()
     data class ActionProposed(val messageId: String, val action: AgentAction) : AgentMessageState()
     data class ToolStep(val step: AgentStep) : AgentMessageState()
-    data class Notice(val message: String) : AgentMessageState()
+
+    /**
+     * 一条提示性通知。[UiMessage] 而不是 String：`domain` 拿不到 Context，解析在界面层。
+     *
+     * 其中一条通知同时被写进 Room 当作助手消息正文（模型本轮没返回内容时的解释文本），
+     * 那条只能是 [UiMessage.Raw]——存进库的必须是确定的字符串。
+     */
+    data class Notice(val message: UiMessage) : AgentMessageState()
     data class Completed(val fullText: String) : AgentMessageState()
-    data class Error(val message: String) : AgentMessageState()
+    data class Error(val message: UiMessage) : AgentMessageState()
 }
 
 /**
@@ -97,7 +110,7 @@ class SendAgentMessageUseCase @Inject constructor(
             conversationRepository.observeConversation(conversationId).first()?.let { conversation ->
                 conversationRepository.updateConversation(conversation.copy(status = ConversationStatus.IDLE))
             }
-            emit(AgentMessageState.Error("请先在设置中配置 API Key 和模型"))
+            emit(AgentMessageState.Error(UiMessage.Res(R.string.ai_error_not_configured)))
             return@flow
         }
 
@@ -147,6 +160,8 @@ class SendAgentMessageUseCase @Inject constructor(
         val tools = com.yumark.app.domain.usecase.ai.intent.ToolSelector.selectTools(intent, allTools)
         val systemPrompt = buildAgentSystemPrompt(currentDocumentName, currentDocumentContent, tools)
         val full = StringBuilder()
+        /** 上一轮已经显示给用户的正文（[full] 每轮清空，出错时不能用它判断「这条消息是空的」）。 */
+        var shownSoFar = ""
         val agentSteps = ArrayList<AgentStep>()
         var lastToolSignature: String? = null
 
@@ -157,8 +172,22 @@ class SendAgentMessageUseCase @Inject constructor(
         suspend fun finalizeTask(status: AgentTaskStatus, summary: String, blockingReason: String? = null) {
             taskFinalized = true
             val id = taskId ?: return
-            val existing = agentTaskRepository.getTaskByConversationId(conversationId)?.task ?: return
+            val aggregate = agentTaskRepository.getTaskByConversationId(conversationId) ?: return
+            val existing = aggregate.task
             if (existing.id != id) return
+            // 模型常把某步标 in_progress、做完工具后直接跳最终结论/动作，不再补一条收尾 update_plan，
+            // 该步于是永冻 RUNNING。任务一旦落终态，冷启动那条 reconcile 路径靠 liveStatuses 就选不到
+            // 它了（理由同下方 finally 块与 AgentChatViewModel.stop()），时间线会继续画脉冲而状态胶囊
+            // 已是终态——finally/stop 只覆盖了「中断」路径，正常 COMPLETED/BLOCKED/FAILED 收尾这里漏了。
+            // 按任务终态给残留 RUNNING 步一个对应终态：完成→DONE、阻塞→BLOCKED、其余(失败/兜底)→FAILED。
+            val stepTerminal = when (status) {
+                AgentTaskStatus.COMPLETED -> AgentTaskStepStatus.DONE
+                AgentTaskStatus.BLOCKED -> AgentTaskStepStatus.BLOCKED
+                else -> AgentTaskStepStatus.FAILED
+            }
+            aggregate.steps
+                .filter { it.status == AgentTaskStepStatus.RUNNING }
+                .forEach { agentTaskRepository.markStepStatus(it.id, stepTerminal) }
             agentTaskRepository.updateTask(
                 existing.copy(
                     status = status,
@@ -178,14 +207,20 @@ class SendAgentMessageUseCase @Inject constructor(
             executor(call).fold(
                 onSuccess = { content ->
                     val truncated = truncateToolResult(content, call.name)
-                    workingMessages.add(ChatMessage(role = "tool", content = truncated, toolCallId = call.id))
+                    workingMessages.add(
+                        ChatMessage(role = "tool", content = truncated, toolCallId = call.id, toolName = call.name)
+                    )
                     val done = AgentStep.ToolDone(call.name, true, summarize(truncated))
                     agentSteps.add(done)
                     emit(AgentMessageState.ToolStep(done))
                 },
                 onFailure = { e ->
-                    val msg = e.message ?: "工具执行失败"
-                    workingMessages.add(ChatMessage(role = "tool", content = "ERROR: $msg", toolCallId = call.id))
+                    // web_search / search_knowledge 的失败原文最常带着 `?api_key=…` 的完整 URL，
+                    // 这里是三个 failureDetail 调用点里风险最高的一个。
+                    val msg = failureDetail(e, "工具执行失败")
+                    workingMessages.add(
+                        ChatMessage(role = "tool", content = "ERROR: $msg", toolCallId = call.id, toolName = call.name)
+                    )
                     val done = AgentStep.ToolDone(call.name, false, summarize(msg))
                     agentSteps.add(done)
                     emit(AgentMessageState.ToolStep(done))
@@ -195,9 +230,15 @@ class SendAgentMessageUseCase @Inject constructor(
 
         try {
             for (turn in 1..MAX_TURNS) {
+                // `full` 是「本轮」的正文，每轮开头清空。清空前先记下上一轮已经显示给用户的那份：
+                // 出错分支要靠它判断这条消息是不是真的什么都没产生过（见下面的 StreamEvent.Error）。
+                if (full.isNotBlank()) shownSoFar = full.toString()
                 full.clear()
                 var pendingCalls: List<ToolCall>? = null
                 var errored = false
+                // 本轮正文是否被输出上限砍断（见 StreamEvent.Done.truncated）。
+                // 一轮一份：上一轮截断过不代表这一轮也截断。
+                var truncated = false
 
                 adapter.sendChatStream(
                     workingMessages,
@@ -219,13 +260,35 @@ class SendAgentMessageUseCase @Inject constructor(
                         }
                         is StreamEvent.ToolCallComplete -> pendingCalls = (pendingCalls ?: emptyList()) + event.calls
                         is StreamEvent.ToolCallDelta -> Unit
-                        is StreamEvent.Done -> Unit
+                        // 截断当场就告诉用户：这一位再往下会挡掉隐式整篇覆盖（见收敛分支），
+                        // 但挡掉之后界面上就只剩一段没头没尾的正文，不给提示的话用户只会
+                        // 觉得「AI 答了一半还不肯动手」。放在这里而不是收敛分支：
+                        // 带工具调用的轮次同样会被砍断（那会让 arguments 的 JSON 不完整），
+                        // 每一轮至多提示一次。
+                        is StreamEvent.Done -> if (event.truncated) {
+                            truncated = true
+                            emit(AgentMessageState.Notice(UiMessage.Res(R.string.ai_notice_response_truncated)))
+                        }
                         is StreamEvent.Error -> {
                             errored = true
-                            if (full.isBlank()) conversationRepository.deleteMessage(assistant.id)
-                            else conversationRepository.updateMessage(
-                                assistant.copy(content = full.toString(), isStreaming = false)
-                            )
+                            // 删这条消息的前提是「它从头到尾什么都没给用户看过」。不能只看 `full`：
+                            // 它每轮开头都被清空，第二轮一开始就断网时 `full` 是空的，而第一轮的正文
+                            // 和整条工具时间线都还挂在这条消息上——按 `full` 判断会把它们一起删掉，
+                            // 用户眼前那条消息凭空消失。
+                            val shown = full.toString().ifBlank { shownSoFar }
+                            if (shown.isBlank() && agentSteps.isEmpty()) {
+                                conversationRepository.deleteMessage(assistant.id)
+                            } else {
+                                // steps 必须一起写回：其余几处收尾都带上了，只有这里漏了，
+                                // 于是一出错用户刚看着走完的步骤就从气泡里消失。
+                                conversationRepository.updateMessage(
+                                    assistant.copy(
+                                        content = shown,
+                                        isStreaming = false,
+                                        steps = agentSteps.toList()
+                                    )
+                                )
+                            }
                             conversationRepository.observeConversation(conversationId).first()?.let {
                                 conversationRepository.updateConversation(it.copy(status = ConversationStatus.IDLE))
                             }
@@ -241,7 +304,10 @@ class SendAgentMessageUseCase @Inject constructor(
                     // ① 收敛：纯文本最终答复（兼容 [[ACTION]] 文本协议 / 弱模型隐式整篇识别）
                     val text = full.toString()
                     val action = parseAgentAction(text, currentDocumentId)
-                        ?: extractImplicitWriteAction(text, effectiveUserMessage, currentDocumentId, currentDocumentName)
+                        ?: extractImplicitWriteAction(
+                            text, effectiveUserMessage, currentDocumentId, currentDocumentName,
+                            truncated = truncated
+                        )
 
                     if (text.isBlank() && action == null) {
                         val notice = "AI 本轮没有返回任何内容。可能原因：所选模型不支持函数调用、" +
@@ -250,9 +316,14 @@ class SendAgentMessageUseCase @Inject constructor(
                         conversationRepository.updateMessage(
                             assistant.copy(content = notice, isStreaming = false, steps = agentSteps.toList())
                         )
-                        finalizeTask(AgentTaskStatus.BLOCKED, "模型未返回内容", "模型未返回任何内容")
+                        finalizeTask(
+                            AgentTaskStatus.BLOCKED,
+                            AgentStatusCode.SUMMARY_EMPTY_RESPONSE.encode(),
+                            AgentStatusCode.BLOCKED_EMPTY_RESPONSE.encode()
+                        )
                         markCompleted(conversationId)
-                        emit(AgentMessageState.Notice(notice))
+                        // notice 已作为助手消息正文写进 Room，通知这一路只能原样透出同一段字符串
+                        emit(AgentMessageState.Notice(UiMessage.Raw(notice)))
                         emit(AgentMessageState.Completed(notice))
                         return@flow
                     }
@@ -265,11 +336,17 @@ class SendAgentMessageUseCase @Inject constructor(
                     conversationRepository.updateMessage(
                         assistant.copy(content = chatText, isStreaming = false, agentAction = action, steps = agentSteps.toList())
                     )
-                    finalizeTask(AgentTaskStatus.COMPLETED, action?.description ?: text.take(80).ifBlank { "已完成" })
+                    // 摘要优先用模型自己的话（那是自由文本，原样落库、原样显示）；
+                    // 兜底才用稳定码，否则英文环境下这条摘要永远是中文。
+                    finalizeTask(
+                        AgentTaskStatus.COMPLETED,
+                        action?.description
+                            ?: text.take(80).ifBlank { AgentStatusCode.SUMMARY_COMPLETED.encode() }
+                    )
                     markCompleted(conversationId)
                     if (action != null) emit(AgentMessageState.ActionProposed(assistant.id, action))
                     else if (text.contains("[[ACTION]]"))
-                        emit(AgentMessageState.Notice("AI 输出的操作块格式有误，未生成可应用的改动"))
+                        emit(AgentMessageState.Notice(UiMessage.Res(R.string.agent_notice_bad_action_block)))
                     emit(AgentMessageState.Completed(text))
                     return@flow
                 }
@@ -281,7 +358,11 @@ class SendAgentMessageUseCase @Inject constructor(
                     conversationRepository.updateMessage(
                         assistant.copy(content = text, isStreaming = false, steps = agentSteps.toList())
                     )
-                    finalizeTask(AgentTaskStatus.BLOCKED, text, "检测到重复的工具调用")
+                    finalizeTask(
+                        AgentTaskStatus.BLOCKED,
+                        text,
+                        AgentStatusCode.BLOCKED_DUPLICATE_TOOL_CALL.encode()
+                    )
                     markCompleted(conversationId)
                     emit(AgentMessageState.Completed(text))
                     return@flow
@@ -310,8 +391,15 @@ class SendAgentMessageUseCase @Inject constructor(
                                     emit(AgentMessageState.ToolStep(done))
                                 },
                                 onFailure = { e ->
-                                    val msg = e.message ?: "写操作失败"
-                                    workingMessages.add(ChatMessage(role = "tool", content = "ERROR: $msg", toolCallId = call.id))
+                                    val msg = failureDetail(e, "写操作失败")
+                                    workingMessages.add(
+                                        ChatMessage(
+                                            role = "tool",
+                                            content = "ERROR: $msg",
+                                            toolCallId = call.id,
+                                            toolName = call.name
+                                        )
+                                    )
                                     val done = AgentStep.ToolDone(call.name, false, summarize(msg))
                                     agentSteps.add(done)
                                     emit(AgentMessageState.ToolStep(done))
@@ -321,8 +409,13 @@ class SendAgentMessageUseCase @Inject constructor(
                         "update_plan" -> {
                             val result = runCatching { applyPlan(conversationId, effectiveUserMessage, call) }
                             result.onSuccess { taskId = it }
-                            val summary = result.fold({ "已更新计划" }, { "计划更新失败：${it.message}" })
-                            workingMessages.add(ChatMessage(role = "tool", content = summary, toolCallId = call.id))
+                            val summary = result.fold(
+                                { "已更新计划" },
+                                { "计划更新失败：${failureDetail(it, "未知原因")}" }
+                            )
+                            workingMessages.add(
+                                ChatMessage(role = "tool", content = summary, toolCallId = call.id, toolName = call.name)
+                            )
                             val done = AgentStep.ToolDone(call.name, result.isSuccess, summary)
                             agentSteps.add(done)
                             emit(AgentMessageState.ToolStep(done))
@@ -346,7 +439,10 @@ class SendAgentMessageUseCase @Inject constructor(
                     conversationRepository.updateMessage(
                         assistant.copy(content = chatText, isStreaming = false, agentAction = act, steps = agentSteps.toList())
                     )
-                    finalizeTask(AgentTaskStatus.COMPLETED, act.description.ifBlank { "已生成待确认的文档改动" })
+                    finalizeTask(
+                        AgentTaskStatus.COMPLETED,
+                        act.description.ifBlank { AgentStatusCode.SUMMARY_ACTION_PROPOSED.encode() }
+                    )
                     markCompleted(conversationId)
                     emit(AgentMessageState.ActionProposed(assistant.id, act))
                     emit(AgentMessageState.Completed(text))
@@ -360,7 +456,7 @@ class SendAgentMessageUseCase @Inject constructor(
             conversationRepository.updateMessage(
                 assistant.copy(content = text, isStreaming = false, steps = agentSteps.toList())
             )
-            finalizeTask(AgentTaskStatus.FAILED, text, "已达最大步数 $MAX_TURNS")
+            finalizeTask(AgentTaskStatus.FAILED, text, AgentStatusCode.BLOCKED_MAX_STEPS.encode(MAX_TURNS))
             markCompleted(conversationId)
             emit(AgentMessageState.Completed(text))
         } finally {
@@ -368,15 +464,28 @@ class SendAgentMessageUseCase @Inject constructor(
             if (!taskFinalized) {
                 withContext(NonCancellable) {
                     taskId?.let { id ->
-                        agentTaskRepository.getTaskByConversationId(conversationId)?.task?.let { t ->
+                        agentTaskRepository.getTaskByConversationId(conversationId)?.let { agg ->
+                            val t = agg.task
                             if (t.id == id && (t.status == AgentTaskStatus.EXECUTING ||
                                     t.status == AgentTaskStatus.PLANNING || t.status == AgentTaskStatus.REPLANNING)) {
+                                // 先退回还挂在 RUNNING 的步骤，再改判任务——与
+                                // AgentTaskDao.reconcileInterrupted 同序，理由见
+                                // AgentChatViewModel.stop()：任务一旦落到终态，冷启动那条复位
+                                // 路径就靠 liveStatuses 选不到它了，RUNNING 步骤会永久停在
+                                // 活动态，时间线继续画脉冲，而状态胶囊已经是「执行中断」。
+                                agg.steps
+                                    .filter { it.status == AgentTaskStepStatus.RUNNING }
+                                    .forEach {
+                                        agentTaskRepository.markStepStatus(
+                                            it.id, AgentTaskStepStatus.PENDING
+                                        )
+                                    }
                                 agentTaskRepository.updateTask(
                                     t.copy(
                                         status = AgentTaskStatus.FAILED,
                                         updatedAt = System.currentTimeMillis(),
                                         currentStepId = null,
-                                        blockingReason = "任务被中断（取消或异常）"
+                                        blockingReason = AgentStatusCode.BLOCKED_INTERRUPTED.encode()
                                     )
                                 )
                             }
@@ -432,7 +541,13 @@ class SendAgentMessageUseCase @Inject constructor(
             )
         } else {
             agentTaskRepository.replaceSteps(taskIdValue, steps)
-            agentTaskRepository.updateTask(existing.copy(status = derived, updatedAt = now))
+            // replaceSteps 重铸了全部步骤 UUID，existing.currentStepId 若被保留就指向已删除的
+            // 步骤——一个悬空指针。今天没有任何代码写非 null 的 currentStepId，UI 侧
+            // toUiStateOrNull 的回退链也恰好把它遮蔽掉；但显式清空才不靠「碰巧没人写」
+            // 与「碰巧有回退」两条侥幸成立。
+            agentTaskRepository.updateTask(
+                existing.copy(status = derived, updatedAt = now, currentStepId = null)
+            )
         }
         return taskIdValue
     }
@@ -456,29 +571,58 @@ class ExecuteAgentActionUseCase @Inject constructor(
         finalContent: String? = null
     ): Result<String> = runCatching {
         val documentId = when (action.type) {
-            AgentActionType.CREATE_DOCUMENT -> {
-                val title = action.description.take(50).ifBlank { "AI 生成文档" }
-                val doc = createDocumentUseCase(title).getOrThrow()
-                saveDocumentUseCase(doc.copy(content = action.content)).getOrThrow()
-                snapshotVersion(doc.id)  // 新建文档：AI 生成内容落首个历史版本
-                doc.id
-            }
+            AgentActionType.CREATE_DOCUMENT -> createFromAction(action, action.description)
             AgentActionType.EDIT_DOCUMENT -> {
                 val targetId = action.targetDocumentId
-                    ?: error("EDIT_DOCUMENT 缺少 targetDocumentId")
-                val doc = loadDocumentUseCase(targetId).getOrThrow()
-                // 覆盖前先把改动前内容入历史，保证可回退到 Agent 修改之前
-                snapshotVersion(targetId, doc.content, doc.wordCount)
-                // finalContent：用户在 diff 闸门逐 hunk 审阅后合成的内容；为空则回退整篇覆盖
-                saveDocumentUseCase(doc.copy(content = finalContent ?: action.content)).getOrThrow()
-                snapshotVersion(targetId)  // 改动后内容入历史，与手动保存路径一致
-                targetId
+                if (targetId == null) {
+                    // 只可能是降级修复之前落库、冷启动后重新水合出来的旧提议（parseAgentAction 现在
+                    // 不会再产出无 target 的 EDIT）。content 同样是整篇正文，落成新文档远好于抛异常：
+                    // 用户批准过的内容不丢，也不会得到一句笼统的「操作失败」然后永远卡在那张卡片上。
+                    createFromAction(action, implicitDocumentTitle(action.content))
+                } else {
+                    val doc = loadDocumentUseCase(targetId).getOrThrow()
+                    requireUnchangedBase(action, doc.content)
+                    // 覆盖前先把改动前内容入历史，保证可回退到 Agent 修改之前
+                    snapshotVersion(targetId, doc.content, doc.wordCount)
+                    // finalContent：用户在 diff 闸门逐 hunk 审阅后合成的内容；为空则回退整篇覆盖
+                    saveDocumentUseCase(doc.copy(content = finalContent ?: action.content)).getOrThrow()
+                    snapshotVersion(targetId)  // 改动后内容入历史，与手动保存路径一致
+                    targetId
+                }
             }
         }
         conversationRepository.updateMessage(
             message.copy(agentAction = action.copy(status = AgentActionStatus.EXECUTED))
         )
         documentId
+    }
+
+    /** 建文档 → 写入正文 → 落首个历史版本。CREATE 与「无 target 的 EDIT」降级共用。 */
+    private suspend fun createFromAction(action: AgentAction, rawTitle: String): String {
+        val doc = createDocumentUseCase(rawTitle.take(50).ifBlank { "AI 生成文档" }).getOrThrow()
+        saveDocumentUseCase(doc.copy(content = action.content)).getOrThrow()
+        snapshotVersion(doc.id)  // 新建文档：AI 生成内容落首个历史版本
+        return doc.id
+    }
+
+    /**
+     * 提议的基线还在不在。
+     *
+     * [AgentAction.content] 是「提议生成那一刻的原文 + 模型的编辑」合成的新全文，批准时整篇
+     * 覆盖目标文档。提议随消息落库，批准可以晚到下一次冷启动之后——这期间用户在编辑器里改了
+     * 几行、WebDAV 拉回了远端版本，覆盖就把那些改动无声吃掉了（历史版本能翻回来，但用户不会
+     * 知道发生过）。所以写入前重新读一遍文档，指纹不一致就拒绝，让用户让 AI 重新生成。
+     *
+     * [AgentAction.baseContentHash] 为 null 的是本字段落地之前存下的老提议，无基线可比，
+     * 按从前的行为放行。
+     */
+    private fun requireUnchangedBase(action: AgentAction, currentContent: String) {
+        val expected = action.baseContentHash ?: return
+        if (ContentHash.of(currentContent) == expected) return
+        throw EditException(
+            uiMessage = UiMessage.Res(R.string.agent_edit_base_changed),
+            modelHint = "目标文档在本次提议生成后已被改动，提议已过期。"
+        )
     }
 
     /**
@@ -570,6 +714,16 @@ private fun isDocumentCreationRequest(userMessage: String): Boolean {
         listOf("文档", "md", "markdown", "笔记", "文章", "document", "note")
             .any { normalized.contains(it) }
 }
+
+/**
+ * 工具失败详情：这一行字同时走两个出口——回喂给模型的 `role=tool` 消息，和界面上的步骤卡片。
+ *
+ * 所以必须过 [ErrorHandler.safeDetail]：异常原文里可能带着 `?key=AIza…` 这样的凭证、
+ * `/data/user/0/com.yumark.app/…` 这样的内部路径，直接拼进去等于两边同时泄一次。
+ * 原文为空时退回给定的中文兜底，而不是让用户在步骤卡片上看到一个裸类名。
+ */
+private fun failureDetail(e: Throwable, fallback: String): String =
+    if (e.message.isNullOrBlank()) fallback else ErrorHandler.safeDetail(e)
 
 /** 单行摘要，用于步骤展示。 */
 private fun summarize(s: String, max: Int = 60): String {
@@ -685,10 +839,20 @@ internal fun parseAgentAction(text: String, currentDocumentId: String?): AgentAc
         .find(header)?.groupValues?.get(1)?.trim().orEmpty()
     if (content.isBlank()) return null
 
-    val type = AgentActionType.valueOf(typeStr)
+    val parsedType = AgentActionType.valueOf(typeStr)
+    // 模型声称要编辑、但此刻没有打开任何文档：EDIT_DOCUMENT 取不到 targetDocumentId，卡片仍会渲染出
+    // 「批准」按钮（UI 只在 targetDocumentId != null 时才走 diff 闸门），点下去在 ExecuteAgentActionUseCase
+    // 里撞上 error(...)，而 onFailureReport 刻意挡掉原始 message，用户只看到一句笼统的「操作失败」，
+    // 重试多少次都一样。两种协议下 [[CONTENT]] 都是整篇正文，所以此时降级成 CREATE_DOCUMENT 才是模型
+    // 意图的正确落地——与 extractImplicitWriteAction 一致：那条路径的 editIntent 定义本身就要求
+    // currentDocumentId != null，无文档可编辑时同样退回 CREATE_DOCUMENT。
+    val degradeToCreate = parsedType == AgentActionType.EDIT_DOCUMENT && currentDocumentId == null
+    val type = if (degradeToCreate) AgentActionType.CREATE_DOCUMENT else parsedType
     return AgentAction(
         type = type,
-        description = description,
+        // 降级后 description 会被 ExecuteAgentActionUseCase 当作新文档标题，而编辑指令写出来的
+        // description（"修改这篇文档的结构"之类）当标题很怪，改用正文首个标题行。
+        description = if (degradeToCreate) implicitDocumentTitle(content) else description,
         targetDocumentId = if (type == AgentActionType.EDIT_DOCUMENT) currentDocumentId else null,
         content = content
     )
@@ -697,12 +861,16 @@ internal fun parseAgentAction(text: String, currentDocumentId: String?): AgentAc
 /**
  * 降级识别（弱端点）：模型未发写工具、未按 [[ACTION]] 协议，而是直接把完整 Markdown 正文
  * 写在回复里时，把正文识别为待批准 [AgentAction]（复用 diff/审批门，不绕过审批）。
+ *
+ * @param truncated 本轮正文是否被输出上限砍断（[com.yumark.app.domain.model.StreamEvent.Done]）。
+ *        为 true 时不再产出编辑提案，理由见函数体内的注释。
  */
 internal fun extractImplicitWriteAction(
     text: String,
     userMessage: String,
     currentDocumentId: String?,
-    currentDocumentName: String?
+    currentDocumentName: String?,
+    truncated: Boolean = false
 ): AgentAction? {
     if (text.isBlank()) return null
     if (text.contains("[[ACTION]]")) return null
@@ -712,6 +880,16 @@ internal fun extractImplicitWriteAction(
     val editIntent = currentDocumentId != null && isDocumentEditRequest(userMessage, requireDocNoun = false)
     if (!createIntent && !editIntent) return null
 
+    // 被砍断的正文绝不拿去整篇覆盖既有文档。半截正文照样能通过下面「像不像文档」的判定，
+    // 而 EDIT_DOCUMENT 在 ExecuteAgentActionUseCase 里是整篇替换；隐式提案又没有
+    // baseContentHash，requireUnchangedBase 拦不住它。用户在 diff 卡片上点一下批准
+    // （每个 hunk 默认都是勾选状态）就把文档后半部分删掉了——历史版本能救回来，
+    // 可没人知道自己需要去救。
+    //
+    // 只挡编辑、不挡新建：新建是另起一篇，半截内容顶多是废稿，删掉就行，毁不到已有数据。
+    // 这里也刻意不回落到 CREATE——用户要的是「改这篇」，凭空多出一篇半截新文档同样是意外。
+    if (truncated && editIntent) return null
+
     // 剥离对话前言、解开 ```markdown 围栏，得到纯文档正文
     val body = extractDocumentBody(text)
     if (body.isBlank()) return null
@@ -719,7 +897,8 @@ internal fun extractImplicitWriteAction(
     val looksLikeDocument = body.length >= IMPLICIT_DOC_MIN_CHARS || hasDocumentStructure(body)
     if (!looksLikeDocument) return null
 
-    return if (editIntent && currentDocumentId != null) {
+    // editIntent 的定义里已含 currentDocumentId != null，K2 会据此把它智能转换为非空，无需重复判空。
+    return if (editIntent) {
         AgentAction(
             type = AgentActionType.EDIT_DOCUMENT,
             description = "编辑文档${currentDocumentName?.let { "：$it" }.orEmpty()}",

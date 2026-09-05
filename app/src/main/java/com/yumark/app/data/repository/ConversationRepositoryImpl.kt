@@ -5,6 +5,7 @@ import com.yumark.app.data.local.db.dao.MessageDao
 import com.yumark.app.data.mapper.toDomain
 import com.yumark.app.data.mapper.toEntity
 import com.yumark.app.domain.model.Conversation
+import com.yumark.app.domain.model.ConversationStatus
 import com.yumark.app.domain.model.ConversationType
 import com.yumark.app.domain.model.Message
 import com.yumark.app.domain.repository.ConversationRepository
@@ -51,4 +52,10 @@ class ConversationRepositoryImpl @Inject constructor(
     override suspend fun updateMessage(message: Message) = messageDao.update(message.toEntity())
 
     override suspend fun deleteMessage(messageId: String) = messageDao.delete(messageId)
+
+    override suspend fun resetInterruptedRuns(): Int =
+        conversationDao.resetInterruptedStatus(
+            working = ConversationStatus.WORKING.name,
+            idle = ConversationStatus.IDLE.name
+        )
 }

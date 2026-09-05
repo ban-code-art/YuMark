@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    File list / sidebar file tree / adaptive shell strings (English).
+
+    Mirrors values/strings_filelist.xml key for key. Every key added there MUST be added here,
+    otherwise lint's MissingTranslation check fails the build (error severity in this project).
+    Placeholder count and type must match the Chinese source exactly; positional specifiers
+    (%1$s / %1$d) are used so English word order can differ from Chinese.
+
+    Every <plurals> needs both one and other here: English has a real singular, Chinese does not.
+    Sentence case; buttons use the bare verb.
+-->
+<resources>
+
+    <!-- ========== FileListViewModel one-off messages ========== -->
+    <string name="filelist_import_no_markdown">No Markdown or text files to import in this folder</string>
+    <!-- %1$d = number of files imported -->
+    <plurals name="filelist_import_done">
+        <item quantity="one">Imported %1$d file</item>
+        <item quantity="other">Imported %1$d files</item>
+    </plurals>
+    <!-- Nothing was imported. %1$d = number of files that could not be read -->
+    <plurals name="filelist_import_failed">
+        <item quantity="one">Import failed: %1$d file could not be read</item>
+        <item quantity="other">Import failed: %1$d files could not be read</item>
+    </plurals>
+    <!-- Partial success. Quantity follows the imported count: %1$d = imported, %2$d = failed -->
+    <plurals name="filelist_import_partial">
+        <item quantity="one">Imported %1$d file, %2$d failed</item>
+        <item quantity="other">Imported %1$d files, %2$d failed</item>
+    </plurals>
+
+    <!-- ========== FileListScreen ========== -->
+    <!-- %1$s = name of the external workspace folder -->
+    <string name="filelist_workspace_browsing">Browsing “%1$s”</string>
+    <!-- %1$d = number of matches inside that document -->
+    <plurals name="filelist_search_match_count">
+        <item quantity="one">%1$d match</item>
+        <item quantity="other">%1$d matches</item>
+    </plurals>
+    <string name="filelist_search_title_match">Title match</string>
+    <!-- %1$s = display name of the import library, taken from @string/import_library -->
+    <string name="filelist_import_target_default">%1$s (default)</string>
+
+    <!-- ========== SidebarFileTree ========== -->
+    <string name="sidebar_drop_to_root">Root folder (release to move here)</string>
+
+    <!-- ========== Accessibility content descriptions ========== -->
+    <string name="cd_expand_folder">Expand folder</string>
+    <string name="cd_collapse_folder">Collapse folder</string>
+    <!-- Status marker on a document row, not a button, so it is not the favorite action string -->
+    <string name="cd_favorited">Favorited</string>
+    <!-- Back arrow shown while search is active. It used to reuse close ("Close"), which told a
+         screen-reader user nothing about what would close; this button exits search, not the page. -->
+    <string name="cd_exit_search">Exit search</string>
+
+    <!-- ========== AppShell (tablet / unfolded foldable two-pane) ========== -->
+    <string name="shell_detail_empty_hint">Select a document on the left, or create one, to start editing</string>
+
+</resources>

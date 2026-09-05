@@ -2,388 +2,115 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<!--
+  内容安全策略（改动前必读）
+  · script-src 不含 'unsafe-inline' / 'unsafe-eval'：内联 <script>、on* 事件属性、
+    javascript: URI 全部失效。这是文档内容 XSS 的第二道闸（第一道是 renderer.js 的 DOMPurify）。
+    因此渲染逻辑必须留在 raw/renderer.js、raw/renderer-ready.js 中，不能内联回本文件。
+  · connect-src 'none'：即使脚本被执行也无法通过 fetch/XHR/WebSocket/sendBeacon 外传数据。
+  · style-src 需要 'unsafe-inline'：本文件内联 <style>、Kotlin 注入的主题 CSS、
+    以及 KaTeX 输出的 style= 属性都依赖它。
+  · 已核对本地库均不使用 eval / new Function（marked/katex/prism/mermaid/purify）。
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src file:; style-src file: 'unsafe-inline'; font-src file: data:; img-src file: content: blob: data: https: http:; media-src file: content: blob: https: http:; connect-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>YuMark Renderer</title>
+<!-- 净化器必须先于 renderer.js 加载；mermaid 打包副本会覆盖 window.DOMPurify，
+     ym-sanitize.js 在执行时立即抓取本实例，勿调整这三行顺序 -->
+<script src="file:///android_asset/raw/purify.js"></script>
+<script src="file:///android_asset/raw/ym-sanitize.js"></script>
 <script src="file:///android_asset/raw/markedjs.js"></script>
 <link rel="stylesheet" href="file:///android_asset/raw/katexcss.css">
 <script src="file:///android_asset/raw/katexjs.js"></script>
 <script src="file:///android_asset/raw/katex-auto-render.js"></script>
-<script defer src="file:///android_asset/raw/mermaidjs.js" onload="window.__mermaidLoaded && window.__mermaidLoaded()"></script>
+<script defer id="mermaid-script" src="file:///android_asset/raw/mermaidjs.js"></script>
 <link rel="stylesheet" href="file:///android_asset/raw/prism.css">
 <script src="file:///android_asset/raw/prism.js"></script>
-<script>
-// 配置marked
-if (typeof marked !== 'undefined') {
-    marked.setOptions({breaks: true, gfm: true});
-}
-
-// mermaid 延迟加载完成后，补渲染已存在的图表
-window.__mermaidLoaded = function() {
-    try {
-        var contentEl = document.getElementById('content');
-        if (contentEl && typeof mermaid !== 'undefined') {
-            mermaid.run({nodes: contentEl.querySelectorAll('.language-mermaid')});
-        }
-    } catch(e) { console.log('mermaid late run: ' + e.message); }
-};
-
-// ===== 相对路径图片解析 =====
-// Android 侧通过 setImageResolver 提供文档所在目录的基址：
-//  - 导入库文档: prefix=file:///...import_assets/ 的 URL, base=库内目录链, encodeAll=false（逐段编码）
-//  - 外部工作区文档: prefix=content://.../document/ 前缀, base=父目录 documentId, encodeAll=true（整体编码）
-window.__imageResolver = null;
-
-// 把相对引用解析到 base 目录下；".." 不会越过根（防路径穿越）
-function joinImagePath(base, rel) {
-    rel = rel.replace(/\\/g, '/');
-    var rootPrefix = '';
-    var m = base.match(/^([^/]*:)([\s\S]*)$/);
-    if (m) { rootPrefix = m[1]; base = m[2]; }
-    var segs = base ? base.split('/').filter(function(s) { return !!s; }) : [];
-    if (rel.charAt(0) === '/') segs = [];
-    var parts = rel.split('/');
-    for (var i = 0; i < parts.length; i++) {
-        var p = parts[i];
-        if (!p || p === '.') continue;
-        if (p === '..') { if (segs.length) segs.pop(); continue; }
-        segs.push(p);
-    }
-    return rootPrefix + segs.join('/');
-}
-
-function resolveImages() {
-    var cfg = window.__imageResolver;
-    var contentEl = document.getElementById('content');
-    if (!cfg || !contentEl) return;
-    var imgs = contentEl.querySelectorAll('img');
-    for (var i = 0; i < imgs.length; i++) {
-        var img = imgs[i];
-        // 原始引用只记录一次，重渲染/换基址后仍可重新解析
-        var raw = img.getAttribute('data-yumark-src');
-        if (raw === null) {
-            raw = img.getAttribute('src') || '';
-            img.setAttribute('data-yumark-src', raw);
-        }
-        if (!raw || /^(https?:|data:|file:|content:|blob:)/i.test(raw)) continue;
-        var rel;
-        try { rel = decodeURIComponent(raw); } catch (e) { rel = raw; }
-        var joined = joinImagePath(cfg.base || '', rel);
-        var src = cfg.encodeAll
-            ? cfg.prefix + encodeURIComponent(joined)
-            : cfg.prefix + joined.split('/').map(encodeURIComponent).join('/');
-        img.setAttribute('src', src);
-    }
-}
-
-window.setImageResolver = function(cfg) {
-    window.__imageResolver = cfg;
-    resolveImages();
-};
-
-// 立即定义renderMarkdown函数，不等待DOM
-window.renderMarkdown = function(markdownText) {
-    function log(msg) {
-        console.log(msg);
-    }
-
-    try {
-        if (typeof marked === 'undefined') {
-            throw new Error('marked is undefined');
-        }
-
-        // 步骤1: 先保护代码区域，避免代码里的 $ 被当成公式
-        const codeStore = [];
-        let processedText = markdownText.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~|``[^\n]*?``|`[^`\n]*`/g, function(match) {
-            codeStore.push(match);
-            return 'YUMARKCODE' + (codeStore.length - 1) + 'E';
-        });
-
-        // 步骤2: 保护数学公式（用占位符替换，避免 \\、_、& 等被Markdown解析）
-        const mathBlocks = [];
-        function stash(type, formula) {
-            mathBlocks.push({type: type, formula: formula});
-            return 'YUMARKMATH' + (mathBlocks.length - 1) + 'E';
-        }
-
-        // 块级公式 $$...$$（可跨行）
-        processedText = processedText.replace(/\$\$([\s\S]+?)\$\$/g, function(m, f) {
-            return stash('block', f);
-        });
-        // 块级公式 \[...\]
-        processedText = processedText.replace(/\\\[([\s\S]+?)\\\]/g, function(m, f) {
-            return stash('block', f);
-        });
-        // 行内公式 \(...\)
-        processedText = processedText.replace(/\\\(([\s\S]+?)\\\)/g, function(m, f) {
-            return stash('inline', f);
-        });
-        // 裸环境（不带 $$ 直接写 \begin{equation}...\end{equation} 等）
-        processedText = processedText.replace(/\\begin\{(equation\*?|align\*?|alignat\*?|gather\*?|CD)\}[\s\S]+?\\end\{\1\}/g, function(m) {
-            return stash('block', m);
-        });
-        // 行内公式 $...$（不跨行；首尾不能是空白；结尾 $ 后不能紧跟数字，避免 "$20 和 $30" 被误判）
-        processedText = processedText.replace(/(^|[^\\$])\$((?:\\[^\n]|[^\\$\n])+?)\$(?!\d)/g, function(match, prefix, formula) {
-            if (/^\s/.test(formula) || /\s$/.test(formula)) return match;
-            return prefix + stash('inline', formula);
-        });
-
-        // 步骤2.5: 归一化图片链接目标（Typora/Windows 风格：反斜杠分隔、未编码空格）。
-        // CommonMark 规定目标中含未编码空格时整段不解析为图片，必须先转成合法 URL。
-        // 目标允许一层成对括号（如 image (1).png）；在代码区域仍受保护时执行，避免误改代码示例。
-        processedText = processedText.replace(/(!\[[^\]\n]*\]\()((?:[^()\n]|\([^()\n]*\))+)(\))/g, function(m, pre, dest, post) {
-            dest = dest.trim();
-            if (dest.charAt(0) === '<') return m;
-            var title = '';
-            var tm = dest.match(/\s+("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')$/);
-            if (tm) { title = ' ' + tm[1]; dest = dest.slice(0, tm.index); }
-            dest = dest.replace(/\\/g, '/').replace(/ /g, '%20').replace(/\(/g, '%28').replace(/\)/g, '%29');
-            return pre + dest + title + post;
-        });
-
-        // 恢复代码区域，交给 marked 正常渲染
-        processedText = processedText.replace(/YUMARKCODE(\d+)E/g, function(m, i) {
-            return codeStore[+i];
-        });
-
-        log('Protected ' + mathBlocks.length + ' formulas');
-
-        // 步骤3: Markdown渲染
-        let html = marked.parse(processedText);
-
-        // 步骤4: 用 KaTeX 直接把占位符渲染成HTML
-        // 注意必须用替换函数，不能用替换字符串——公式里的 $ & 等在替换字符串中有特殊含义
-        function looksDoubleEscaped(f) {
-            // 反斜杠被双写的文档（常见于AI生成/JSON复制）：存在 \\命令，且不存在任何单反斜杠命令
-            const hasDouble = /\\\\[a-zA-Z]/.test(f);
-            const hasSingle = /(^|[^\\])\\(?!\\)[a-zA-Z]/.test(f);
-            return hasDouble && !hasSingle;
-        }
-        function renderFormula(formula, display) {
-            const opts = {displayMode: display, strict: 'ignore', output: 'html'};
-            // 双写反斜杠的公式先归一化：\\theta -> \theta，\\\\ -> \\
-            if (looksDoubleEscaped(formula)) {
-                formula = formula.replace(/\\\\/g, '\\');
-            }
-            try {
-                return katex.renderToString(formula, Object.assign({throwOnError: true}, opts));
-            } catch(e1) {
-                // 解析失败再试一次反斜杠减半（兜底混合写法）
-                const halved = formula.replace(/\\\\/g, '\\');
-                if (halved !== formula) {
-                    try {
-                        return katex.renderToString(halved, Object.assign({throwOnError: true}, opts));
-                    } catch(e2) { /* 继续走错误展示 */ }
-                }
-                // 最终以红色源码展示原公式
-                return katex.renderToString(formula, Object.assign({throwOnError: false}, opts));
-            }
-        }
-        let failCount = 0;
-        html = html.replace(/YUMARKMATH(\d+)E/g, function(match, i) {
-            const item = mathBlocks[+i];
-            if (!item) return match;
-            try {
-                // displayMode 必须正确传递：align/gather 等环境只能在块级模式渲染
-                return renderFormula(item.formula, item.type === 'block');
-            } catch(e) {
-                failCount++;
-                const esc = item.formula.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                return '<code class="math-error" title="' + (e.message || 'KaTeX error') + '">' + esc + '</code>';
-            }
-        });
-
-        log('Rendered ' + mathBlocks.length + ' formulas, ' + failCount + ' failed');
-
-        const contentEl = document.getElementById('content');
-        if (contentEl) {
-            contentEl.innerHTML = html;
-            log('HTML set');
-
-            // 相对路径图片解析（基址可能先于/晚于首次渲染到达，两侧都触发）
-            try { resolveImages(); } catch(e) { log('Image resolve error: ' + e.message); }
-
-            // 兜底：扫描漏网的公式（如不常见的定界符写法），不含单个 $，避免误伤普通文本
-            if (typeof renderMathInElement !== 'undefined') {
-                try {
-                    renderMathInElement(contentEl, {
-                        delimiters: [
-                            {left: '$$', right: '$$', display: true},
-                            {left: '\\[', right: '\\]', display: true},
-                            {left: '\\(', right: '\\)', display: false}
-                        ],
-                        throwOnError: false,
-                        strict: 'ignore'
-                    });
-                } catch(e) {
-                    log('KaTeX fallback error: ' + e.message);
-                }
-            }
-
-            // Prism代码高亮
-            if (typeof Prism !== 'undefined') {
-                Prism.highlightAllUnder(contentEl);
-            }
-
-            // Mermaid图表
-            if (typeof mermaid !== 'undefined') {
-                mermaid.run({nodes: contentEl.querySelectorAll('.language-mermaid')});
-            }
-
-            // 大纲收集：给标题分配锚点 id 并回传 Android
-            try {
-                var headings = contentEl.querySelectorAll('h1,h2,h3,h4,h5,h6');
-                var outline = [];
-                for (var hi = 0; hi < headings.length; hi++) {
-                    var h = headings[hi];
-                    var hid = 'yumark-h-' + hi;
-                    h.id = hid;
-                    outline.push({
-                        level: parseInt(h.tagName.substring(1), 10),
-                        text: (h.textContent || '').trim(),
-                        id: hid
-                    });
-                }
-                if (window.Android && Android.onOutline) {
-                    Android.onOutline(JSON.stringify(outline));
-                }
-            } catch(e) {
-                log('Outline error: ' + e.message);
-            }
-        }
-
-        // 启用代码块横向滚动优化
-        enableCodeBlockScroll();
-
-        return true;
-    } catch(e) {
-        log('ERROR: ' + e.message);
-        console.error('Full error:', e);
-        const contentEl = document.getElementById('content');
-        if (contentEl) {
-            contentEl.innerHTML = '<h3 style="color:red;">Error: ' + e.message + '</h3>';
-        }
-        return false;
-    }
-};
-
-window.scrollToHeading = function(id) {
-    var el = document.getElementById(id);
-    if (el) {
-        el.scrollIntoView({behavior: 'smooth', block: 'start'});
-    }
-};
-
-/**
- * 启用代码块横向滚动优化
- * 解决父容器纵向滚动拦截代码块横向滑动的问题
- */
-function enableCodeBlockScroll() {
-    const codeBlocks = document.querySelectorAll('pre code');
-    codeBlocks.forEach(function(block) {
-        const pre = block.parentElement;
-        var startX = 0, startY = 0;
-
-        pre.addEventListener('touchstart', function(e) {
-            startX = e.touches[0].clientX;
-            startY = e.touches[0].clientY;
-        }, { passive: true });
-
-        pre.addEventListener('touchmove', function(e) {
-            var deltaX = Math.abs(e.touches[0].clientX - startX);
-            var deltaY = Math.abs(e.touches[0].clientY - startY);
-
-            // 横向滑动距离大于纵向，且超过阈值（10px）
-            if (deltaX > deltaY && deltaX > 10) {
-                // 通知Android禁用父容器滚动
-                if (typeof AndroidTouch !== 'undefined') {
-                    AndroidTouch.requestDisallowInterceptTouchEvent(true);
-                }
-            }
-        }, { passive: true });
-
-        pre.addEventListener('touchend', function() {
-            // 恢复父容器滚动
-            if (typeof AndroidTouch !== 'undefined') {
-                AndroidTouch.requestDisallowInterceptTouchEvent(false);
-            }
-        }, { passive: true });
-    });
-}
-
-/**
- * 双击恢复原始缩放（排除可交互元素）
- */
-window.addEventListener('DOMContentLoaded', function() {
-    var lastTapTime = 0;
-
-    document.addEventListener('touchend', function(e) {
-        // 排除链接、按钮等可交互元素
-        if (e.target.tagName === 'A' ||
-            e.target.tagName === 'BUTTON' ||
-            e.target.tagName === 'INPUT' ||
-            e.target.tagName === 'PRE' ||
-            e.target.tagName === 'CODE') {
-            return;
-        }
-
-        var currentTime = Date.now();
-        var tapGap = currentTime - lastTapTime;
-
-        // 双击判定：300ms内两次点击
-        if (tapGap > 0 && tapGap < 300) {
-            // 通知Android恢复缩放
-            if (typeof Android !== 'undefined' && Android.resetZoom) {
-                Android.resetZoom();
-            }
-            // 防止连续触发
-            lastTapTime = 0;
-        } else {
-            lastTapTime = currentTime;
-        }
-    });
-});
-
-// ===== 编辑/预览滚动同步 =====
-// 全部在 JS 内用一致的 CSS px 计算比例（0~1），避免 Kotlin 侧把 contentHeight(CSS px)
-// 与 View 的 height/scrollY(物理 px) 混算导致定位错乱（高密度屏会算成 0 跳顶）。
-window.getScrollRatio = function() {
-    var max = document.documentElement.scrollHeight - window.innerHeight;
-    if (max <= 0) return 0;
-    var r = (window.scrollY || document.documentElement.scrollTop || 0) / max;
-    return r < 0 ? 0 : (r > 1 ? 1 : r);
-};
-window.scrollToRatio = function(r) {
-    var max = document.documentElement.scrollHeight - window.innerHeight;
-    if (max < 0) max = 0;
-    r = r < 0 ? 0 : (r > 1 ? 1 : r);
-    window.scrollTo(0, Math.round(max * r));
-};
-
-console.log('renderMarkdown function defined');
-</script>
+<!-- renderer.js 必须排在 mermaid 标签之后：它要 getElementById('mermaid-script') 绑定 load 事件 -->
+<script src="file:///android_asset/raw/renderer.js"></script>
+<!-- 这个 style 目前没有写入方（全仓库只有本文件提到 theme-styles）：深色覆盖由
+     EditorScreen.darkStyleJs 另建一个 #yumark-dark 追加到 head 末尾，因此它的优先级
+     高于下面这份基础样式。空壳留着只为占住 CSP 注释里「Kotlin 注入的主题 CSS」那一档。 -->
 <style id="theme-styles"></style>
 <style>
-body{margin:0;padding:16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;word-wrap:break-word;background:#fff;}
-#content{max-width:100%;min-height:100vh;}
+/* 颜色一律走自定义属性：深色模式只需覆盖 :root 这一组变量，不必逐个选择器重写一遍。
+   导出（PDF / DOCX）走同一个模板且从不注入深色样式，因此下面的浅色值就是导出用的值。 */
+:root{
+  --ym-bg:#fff;--ym-fg:#1f2328;--ym-fg-muted:#656d76;--ym-border:#d8dee4;
+  --ym-code-bg:#f5f5f5;--ym-code-fg:#1f2328;--ym-th-bg:#f5f5f5;--ym-link:#0066cc;
+  --ym-err-fg:#cc0000;--ym-err-bg:#fff0f0;--ym-err-border:#f0c0c0;
+  /* prism 默认主题的八档取色，原样搬进变量：浅色下观感不变，深色下整组换掉 */
+  --ym-tok-comment:#708090;--ym-tok-punct:#999;--ym-tok-num:#905;--ym-tok-str:#690;
+  --ym-tok-op:#9a6e3a;--ym-tok-kw:#07a;--ym-tok-fn:#dd4a68;--ym-tok-var:#e90;
+}
+/* 行高取 1.75 而不是界面文字的 1.6：这里是「读整篇文档」的场景，中文长文需要更松的行距。
+   字体栈显式列出中文字族，否则只能听凭系统兜底挑一个。 */
+body{
+  margin:0;padding:16px;background:var(--ym-bg);color:var(--ym-fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans CJK SC","PingFang SC","Microsoft YaHei",sans-serif;
+  font-size:16px;line-height:1.75;word-wrap:break-word;-webkit-text-size-adjust:100%;
+}
+/* 不要加 min-height:100vh。导出 PDF 走的是同一个模板：离屏视口高 2000px，而一张 A4 页面
+   按导出宽度只有约 1754px，100vh 会把 #content 撑到至少一屏高，短文档因此多出一整页空白。
+   预览的满屏背景由 body 的 background 承担（深色主题也在 body 上改），不需要 #content 撑高。 */
+#content{max-width:100%;}
+/* 标题是短文本，行高收到 1.35；上外边距远大于下外边距，段落才会跟着上一个标题成组。
+   h1/h2 的下划线是 Typora / GitHub 一路的惯例，默认主题本就在模仿那种观感。 */
+h1,h2,h3,h4,h5,h6{margin:1.6em 0 .6em;line-height:1.35;font-weight:600;}
+h1{font-size:1.75em;padding-bottom:.3em;border-bottom:1px solid var(--ym-border);}
+h2{font-size:1.4em;padding-bottom:.3em;border-bottom:1px solid var(--ym-border);}
+h3{font-size:1.2em;} h4{font-size:1.05em;} h5{font-size:1em;}
+h6{font-size:.9em;color:var(--ym-fg-muted);}
+/* 首个子元素不带上外边距，否则文档顶端凭空多出一截空白，导出时尤其显眼。 */
+#content>*:first-child{margin-top:0;}
+p{margin:0 0 1em;}
+ul,ol{margin:0 0 1em;padding-left:1.6em;}
+li{margin:.25em 0;} li>ul,li>ol{margin:.25em 0;}
+/* 任务列表：marked 开了 gfm，直接吐 <input type=checkbox> 且不带 class。:has() 在旧
+   WebView 上不生效，届时圆点还在，不影响可读性。 */
+input[type=checkbox]{margin:0 .4em 0 0;vertical-align:middle;}
+li:has(>input[type=checkbox]){list-style:none;margin-left:-1.35em;}
+hr{height:0;margin:1.6em 0;border:0;border-top:1px solid var(--ym-border);}
 img{max-width:100%;height:auto;cursor:pointer;border-radius:4px;}
-a{color:#0066cc;text-decoration:none;} a:active{opacity:0.7;}
-table{border-collapse:collapse;width:100%;margin:16px 0;}
-th,td{border:1px solid #ddd;padding:8px;text-align:left;}
-th{background-color:#f5f5f5;font-weight:600;}
-code{font-family:'Courier New',monospace;background-color:#f5f5f5;padding:2px 6px;border-radius:3px;}
-pre{background-color:#f5f5f5;padding:16px;border-radius:6px;overflow-x:auto;}
-blockquote{border-left:4px solid #ddd;padding-left:16px;color:#666;}
+a{color:var(--ym-link);text-decoration:none;word-break:break-word;} a:active{opacity:0.7;}
+/* 表格按内容宽度排版并自带横向滚动（GitHub 同款做法）：宽表不再被挤成一团。
+   导出仍受纸张宽度限制，超宽表格会被裁掉——这一点没有纯 CSS 的解法。 */
+table{display:block;width:max-content;max-width:100%;overflow-x:auto;border-collapse:collapse;margin:1em 0;font-size:.95em;}
+th,td{border:1px solid var(--ym-border);padding:6px 10px;text-align:left;}
+th{background-color:var(--ym-th-bg);font-weight:600;}
+/* prism.css 的 pre[class*=language-] 比裸 pre 高一档特异性，会把下面这批值整体盖掉：
+   带语言标记与不带语言标记的两种代码块于是在背景、内边距、外边距、行高、字号上各走一套。
+   深色模式下后果更重——曾经 darkStyleJs 直接写 code,pre 也盖不过它，高亮块在深色页面上
+   一直是浅底黑字；现在深色改为覆盖 :root 变量，前提正是下面这批规则真的生效。
+   所以这里按 prism 自己的选择器原样再写一遍：特异性相等时后出现的胜出，本 style 排在它之后。
+   text-shadow 一并清掉，那道白色投影是 prism 浅色主题的装饰，深底上看着发虚。 */
+pre,pre[class*=language-]{background:var(--ym-code-bg);margin:1em 0;padding:12px 16px;border-radius:6px;overflow-x:auto;line-height:1.6;font-size:.9em;-webkit-overflow-scrolling:touch;}
+code,code[class*=language-],pre[class*=language-]{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Courier New',monospace;color:var(--ym-code-fg);text-shadow:none;}
+code{background-color:var(--ym-code-bg);font-size:.9em;padding:2px 6px;border-radius:3px;}
+:not(pre)>code[class*=language-]{background:var(--ym-code-bg);padding:2px 6px;border-radius:3px;}
+/* 代码块里的 code 要清掉行内那套：不清就是内外两层背景加 6px 内边距叠着，首行缩进对不齐。 */
+pre>code,pre>code[class*=language-]{padding:0;background:none;border-radius:0;font-size:1em;}
+/* prism 的八档 token 取色改读变量，深色模式整组替换（见 :root 的注释） */
+.token.cdata,.token.comment,.token.doctype,.token.prolog{color:var(--ym-tok-comment);}
+.token.punctuation{color:var(--ym-tok-punct);}
+.token.boolean,.token.constant,.token.deleted,.token.number,.token.property,.token.symbol,.token.tag{color:var(--ym-tok-num);}
+.token.attr-name,.token.builtin,.token.char,.token.inserted,.token.selector,.token.string{color:var(--ym-tok-str);}
+.language-css .token.string,.style .token.string,.token.entity,.token.operator,.token.url{color:var(--ym-tok-op);}
+.token.atrule,.token.attr-value,.token.keyword{color:var(--ym-tok-kw);}
+.token.class-name,.token.function{color:var(--ym-tok-fn);}
+.token.important,.token.regex,.token.variable{color:var(--ym-tok-var);}
+blockquote{margin:1em 0;padding:.2em 0 .2em 16px;border-left:4px solid var(--ym-border);color:var(--ym-fg-muted);}
+blockquote>:first-child{margin-top:0;} blockquote>:last-child{margin-bottom:0;}
 .katex{font-size:1.1em;}
 .katex-display{overflow-x:auto;overflow-y:hidden;padding:8px 0;margin:12px 0;}
 .katex-display::-webkit-scrollbar{height:3px;}
-code.math-error{color:#cc0000;background:#fff0f0;}
+code.math-error{color:var(--ym-err-fg);background:var(--ym-err-bg);}
+.yumark-render-error{color:var(--ym-err-fg);background:var(--ym-err-bg);border:1px solid var(--ym-err-border);border-radius:4px;padding:10px 12px;margin:8px 0;font-size:14px;}
 </style>
 </head>
 <body>
 <div id="content"></div>
-<script>
-// 渲染管线就绪握手（marked/katex/prism 已同步加载；mermaid 延迟加载，渲染函数内有 typeof 守卫）
-if (window.Android && Android.onReady) { Android.onReady(); }
-</script>
+<script src="file:///android_asset/raw/renderer-ready.js"></script>
 </body>
 </html>

@@ -1,5 +1,8 @@
 package com.yumark.app.domain.usecase.ai
 
+import com.yumark.app.core.util.UiMessage
+import com.yumark.app.core.util.UserFacingMessage
+
 /**
  * 单段外科式编辑：把 [oldString] 替换为 [newString]。
  * [replaceAll] 为 true 时替换全部命中，否则要求唯一命中。
@@ -11,9 +14,33 @@ data class EditOp(
 )
 
 /**
- * 编辑失败原因（消息回填给模型，引导自我修正）。
+ * 编辑失败原因。
+ *
+ * 文案要同时喂两个受众，措辞都必须是中文、面向人的（见 [UserFacingMessage]）——需求在这里
+ * 刚好一致：说清楚「哪一处、为什么不行」。
+ * - [Throwable.message]：回填给模型引导自我修正，也是崩溃日志里的那一行；
+ * - [uiMessage]：给界面，随语区翻译。
+ *
+ * 两个构造器（照 [com.yumark.app.core.util.FriendlyIOException] 的形状）：收 String 的那个留给
+ * 「文案由抛出点的运行时数据拼成」的分支（第几处编辑、命中几次），收 [UiMessage] 的那个可翻译。
  */
-class EditException(message: String) : Exception(message)
+class EditException private constructor(
+    message: String?,
+    cause: Throwable?,
+    override val uiMessage: UiMessage?
+) : Exception(message, cause), UserFacingMessage {
+
+    constructor(message: String) : this(message, null, null)
+
+    /**
+     * @param modelHint 回填给模型 / 写进崩溃日志的纯文本。[uiMessage] 要到界面层才解析得出人话，
+     *   而读 [Throwable.message] 的那两个受众都在 `domain` 层就要拿到可读的一句话
+     *   （见 `SendAgentMessageUseCase` 的 `ERROR: $msg` 回填）。省略则退回
+     *   `uiMessage.toString()`（形如 `Res(id=2131755123, args=[])`，那串 id 能 grep 回 R.string）。
+     */
+    constructor(uiMessage: UiMessage, modelHint: String? = null, cause: Throwable? = null) :
+        this(modelHint ?: uiMessage.toString(), cause, uiMessage)
+}
 
 /**
  * 外科式编辑器：把一组 [EditOp] 顺序作用于文档原文，得到更新后全文。
@@ -26,7 +53,10 @@ object DocumentEditApplier {
 
     /** 顺序应用所有编辑；任一段失败则整体失败（[EditException]）。 */
     fun applyEdits(base: String, edits: List<EditOp>): Result<String> = runCatching {
-        require(edits.isNotEmpty()) { throw EditException("没有可应用的编辑。") }
+        // 不用 require：它的 lambda 只在断言不成立时求值，`throw` 写在里面能跑通，
+        // 但语义绕（异常从 lambda 里抛出，require 自己的 IllegalArgumentException 永远到不了），
+        // 而且 EditException 的标记语义要求它是唯一被抛出的类型。
+        if (edits.isEmpty()) throw EditException("没有可应用的编辑。")
         var text = base
         edits.forEachIndexed { index, op ->
             text = applyOne(text, op, index)

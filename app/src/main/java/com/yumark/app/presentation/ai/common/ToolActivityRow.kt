@@ -20,10 +20,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yumark.app.R
 import com.yumark.app.domain.model.AgentStep
+import com.yumark.app.presentation.theme.AppSpacing
 
 /**
  * 一行 Agent 工具活动：状态图标 + 自然语言动作 + 等宽参数摘要。
@@ -46,8 +49,8 @@ fun ToolActivityRow(
     LaunchedEffect(active) {
         if (active) {
             while (true) {
-                shimmer.animateTo(0.4f, tween(900))
-                shimmer.animateTo(1f, tween(900))
+                shimmer.animateTo(0.4f, tween(ToolActivityMetrics.ShimmerHalfCycleMs))
+                shimmer.animateTo(1f, tween(ToolActivityMetrics.ShimmerHalfCycleMs))
             }
         } else {
             shimmer.snapTo(1f)
@@ -55,14 +58,14 @@ fun ToolActivityRow(
     }
 
     Row(
-        modifier = modifier.fillMaxWidth().padding(vertical = 2.dp),
+        modifier = modifier.fillMaxWidth().padding(vertical = AppSpacing.Micro),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.Snug)
     ) {
         Icon(
             icon,
             contentDescription = null,
-            modifier = Modifier.size(14.dp).alpha(shimmer.value),
+            modifier = Modifier.size(ToolActivityMetrics.IconSize).alpha(shimmer.value),
             tint = tint
         )
         when (step) {
@@ -104,10 +107,31 @@ fun ToolActivityRow(
     }
 }
 
-/** 把工具名转成面向用户的自然语言动作。 */
+/**
+ * 把工具名转成面向用户的自然语言动作。
+ *
+ * when 的**键**（read_document / search_in_project / list_documents）是发给模型的
+ * function name，属于协议字面量，一个字都不能翻；只有分支产出的旁白进了资源。
+ * else 分支原样返回工具名：新工具还没配旁白时至少露出它的真名，比显示空白有用。
+ * 为了能调 stringResource 而改成 @Composable —— 两处调用点都在 ToolActivityRow 的
+ * 组合作用域内（when 分支里调 @Composable 是允许的，不是条件式创建状态）。
+ */
+@Composable
 fun narrateTool(tool: String): String = when (tool) {
-    "read_document" -> "读取文档"
-    "search_in_project" -> "检索项目"
-    "list_documents" -> "浏览文档"
+    "read_document" -> stringResource(R.string.ai_tool_read_document)
+    "search_in_project" -> stringResource(R.string.ai_tool_search_in_project)
+    "list_documents" -> stringResource(R.string.ai_tool_list_documents)
     else -> tool
+}
+
+/**
+ * 本工具活动行特有的度量，刻意不并入全局间距 / 图标标度：状态图标直径（14dp，比最小图标标度 16
+ * 更紧凑）、active 行图标呼吸 shimmer 的单程时长。离散于全局标度，保留原像素与原时长、不硬凑。
+ * 按 FileListMetrics 先例落屏幕局部。
+ */
+private object ToolActivityMetrics {
+    /** 工具行状态图标直径：14dp，比最小图标标度(16)略紧，贴合密排步骤行；off-grid。 */
+    val IconSize = 14.dp
+    /** active（正在调用）行图标呼吸 shimmer 的单程时长（毫秒）。 */
+    const val ShimmerHalfCycleMs = 900
 }

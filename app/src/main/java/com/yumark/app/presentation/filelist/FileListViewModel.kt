@@ -2,6 +2,10 @@ package com.yumark.app.presentation.filelist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.yumark.app.core.util.ErrorHandler
+import com.yumark.app.core.util.UiMessage
+import com.yumark.app.core.util.UserAction
+import com.yumark.app.core.util.onFailureReport
 import com.yumark.app.core.validation.FileNameValidator
 import com.yumark.app.core.validation.ValidationResult
 import com.yumark.app.data.remote.UpdateChecker
@@ -14,14 +18,12 @@ import com.yumark.app.domain.usecase.DeleteDocumentUseCase
 import com.yumark.app.domain.usecase.ManageFoldersUseCase
 import com.yumark.app.domain.usecase.SearchDocumentsUseCase
 import com.yumark.app.domain.usecase.GetFolderTreeUseCase
-import com.yumark.app.domain.usecase.importing.ImportCandidate
-import com.yumark.app.domain.usecase.importing.ImportDocumentUseCase
-import com.yumark.app.domain.usecase.importing.ImportFolderUseCase
-import android.net.Uri
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @OptIn(FlowPreview::class)
@@ -35,8 +37,6 @@ class FileListViewModel @Inject constructor(
     private val manageFoldersUseCase: ManageFoldersUseCase,
     private val getFolderTreeUseCase: GetFolderTreeUseCase,
     private val workspaceRepository: WorkspaceRepository,
-    private val importDocumentUseCase: ImportDocumentUseCase,
-    private val importFolderUseCase: ImportFolderUseCase,
     private val updateChecker: UpdateChecker
 ) : ViewModel() {
 
@@ -52,8 +52,14 @@ class FileListViewModel @Inject constructor(
 
     val workspace: StateFlow<Workspace?> = workspaceRepository.workspace
 
-    private val _workspaceError = MutableStateFlow<String?>(null)
-    val workspaceError: StateFlow<String?> = _workspaceError.asStateFlow()
+    /**
+     * 工作区级错误（顶部错误条），与 [_actionError] 的一次性 Snackbar 分开。
+     *
+     * 类型是 [UiMessage] 而不是 String：产出侧是 core 的 [ErrorHandler] 与 repository，
+     * 都拿不到 Context，解析要等到组合期。
+     */
+    private val _workspaceError = MutableStateFlow<UiMessage?>(null)
+    val workspaceError: StateFlow<UiMessage?> = _workspaceError.asStateFlow()
 
     /** 当前 workspaceError 是否来自「默认目录恢复失败」——错误条按钮据此引导去设置页而非临时选文件夹 */
     private val _defaultDirRestoreFailed = MutableStateFlow(false)
@@ -66,9 +72,14 @@ class FileListViewModel @Inject constructor(
     private var cachedTreeKey: Pair<Int, Int>? = null
     private var cachedTree: List<FolderTreeNode>? = null
 
-    /** 操作失败提示（Snackbar 一次性事件），不影响列表 uiState */
-    private val _actionError = MutableStateFlow<String?>(null)
-    val actionError: StateFlow<String?> = _actionError.asStateFlow()
+    /**
+     * 操作失败提示（Snackbar 一次性事件），不影响列表 uiState。
+     *
+     * 类型是 [UiMessage] 而不是 String：ViewModel 里没有 Context，查不了字符串资源，
+     * 文案只能带着资源 id 传到组合期再由 resolveOrNull() 解析。
+     */
+    private val _actionError = MutableStateFlow<UiMessage?>(null)
+    val actionError: StateFlow<UiMessage?> = _actionError.asStateFlow()
 
     /** 启动时自动检查更新的结果 */
     private val _autoUpdateInfo = MutableStateFlow<UpdateInfo?>(null)
@@ -87,8 +98,12 @@ class FileListViewModel @Inject constructor(
                 if (updateInfo != null) {
                     _autoUpdateInfo.value = updateInfo
                 }
+            } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                // 排在 Exception 前面：它是 IllegalStateException 的子类，被下面捕获就会
+                // 把「页面已关闭」写成一条更新失败日志，同时吞掉协程取消。
+                throw e
             } catch (e: Exception) {
-                // 静默失败，不影响用户体验
+                // 静默失败：离线启动时这里必然失败，不占崩溃日志配额，只留 logcat。
                 android.util.Log.w("FileListViewModel", "启动时检查更新失败: ${e.message}")
             }
         }
@@ -103,107 +118,8 @@ class FileListViewModel @Inject constructor(
         _actionError.value = null
     }
 
-    // ===== 导入收纳库 =====
-
-    /** 导入成功提示（一次性事件），UI 收到后弹 Snackbar */
-    private val _importMessage = MutableStateFlow<String?>(null)
-    val importMessage: StateFlow<String?> = _importMessage.asStateFlow()
-
-    fun clearImportMessage() {
-        _importMessage.value = null
-    }
-
-    /** 导入文件夹的待选项（扫描结果），非空时 UI 显示勾选对话框 */
-    private val _importCandidates = MutableStateFlow<List<ImportCandidate>?>(null)
-    val importCandidates: StateFlow<List<ImportCandidate>?> = _importCandidates.asStateFlow()
-
-    /** 与本次扫描配套的图片资产（不进勾选列表，随勾选文档自动复制） */
-    private var pendingImportImages: List<ImportCandidate> = emptyList()
-
-    private val _isImporting = MutableStateFlow(false)
-    val isImporting: StateFlow<Boolean> = _isImporting.asStateFlow()
-
-    /**
-     * 导入选中的单个/多个文件到指定位置。
-     * @param targetFolderId 导入位置：默认导入库根（惰性创建）；可传任意文件夹 id，null 为根目录
-     */
-    fun importFiles(
-        uris: List<Uri>,
-        targetFolderId: String? = FolderRepository.IMPORT_LIBRARY_FOLDER_ID
-    ) {
-        if (uris.isEmpty()) return
-        viewModelScope.launch {
-            _isImporting.value = true
-            val resolved = resolveImportTarget(targetFolderId).getOrElse {
-                _actionError.value = "无法创建导入库"
-                _isImporting.value = false
-                return@launch
-            }
-            var ok = 0
-            uris.forEach { uri ->
-                importDocumentUseCase(uri, resolved)
-                    .onSuccess { ok++ }
-                    .onFailure { _actionError.value = it.message ?: "导入失败" }
-            }
-            _isImporting.value = false
-            if (ok > 0) _importMessage.value = "已导入 $ok 个文件"
-        }
-    }
-
-    /** 把「导入库」哨兵 id 解析成真实文件夹 id（惰性创建）；其余 id 或 null（根目录）原样返回 */
-    private suspend fun resolveImportTarget(targetFolderId: String?): Result<String?> =
-        if (targetFolderId == FolderRepository.IMPORT_LIBRARY_FOLDER_ID) {
-            folderRepository.ensureImportLibraryFolder().map { it.id }
-        } else {
-            Result.success(targetFolderId)
-        }
-
-    /** 扫描待导入文件夹（根授权 + 应用内浏览选定的子路径），得到候选列表供勾选（默认全不选） */
-    fun scanImportFolder(treeUri: String, relativePath: List<String> = emptyList()) {
-        viewModelScope.launch {
-            _isImporting.value = true
-            importFolderUseCase.scan(treeUri, relativePath)
-                .onSuccess { result ->
-                    if (result.documents.isEmpty()) {
-                        _actionError.value = "该文件夹中没有可导入的 Markdown/文本文件"
-                    } else {
-                        pendingImportImages = result.images
-                        _importCandidates.value = result.documents
-                    }
-                }
-                .onFailure { _actionError.value = it.message ?: "扫描文件夹失败" }
-            _isImporting.value = false
-        }
-    }
-
-    fun cancelImportFolder() {
-        _importCandidates.value = null
-        pendingImportImages = emptyList()
-    }
-
-    /** 确认导入勾选的候选文件，复制进所选位置（图片资产一并复制）；逐文件容错并汇报成败数 */
-    fun confirmImportFolder(
-        selected: List<ImportCandidate>,
-        targetFolderId: String? = FolderRepository.IMPORT_LIBRARY_FOLDER_ID
-    ) {
-        _importCandidates.value = null
-        val images = pendingImportImages
-        pendingImportImages = emptyList()
-        if (selected.isEmpty()) return
-        viewModelScope.launch {
-            _isImporting.value = true
-            importFolderUseCase(selected, images, targetFolderId)
-                .onSuccess { stats ->
-                    _importMessage.value = when {
-                        stats.failed == 0 -> "已导入 ${stats.imported} 个文件"
-                        stats.imported == 0 -> "导入失败（${stats.failed} 个文件无法读取）"
-                        else -> "已导入 ${stats.imported} 个文件，${stats.failed} 个失败"
-                    }
-                }
-                .onFailure { _actionError.value = it.message ?: "导入文件夹失败" }
-            _isImporting.value = false
-        }
-    }
+    // 导入收纳库的整条流程已挪到 ImportViewModel / rememberImportFlow：编辑器侧栏也有同一个入口，
+    // 而本类的 init 会发更新检查的网络请求，在编辑器里再实例化一份等于每次开文档多联一次网。
 
     init {
         viewModelScope.launch {
@@ -215,21 +131,30 @@ class FileListViewModel @Inject constructor(
                 _sortOption
             ) { docs, folders, folderId, query, sort ->
                 FilteredData(docs, folders, folderId, query, sort)
-            }.collect { data ->
+            }.collectLatest { data ->
                 // 如果有搜索查询，执行搜索
                 if (data.query.isNotBlank()) {
-                    searchUseCase(data.query).onSuccess { results ->
-                        _uiState.value = FileListUiState.Success(
-                            documents = emptyList(),
-                            folders = data.folders,
-                            folderTree = null,
-                            currentFolderId = data.folderId,
-                            searchResults = results,
-                            isSearching = true,
-                            sortOption = data.sort
-                        )
-                    }
-                    return@collect
+                    // 打分与摘要必须挪出主线程：SearchDocumentsUseCase 对每篇命中文档跑两遍正则
+                    // （countMatches + extractSnippets），而命中上限是 200 篇**整文**。留在
+                    // viewModelScope 默认的 Main.immediate 上，就是边打字边掉帧。
+                    // 换 collectLatest 是配套的：下一个查询到来时这一次打分连带取消，
+                    // 不会算完一整轮再把结果丢掉，也不会让旧结果后到覆盖新结果。
+                    val results = withContext(Dispatchers.Default) { searchUseCase(data.query) }
+                        // 失败得说出来。旧实现只有 onSuccess：索引损坏或读正文失败时界面停在
+                        // 上一次的结果上，用户完全看不出这次搜索根本没成功。
+                        // 带上动作标签：不然那一句只剩「无法读写文件」，指不出是搜索出的事。
+                        .onFailureReport(UserAction.SEARCH) { setError(it) }
+                        .getOrDefault(emptyList())
+                    _uiState.value = FileListUiState.Success(
+                        documents = emptyList(),
+                        folders = data.folders,
+                        folderTree = null,
+                        currentFolderId = data.folderId,
+                        searchResults = results,
+                        isSearching = true,
+                        sortOption = data.sort
+                    )
+                    return@collectLatest
                 }
 
                 // 正常文件夹视图
@@ -262,13 +187,12 @@ class FileListViewModel @Inject constructor(
 
         // 启动时恢复默认目录/上次工作区；失败时在侧栏错误条提示（不再静默）
         viewModelScope.launch {
-            workspaceRepository.restoreOnLaunch()
-                ?.takeIf { it.isNotBlank() }
-                ?.let {
-                    _workspaceError.value = it
-                    // restoreOnLaunch 仅在默认目录失效时返回错误
-                    _defaultDirRestoreFailed.value = true
-                }
+            workspaceRepository.restoreOnLaunch()?.let {
+                // repository 给的是带 @StringRes id 的 UiMessage，界面层解析 → 跟随系统语言
+                _workspaceError.value = it
+                // restoreOnLaunch 仅在默认目录失效时返回错误
+                _defaultDirRestoreFailed.value = true
+            }
         }
     }
 
@@ -288,7 +212,7 @@ class FileListViewModel @Inject constructor(
         viewModelScope.launch {
             _isWorkspaceLoading.value = true
             workspaceRepository.openWorkspace(treeUri)
-                .onFailure { _workspaceError.value = it.message ?: "打开文件夹失败" }
+                .onFailureReport(UserAction.OPEN_FOLDER) { _workspaceError.value = it }
             _isWorkspaceLoading.value = false
         }
     }
@@ -301,7 +225,7 @@ class FileListViewModel @Inject constructor(
         viewModelScope.launch {
             _isWorkspaceLoading.value = true
             workspaceRepository.rescan()
-                .onFailure { _workspaceError.value = it.message ?: "刷新失败" }
+                .onFailureReport(UserAction.REFRESH) { _workspaceError.value = it }
             _isWorkspaceLoading.value = false
         }
     }
@@ -325,7 +249,7 @@ class FileListViewModel @Inject constructor(
             when (val result = FileNameValidator.validate(name)) {
                 is ValidationResult.Success -> {
                     createDocumentUseCase(name, _currentFolderId.value)
-                        .onFailure { setError(it.message ?: "创建文档失败") }
+                        .onFailureReport(UserAction.CREATE_DOCUMENT) { setError(it) }
                 }
                 is ValidationResult.Error -> setError(result.message)
             }
@@ -335,7 +259,7 @@ class FileListViewModel @Inject constructor(
     fun deleteDocument(id: String) {
         viewModelScope.launch {
             deleteDocumentUseCase(id)
-                .onFailure { setError(it.message ?: "Delete failed") }
+                .onFailureReport(UserAction.DELETE_DOCUMENT) { setError(it) }
         }
     }
 
@@ -348,7 +272,7 @@ class FileListViewModel @Inject constructor(
             when (val result = FileNameValidator.validate(name)) {
                 is ValidationResult.Success -> {
                     manageFoldersUseCase.createFolder(name, _currentFolderId.value)
-                        .onFailure { setError(it.message ?: "创建文件夹失败") }
+                        .onFailureReport(UserAction.CREATE_FOLDER) { setError(it) }
                 }
                 is ValidationResult.Error -> setError(result.message)
             }
@@ -360,7 +284,7 @@ class FileListViewModel @Inject constructor(
             when (val result = FileNameValidator.validate(name)) {
                 is ValidationResult.Success -> {
                     manageFoldersUseCase.createFolder(name, parentId)
-                        .onFailure { setError(it.message ?: "创建子文件夹失败") }
+                        .onFailureReport(UserAction.CREATE_SUBFOLDER) { setError(it) }
                 }
                 is ValidationResult.Error -> setError(result.message)
             }
@@ -372,7 +296,7 @@ class FileListViewModel @Inject constructor(
             when (val result = FileNameValidator.validate(newName)) {
                 is ValidationResult.Success -> {
                     folderRepository.renameFolder(id, newName)
-                        .onFailure { setError(it.message ?: "重命名文件夹失败") }
+                        .onFailureReport(UserAction.RENAME_FOLDER) { setError(it) }
                 }
                 is ValidationResult.Error -> setError(result.message)
             }
@@ -382,7 +306,7 @@ class FileListViewModel @Inject constructor(
     fun deleteFolder(id: String, deleteContents: Boolean) {
         viewModelScope.launch {
             manageFoldersUseCase.deleteFolder(id, deleteContents)
-                .onFailure { setError(it.message ?: "Delete folder failed") }
+                .onFailureReport(UserAction.DELETE_FOLDER) { setError(it) }
         }
     }
 
@@ -390,7 +314,7 @@ class FileListViewModel @Inject constructor(
     fun moveDocument(docId: String, targetFolderId: String?) {
         viewModelScope.launch {
             documentRepository.moveDocument(docId, targetFolderId)
-                .onFailure { setError(it.message ?: "移动文档失败") }
+                .onFailureReport(UserAction.MOVE_DOCUMENT) { setError(it) }
         }
     }
 
@@ -398,35 +322,35 @@ class FileListViewModel @Inject constructor(
     fun moveFolder(folderId: String, targetParentId: String?) {
         viewModelScope.launch {
             manageFoldersUseCase.moveFolder(folderId, targetParentId)
-                .onFailure { setError(it.message ?: "移动文件夹失败") }
+                .onFailureReport(UserAction.MOVE_FOLDER) { setError(it) }
         }
     }
 
+    /**
+     * 改名。只发一条单字段 UPDATE，不读也不写正文。
+     *
+     * 从前是「读盘取正文 → `copy(name=…)` → `saveDocument` 整篇回写」：展开态双窗格下
+     * （左列表 + 右编辑器，见 `AppShell`）右边正开着这篇文档且有未保存的修改时，
+     * 读回来的旧正文会被当成新内容再落一次盘。见 [DocumentRepository.renameDocument]。
+     */
     fun renameDocument(id: String, newName: String) {
         viewModelScope.launch {
             when (val result = FileNameValidator.validate(newName)) {
-                is ValidationResult.Success -> {
-                    documentRepository.getDocumentById(id)
-                        .onSuccess { doc ->
-                            val renamed = doc.copy(name = newName)
-                            documentRepository.saveDocument(renamed)
-                                .onFailure { setError(it.message ?: "重命名文档失败") }
-                        }
-                        .onFailure { setError(it.message ?: "文档不存在") }
-                }
+                is ValidationResult.Success ->
+                    documentRepository.renameDocument(id, newName)
+                        // 失败分两种：文档没了（并发删除）与重名。后者带 FriendlyValidationException
+                        // 的文案，onFailureReport 会原样透出，所以这里不能再统一改写成
+                        // 「文档不存在」——那会把「已有同名文档」说成删除。
+                        .onFailureReport(UserAction.RENAME_DOCUMENT) { setError(it) }
+
                 is ValidationResult.Error -> setError(result.message)
             }
         }
     }
 
-    @Suppress("UNUSED_PARAMETER")
-    fun exportDocument(id: String, format: ExportFormat) {
-        viewModelScope.launch { /* TODO */ }
-    }
-
-    private fun setError(msg: String) {
+    private fun setError(message: UiMessage) {
         // 操作失败不摧毁列表页，走 Snackbar 提示
-        _actionError.value = msg
+        _actionError.value = message
     }
 }
 

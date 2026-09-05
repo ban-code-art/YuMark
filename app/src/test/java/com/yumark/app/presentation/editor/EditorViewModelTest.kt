@@ -2,8 +2,13 @@ package com.yumark.app.presentation.editor
 
 import androidx.lifecycle.SavedStateHandle
 import com.google.common.truth.Truth.assertThat
+import com.yumark.app.R
+import com.yumark.app.core.util.ErrorHandler
+import com.yumark.app.core.util.ErrorMessages
+import com.yumark.app.core.util.UiMessage
 import com.yumark.app.data.local.file.FileManager
 import com.yumark.app.domain.model.Document
+import com.yumark.app.domain.model.ExportFormat
 import com.yumark.app.domain.model.UserSettings
 import com.yumark.app.domain.repository.WorkspaceRepository
 import com.yumark.app.domain.usecase.LoadDocumentUseCase
@@ -18,6 +23,9 @@ import kotlinx.coroutines.test.*
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
+import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class EditorViewModelTest {
@@ -31,11 +39,16 @@ class EditorViewModelTest {
     private val folderRepository: com.yumark.app.domain.repository.FolderRepository = mockk()
     private val getFolderTreeUseCase: com.yumark.app.domain.usecase.GetFolderTreeUseCase = mockk()
     private val documentRepository: com.yumark.app.domain.repository.DocumentRepository = mockk()
+    private val processImage: com.yumark.app.domain.usecase.image.ProcessImageUseCase = mockk(relaxed = true)
     private val documentVersionRepository: com.yumark.app.domain.repository.DocumentVersionRepository = mockk(relaxed = true)
     private val ragPipeline: com.yumark.app.data.ai.rag.RagPipeline = mockk(relaxed = true)
     private val getAiConfigUseCase: com.yumark.app.domain.usecase.ai.GetAiConfigUseCase = mockk()
 
     private val testDispatcher = StandardTestDispatcher()
+
+    /** 导出用例要一个真实存在的输出目录，用临时目录顶上；每个用例一份，互不干扰。 */
+    @TempDir
+    lateinit var tempRoot: File
 
     // autoSaveEnabled 必须为 false：自动保存的无限 delay 循环会让 advanceUntilIdle 永不结束
     private val settings = UserSettings(autoSaveEnabled = false)
@@ -48,27 +61,42 @@ class EditorViewModelTest {
         every { getAiConfigUseCase() } returns flowOf(com.yumark.app.domain.model.AiConfig())
         every { folderRepository.observeFolders() } returns flowOf(emptyList())
         every { documentRepository.observeAllDocuments() } returns flowOf(emptyList())
+        // 预览图片基址要拿应用私有根目录（EditorViewModel.appImagesPrefix）。这里给临时目录
+        // 而不是靠 relaxed 返回 null：null 会让那行退到 runCatching 的兜底分支，等于测不到
+        // 「有根目录时也照样能加载文档」这半边。
+        every { fileManager.getFilesRootDir() } returns tempRoot
     }
 
     @AfterEach
     fun tearDown() {
         Dispatchers.resetMain()
         clearAllMocks()
+        // ErrorHandler 是单例：这里不拆，装过 sink 的用例会串到别的测试类里
+        ErrorHandler.reset()
     }
 
     private fun internalVm(docId: String = "doc-1") = EditorViewModel(
         loadDocumentUseCase, saveDocumentUseCase, loadSettingsUseCase,
         workspaceRepository, exportDocumentUseCase, fileManager, folderRepository,
-        getFolderTreeUseCase, documentRepository, documentVersionRepository, ragPipeline, getAiConfigUseCase,
+        getFolderTreeUseCase, documentRepository, processImage, documentVersionRepository, ragPipeline, getAiConfigUseCase,
         SavedStateHandle(mapOf("documentId" to docId))
     )
 
     private fun externalVm(uri: String = "content://test/doc.md") = EditorViewModel(
         loadDocumentUseCase, saveDocumentUseCase, loadSettingsUseCase,
         workspaceRepository, exportDocumentUseCase, fileManager, folderRepository,
-        getFolderTreeUseCase, documentRepository, documentVersionRepository, ragPipeline, getAiConfigUseCase,
+        getFolderTreeUseCase, documentRepository, processImage, documentVersionRepository, ragPipeline, getAiConfigUseCase,
         SavedStateHandle(mapOf("docUri" to uri))
     )
+
+    /**
+     * 「<动作>失败：<原因>」的期望结构（[com.yumark.app.core.util.ErrorHandler] 的拼法）。
+     *
+     * 动作标签写字面量 `R.string.action_*` 而不是 `UserAction.X.labelRes`：后者会让 ViewModel
+     * 传错动作、或枚举项指错资源的改动照样通过。
+     */
+    private fun actionFailed(labelRes: Int, reason: UiMessage): UiMessage =
+        UiMessage.of(R.string.error_action_failed, UiMessage.Res(labelRes), reason)
 
     @Test
     fun `内部文档加载成功且默认进入预览`() = runTest {
@@ -136,7 +164,10 @@ class EditorViewModelTest {
     fun `保存失败走 saveError 且不破坏页面状态`() = runTest {
         val doc = Document.create("doc-1", "笔记").copy(content = "# 标题")
         coEvery { loadDocumentUseCase("doc-1") } returns Result.success(doc)
-        coEvery { saveDocumentUseCase(any()) } returns Result.failure(Exception("磁盘已满"))
+        // 真实的失败长这样：异常原文里带内部绝对路径
+        coEvery { saveDocumentUseCase(any()) } returns Result.failure(
+            IOException("No space left on device: /data/user/0/com.yumark.app/files/documents/doc-1.md")
+        )
 
         val vm = internalVm()
         advanceUntilIdle()
@@ -144,7 +175,13 @@ class EditorViewModelTest {
         vm.saveDocument()
         advanceUntilIdle()
 
-        assertThat(vm.saveError.value).isEqualTo("磁盘已满")
+        // saveError 是 core.util.UiMessage：这条路径的文案来自 ErrorHandler.report，它把动作与
+        // 原因拼成一条嵌套 Res（模板 error_action_failed），两段都是资源 id，解析留给界面层。
+        // 断言写成结构相等，顺带钉住「别把它退回成运行期拼好的 Raw 字符串」。
+        val error = vm.saveError.value
+        assertThat(error).isEqualTo(actionFailed(R.string.action_save, ErrorMessages.STORAGE))
+        // 路径绝不能出现在界面文案里：整条文案只由资源 id 组成，没有 String 实参可夹带异常原文
+        assertThat((error as UiMessage.Res).args.filterIsInstance<String>()).isEmpty()
         assertThat(vm.uiState.value).isInstanceOf(EditorUiState.Success::class.java)
     }
 
@@ -176,6 +213,54 @@ class EditorViewModelTest {
 
         coVerify(exactly = 1) { workspaceRepository.writeDocument(uri, "new content") }
         coVerify(exactly = 0) { saveDocumentUseCase(any()) }
+    }
+
+    @Test
+    fun `导出前先清理旧导出再写新文件`() = runTest {
+        val doc = Document.create("doc-1", "笔记").copy(content = "# 标题")
+        coEvery { loadDocumentUseCase("doc-1") } returns Result.success(doc)
+        val exportsDir = File(tempRoot, "exports").apply { mkdirs() }
+        val produced = File(exportsDir, "笔记.pdf").apply { writeText("pdf") }
+        coEvery { fileManager.pruneExports() } returns 0
+        every { fileManager.getExportsDir() } returns exportsDir
+        // 第四个实参是图片解析基址（相对路径图片用）：本用例的文档不在导入库下，VM 会传 null，
+        // 用 any() 而不是省略，是为了让「以后改成传非 null」不至于把桩打飞、报成导出失败
+        coEvery { exportDocumentUseCase("doc-1", ExportFormat.PDF, any(), any()) } returns
+            Result.success(produced)
+
+        val vm = internalVm()
+        advanceUntilIdle()
+        vm.exportAs(ExportFormat.PDF)
+        advanceUntilIdle()
+
+        // 顺序是这条设计的全部意义：清理必须发生在写新文件之前。反过来的话，
+        // 清理逻辑就得额外认出「刚写出的这份别删」，多一处能写错的特例。
+        coVerifyOrder {
+            fileManager.pruneExports()
+            exportDocumentUseCase("doc-1", ExportFormat.PDF, any(), any())
+        }
+        assertThat(vm.exportedFile.value).isEqualTo(produced)
+    }
+
+    @Test
+    fun `导出失败走 saveError 且带动作前缀`() = runTest {
+        val doc = Document.create("doc-1", "笔记").copy(content = "# 标题")
+        coEvery { loadDocumentUseCase("doc-1") } returns Result.success(doc)
+        coEvery { fileManager.pruneExports() } returns 0
+        every { fileManager.getExportsDir() } returns File(tempRoot, "exports")
+        coEvery { exportDocumentUseCase(any(), any(), any(), any()) } returns Result.failure(
+            IOException("No space left on device: /data/user/0/com.yumark.app/files/exports/笔记.pdf")
+        )
+
+        val vm = internalVm()
+        advanceUntilIdle()
+        vm.exportAs(ExportFormat.PDF)
+        advanceUntilIdle()
+
+        val error = vm.saveError.value
+        assertThat(error).isEqualTo(actionFailed(R.string.action_export, ErrorMessages.STORAGE))
+        assertThat((error as UiMessage.Res).args.filterIsInstance<String>()).isEmpty()
+        assertThat(vm.exportedFile.value).isNull()
     }
 
     @Test

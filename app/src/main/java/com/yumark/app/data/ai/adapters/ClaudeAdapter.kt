@@ -1,7 +1,13 @@
 package com.yumark.app.data.ai.adapters
 
 import com.yumark.app.data.ai.AiApiAdapter
+import com.yumark.app.data.ai.ContentBlockedException
 import com.yumark.app.data.ai.HttpResponseException
+import com.yumark.app.data.ai.StreamInterruptedException
+import com.yumark.app.data.ai.inlineErrorStatus
+import com.yumark.app.data.ai.isBlockedStopReason
+import com.yumark.app.data.ai.isTruncatedStopReason
+import com.yumark.app.data.ai.presentableBlockReason
 import com.yumark.app.data.ai.runConnectionTest
 import com.yumark.app.data.ai.toJsonElement
 import com.yumark.app.data.ai.withRetryAndEmissionGuard
@@ -57,6 +63,17 @@ class ClaudeAdapter(
         withRetryAndEmissionGuard(flowEmit = { e -> emit(e) }) { flowEmit ->
             // 每次请求（含重试）新建累积态，避免上一轮未发完就失败时残留 tool_use 块。
             val full = StringBuilder()
+            // 是否被 max_tokens 截断；Claude 把它放在 message_delta 事件里，
+            // 从前这个事件类型在下面的 when 里没有分支，于是截断信号从来没到过上层。
+            var truncated = false
+            // 服务端是否给过「说完了」的信号：message_stop 哨兵，或 message_delta 里的 stop_reason。
+            // 两者都没见过就读到 EOF，说明连接是被掐断的（见下面的 StreamInterruptedException）。
+            var sawStopSignal = false
+            // 内容被策略拦下：Claude 只有 stop_reason == "refusal" 这一个信号
+            //（整段请求被安全系统拦下时走的是 error 事件，上面那条 HttpResponseException 已经接住）。
+            // 原因词可能没什么信息量，故「拦没拦」不能靠 reason 判空。
+            var blocked = false
+            var blockedReason: String? = null
             val toolCalls = ClaudeToolCallAccumulator()
             client.preparePost("${baseUrl.trimEnd('/')}/messages") {
                 header("x-api-key", apiKey)
@@ -86,21 +103,59 @@ class ClaudeAdapter(
                             toolCalls.onBlockDelta(obj)
                         }
                         "content_block_stop" -> Unit
+                        // 终止原因只在这个事件里：{"type":"message_delta","delta":{"stop_reason":"max_tokens"},…}
+                        "message_delta" -> {
+                            val delta = obj["delta"]?.jsonObject ?: continue
+                            delta["stop_reason"]?.jsonPrimitive?.contentOrNull?.let { reason ->
+                                // 任何取值都算「说完了」：end_turn / tool_use / max_tokens 都是
+                                // 服务端给出的终止判决。之后再分两类：max_tokens 一族是截断
+                                //（调大上限），refusal 是被拦（改写措辞）——补救办法相反，分开记。
+                                sawStopSignal = true
+                                if (isTruncatedStopReason(reason)) truncated = true
+                                if (isBlockedStopReason(reason)) {
+                                    blocked = true
+                                    blockedReason = presentableBlockReason(reason)
+                                }
+                            }
+                        }
+                        // 200 之后在流里内联报错，过载/限流最常见。抛出去复用非 2xx 的那条路
+                        // （首字节前自动退避重试 + 友好文案）；从前这个事件类型没有分支，
+                        // 被 when 无声吃掉后服务端关连接，一次过载就报成了「回复完成」。
+                        "error" -> throw HttpResponseException(inlineErrorStatus(obj) ?: 500, data)
                         "message_stop" -> {
+                            sawStopSignal = true
                             val completed = toolCalls.completeMessage()
+                            // 被拦且一个字都没产出：单独成句（判断与下面 EOF 那条一致）。
+                            // 这里必须再判一次 —— stop_reason 走的是 message_delta，紧接着的
+                            // message_stop 自己 emit Done 就 return@execute，永远走不到 EOF 那段。
+                            if (blocked && full.isEmpty() && completed.isEmpty()) {
+                                throw ContentBlockedException(blockedReason)
+                            }
                             if (completed.isNotEmpty()) {
                                 flowEmit(StreamEvent.ToolCallComplete(completed))
                             }
-                            flowEmit(StreamEvent.Done(full.toString()))
+                            flowEmit(StreamEvent.Done(full.toString(), truncated = truncated))
                             return@execute
                         }
                     }
                 }
                 val completed = toolCalls.completeMessage()
+                // 被内容策略拦下、且一个字都没产出：单独成一句话。落到上层的空响应文案上
+                // 就把话说反了 —— 那句让人换模型 / 调大 max tokens，这里该做的是改写措辞。
+                // 有正文/有工具调用则不抛：已经流到屏幕上的部分比一句错误更值钱。
+                if (blocked && full.isEmpty() && completed.isEmpty()) {
+                    throw ContentBlockedException(blockedReason)
+                }
+                // 读到 EOF 却一个终止信号都没见过 —— 连接被掐断了，不是「回复完成」。
+                // 只在确实产出过内容时才抛：什么都没产出时交给上层的空响应处理，
+                // 那条路的文案更准（被拦的那一类已在上面单独成句）。
+                if (!sawStopSignal && (full.isNotEmpty() || completed.isNotEmpty())) {
+                    throw StreamInterruptedException()
+                }
                 if (completed.isNotEmpty()) {
                     flowEmit(StreamEvent.ToolCallComplete(completed))
                 }
-                flowEmit(StreamEvent.Done(full.toString()))
+                flowEmit(StreamEvent.Done(full.toString(), truncated = truncated))
             }
         }
     }.flowOn(Dispatchers.IO)
@@ -129,10 +184,31 @@ internal fun buildClaudeBody(
     put("stream", true)
     config.systemPrompt?.let { put("system", it) }
     putJsonArray("messages") {
-        messages.filter { it.role != "system" }.forEach { message ->
-            addJsonObject {
-                put("role", if (message.role == "tool") "user" else message.role)
-                put("content", claudeMessageContent(message))
+        val visible = messages.filter { it.role != "system" }
+        var i = 0
+        while (i < visible.size) {
+            val message = visible[i]
+            if (message.role == "tool") {
+                // 一轮 assistant 可以带多个 tool_use，Claude 要求它们的 tool_result 全部装进
+                // 紧随其后的**同一条** user 消息里。一个结果发一条 user 消息会得到连续多条
+                // user：官方端点会把它们并成一轮，但本项目允许用户填自定义 baseUrl，
+                // 兼容 Claude 协议的第三方中转常常不并轮，直接回
+                // `messages: roles must alternate between "user" and "assistant"`。
+                // 这里主动折叠，请求形状就与官方文档示例一致。
+                val run = visible.subList(i, visible.size).takeWhile { it.role == "tool" }
+                addJsonObject {
+                    put("role", "user")
+                    put("content", buildJsonArray {
+                        run.forEach { toolMessage -> claudeMessageContent(toolMessage).forEach { add(it) } }
+                    })
+                }
+                i += run.size
+            } else {
+                addJsonObject {
+                    put("role", message.role)
+                    put("content", claudeMessageContent(message))
+                }
+                i++
             }
         }
     }
@@ -149,8 +225,27 @@ internal fun buildClaudeBody(
     }
 }
 
+/**
+ * 把一条标准化消息转成 Claude 的 `content` 数组。
+ *
+ * 「有工具调用时也带上正文」是刻意的：Claude 的 content 是数组，`text` 与 `tool_use`
+ * 本来就能共存，而模型在同一轮里常常先写一段说明再调工具（AgentUseCases 回填的
+ * `ChatMessage(role = "assistant", content = full, toolCalls = calls)` 就同时握着两样）。
+ * 从前这里只发 `tool_use`，那段说明在下一轮上下文里凭空消失——模型看不见自己刚才的推理，
+ * 于是把同一个工具再调一遍，或者把已经解释过的事重新解释一次。OpenAI 侧（`buildBody`）
+ * 一直是两样都发的，这里对齐它。
+ *
+ * 空正文必须跳过，不能发空 text 块：Claude 会以 `invalid_request_error` 打回整个请求，
+ * 而 `content == null` 正是「这一轮只有工具调用」的正常取值。
+ */
 internal fun claudeMessageContent(message: ChatMessage): JsonArray = when {
     !message.toolCalls.isNullOrEmpty() -> buildJsonArray {
+        message.content?.takeIf { it.isNotBlank() }?.let { text ->
+            addJsonObject {
+                put("type", "text")
+                put("text", text)
+            }
+        }
         message.toolCalls.forEach { call ->
             addJsonObject {
                 put("type", "tool_use")

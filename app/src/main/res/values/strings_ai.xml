@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    AI / Agent 模块文案（简体中文，基准语言）。
+
+    为什么单独一个文件而不是往 strings.xml 里加：
+    Android 资源合并器把 res/values/ 下「所有」 <resources> 合并进同一个 R.string
+    命名空间，文件名不参与命名。写在这里的 ai_chat_send 与写在 strings.xml 里的
+    R.string.ai_chat_send 完全等价，运行时没有区别。拆分纯粹是协作需要：多个任务
+    同时改文案时不会在同一个文件上产生 merge 冲突。
+
+    三条硬规则：
+    1. 键名是全局唯一的（同一命名空间）。新增前先确认 strings.xml / strings_editor.xml /
+       strings_settings.xml / strings_filelist.xml 里没有同名键，否则合并阶段直接报重复资源。
+       语义相同的键一律复用既有的（ok / cancel / delete / rename / save / saved /
+       cd_more_options），不要在这里重造同义键。
+    2. 每个键必须同时出现在 values-en/strings_ai.xml。缺一边 lint 的 MissingTranslation
+       会拦住构建（本项目无 lint.xml、无 baseline，它是 error 级）。占位符个数与类型两边
+       必须一致，一律用带位置的 %1$s / %1$d 写法。
+    3. <plurals> 每个语区都必须有 other（否则 MissingQuantity），英文另需 one。
+       调用点用 pluralStringResource，count 传两次：一次选 quantity，一次做格式化实参。
+
+    本文件**只放屏幕上给人看的文案**。发给模型的系统提示词、工具名与工具描述、
+    function-calling 参数说明、意图判定关键词表全部留在代码里 —— 翻译它们会直接改变
+    模型行为。ToolActivityRow 里 "read_document" 这类 when 分支的**键**是协议字面量，
+    只有分支产出的中文旁白进了本文件。
+-->
+<resources>
+
+    <!-- ========== Agent 任务 / 步骤 / 操作状态标签 AiDesign.kt ==========
+         这些是 StatusVisual.label，同时喂给状态药丸 StatusPill 与时间轴右侧的状态文字。
+         三组刻意分开：任务级「已完成」与步骤级「完成」在中文里就是两个词，英文同理
+         （Completed / Done），共用一个键会让其中一处读起来不对。 -->
+    <string name="ai_task_status_planning">规划中</string>
+    <string name="ai_task_status_executing">执行中</string>
+    <string name="ai_task_status_replanning">重新规划</string>
+    <string name="ai_task_status_blocked">已阻塞</string>
+    <string name="ai_task_status_completed">已完成</string>
+    <string name="ai_task_status_failed">失败</string>
+
+    <string name="ai_step_status_pending">待执行</string>
+    <string name="ai_step_status_running">进行中</string>
+    <string name="ai_step_status_done">完成</string>
+    <string name="ai_step_status_blocked">阻塞</string>
+    <string name="ai_step_status_failed">失败</string>
+    <string name="ai_step_status_skipped">跳过</string>
+
+    <!-- 「已执行」= 改动已写进文档（英文用 Applied，比 Executed 更贴 diff 审阅场景） -->
+    <string name="ai_action_status_pending">待确认</string>
+    <string name="ai_action_status_approved">已批准</string>
+    <string name="ai_action_status_rejected">已拒绝</string>
+    <string name="ai_action_status_executed">已执行</string>
+
+    <!-- ========== 工具调用旁白 ToolActivityRow.narrateTool ==========
+         只翻译旁白，不翻译 when 的**键**："read_document" / "search_in_project" /
+         "list_documents" 是发给模型的 function name，是协议字面量，改一个字工具就调不起来。
+         中文用「读取 / 检索 / 浏览」的动词原形，英文同样用时态中立的动词原形，
+         因为同一句既会出现在「正在执行」也会出现在「已完成」的行里。 -->
+    <string name="ai_tool_read_document">读取文档</string>
+    <string name="ai_tool_search_in_project">检索项目</string>
+    <string name="ai_tool_list_documents">浏览文档</string>
+
+    <!-- ========== 逐块 diff 审阅 DiffView ==========
+         %1$d = 该 hunk 的序号（从 1 起）。两条是同一个开关的两个面：
+         勾上就是「应用改动」，不勾就是「保留原文」。不做 plurals：序号恒为单个值，
+         不是数量词。 -->
+    <string name="ai_diff_hunk_apply">应用改动 #%1$d</string>
+    <string name="ai_diff_hunk_keep">保留原文 #%1$d</string>
+
+    <!-- ========== Agent 状态小圆点 AgentStatusIndicator ==========
+         纯读屏文案。IDLE 两个语区都写 "Agent"：这里读出来的是产品里那个功能的名字，
+         翻成「代理」会让 TalkBack 播报变成另一个东西。WORKING 分支原先是个没有任何
+         语义的 Canvas，读屏会整块跳过，本次补上 semantics。 -->
+    <string name="cd_agent_status_idle">Agent</string>
+    <string name="cd_agent_status_working">Agent 执行中</string>
+    <string name="cd_agent_status_completed">已完成</string>
+
+    <!-- ========== 执行流程时间轴 AgentTimeline ==========
+         「任务」是时间轴顶部那行的前缀标签，不是标题，所以不复用别处的键。 -->
+    <string name="agent_timeline_task_label">任务</string>
+    <string name="cd_agent_timeline_expand">展开执行流程</string>
+    <string name="cd_agent_timeline_collapse">收起执行流程</string>
+    <!-- %1$d = 超出 MAX_STEPS 之后被折叠掉的步骤数。原文用的是全宽「＋」，
+         这里保留中文侧的全宽写法，英文侧用半宽 + 才不至于在拉丁字体里显得突兀。 -->
+    <plurals name="agent_timeline_more_steps">
+        <item quantity="other">＋%1$d 个步骤</item>
+    </plurals>
+    <!-- 时间轴底部的两条备注行前缀 -->
+    <string name="agent_timeline_note_blocked">阻塞</string>
+    <string name="agent_timeline_note_result">结果</string>
+
+    <!-- ========== 阻塞原因 / 结果摘要 ==========
+         这两列（agent_tasks.blocking_reason、summary）是落库的纯文本，写入点在
+         domain / presentation 两层共 6 处。从前直接写中文字面量存进去，时间线原样渲染，
+         于是英文环境下这两行永远是中文。现在写入的是 AgentStatusCode 的稳定码，
+         渲染时才查表，认不出的值（历史行、模型自己写的摘要）按原文透出。
+         改这些文案不影响已落库的行；改 code 会让历史行退回原文显示。 -->
+    <string name="agent_blocked_empty_response">模型未返回任何内容</string>
+    <string name="agent_blocked_duplicate_tool_call">检测到重复的工具调用</string>
+    <!-- %1$d = MAX_TURNS，Agent 单轮允许的最大步数 -->
+    <string name="agent_blocked_max_steps">已达最大步数 %1$d</string>
+    <string name="agent_blocked_interrupted">任务被中断（取消或异常）</string>
+    <string name="agent_blocked_user_stopped">用户已停止本轮 Agent 执行</string>
+    <string name="agent_blocked_process_killed">应用上次退出时任务被中断，可重新发起</string>
+    <string name="agent_summary_empty_response">模型未返回内容</string>
+    <string name="agent_summary_completed">已完成</string>
+    <string name="agent_summary_action_proposed">已生成待确认的文档改动</string>
+
+    <!-- ========== 待审阅操作卡 AgentActionCard ==========
+         「创建文档 / 编辑文档」是卡片标题上的动作名，与 strings.xml 的 create_document
+         （新建文档，那是文件列表里的按钮）语义不同：这里是 AI 提出的一个待批准动作的
+         类型名，不是用户点的按钮，故不复用。 -->
+    <string name="agent_action_type_create">创建文档</string>
+    <string name="agent_action_type_edit">编辑文档</string>
+    <!-- diff 门禁算完发现没有实际差异：AI 说改了，但内容等价 -->
+    <string name="agent_action_no_change">AI 未提出实际改动。</string>
+    <!-- 上一条那张卡只有一个出口按钮，它不是「拒绝」而是「知道了」（无事可拒） -->
+    <string name="agent_action_dismiss">知道了</string>
+    <!-- 文档超过逐块 diff 的阈值，退化成整体对照 -->
+    <string name="agent_action_diff_degraded">文档较大，已切换为整体对照预览。</string>
+    <string name="agent_action_expand_diff">查看改动</string>
+    <string name="agent_action_collapse_diff">收起改动</string>
+    <!-- %1$d = 勾选上的 hunk 数。0 时按钮是禁用态但文案照常渲染，
+         所以英文的 other 分支必须能读通 "Apply 0 selected changes"。 -->
+    <plurals name="agent_action_apply_selected">
+        <item quantity="other">应用已选 %1$d 处</item>
+    </plurals>
+    <string name="agent_action_reject_all">全部拒绝</string>
+    <!-- 创建文档类的卡片给的是全文预览，不是 diff，所以另起一组「内容」文案 -->
+    <string name="agent_action_expand_content">查看内容</string>
+    <string name="agent_action_collapse_content">收起内容</string>
+    <string name="agent_action_approve">批准</string>
+    <string name="agent_action_reject">拒绝</string>
+
+    <!-- ========== 普通聊天面板 AiChatSheet ==========
+         默认标题：会话还没有自己的标题时顶栏显示它。 -->
+    <string name="ai_chat_default_title">对话</string>
+    <string name="ai_chat_replying">正在回复…</string>
+    <string name="ai_chat_input_hint">输入消息…</string>
+    <!-- cd_ 前缀专指只读给读屏的文案。这三条与 strings_editor.xml 的
+         cd_ai_quick_stop / cd_ai_quick_send 文案相同但**不复用**：那是划词面板的键，
+         两个面板将来任一方改文案都不该牵动另一方。 -->
+    <string name="cd_ai_chat_back">返回</string>
+    <string name="cd_ai_chat_stop">停止</string>
+    <string name="cd_ai_chat_send">发送</string>
+
+    <!-- ========== 对话列表 ConversationListSheet ========== -->
+    <string name="ai_conversation_title">AI 对话</string>
+    <string name="ai_conversation_new_chat">新建聊天</string>
+    <string name="ai_conversation_new_agent">新建 Agent</string>
+    <string name="ai_conversation_empty">暂无对话，点击上方按钮开始</string>
+    <!-- 新建时写进数据库的默认会话名。它会被持久化，所以是**创建时**语区的快照：
+         之后换系统语言不会改已存在的会话名，这与「文档名不随语言变」是一致的。 -->
+    <string name="ai_conversation_default_title_chat">新建对话</string>
+    <string name="ai_conversation_default_title_agent">新建 Agent 对话</string>
+    <string name="ai_conversation_delete_title">删除对话</string>
+    <!-- %1$s = 会话标题 -->
+    <string name="ai_conversation_delete_message">确定删除「%1$s」？此操作不可恢复。</string>
+    <string name="ai_conversation_rename_title">重命名对话</string>
+    <string name="ai_conversation_rename_hint">输入新名称</string>
+    <!-- 相对时间：今天只显示 HH:mm（纯数字，无需文案），昨天显示这个词，
+         一周内显示星期，更早显示 MM-dd。 -->
+    <string name="ai_conversation_yesterday">昨天</string>
+    <!-- 下标 = Calendar.DAY_OF_WEEK - 1，所以**必须**周日在第 0 位、七项齐全、顺序不能动。
+         做成 string-array 而不是七个键：调用点是按下标取的，散成七个键就得写 when。 -->
+    <string-array name="ai_conversation_weekdays">
+        <item>周日</item>
+        <item>周一</item>
+        <item>周二</item>
+        <item>周三</item>
+        <item>周四</item>
+        <item>周五</item>
+        <item>周六</item>
+    </string-array>
+
+    <!-- ========== Agent 会话 AgentChatSheet ==========
+         顶栏标题两个语区都是 "Agent"（产品里这个模式的名字，不翻）。 -->
+    <string name="agent_header_title">Agent</string>
+    <string name="agent_header_thinking">正在思考…</string>
+    <string name="agent_header_idle">随时待命</string>
+    <string name="agent_steps_collapse">收起执行过程</string>
+    <!-- %1$d = 本轮工具调用步数。0 步时不渲染这个开关，但英文 other 仍要能读通。 -->
+    <plurals name="agent_steps_expand">
+        <item quantity="other">执行过程（%1$d 步）</item>
+    </plurals>
+    <!-- 正在把目标文档原文读回来，读完才能算出可审阅的 diff -->
+    <string name="agent_diff_loading_base">正在加载目标文档内容，以生成可审阅的 diff。</string>
+    <!-- 批准时发现目标文档已不是提议生成时那一份（用户自己改过、或同步拉回了远端版本）：
+         整篇覆盖会吃掉这期间的改动，所以拒绝执行。 -->
+    <string name="agent_edit_base_changed">目标文档在这条提议生成后已被改动，直接应用会覆盖掉那些改动。请让 AI 重新生成本次编辑。</string>
+    <string name="agent_diff_cancel_edit">取消此次修改</string>
+    <string name="agent_input_hint">让 AI 帮你创建或编辑文档…</string>
+    <!-- %1$d = 附件上限（代码里的常量 3）。刻意**不做** plurals：实参是编译期常量，
+         恒大于 1，做出来的 one 分支永远渲染不到，只是多一份要维护的翻译。 -->
+    <string name="agent_error_max_images">最多只能添加 %1$d 张图片</string>
+    <string name="cd_agent_back">返回</string>
+    <!-- 消息气泡里已发出的图片 -->
+    <string name="cd_agent_attachment">图片附件</string>
+    <!-- 输入框上方待发送的图片，与上一条区分：一个已在对话里，一个还没发出去 -->
+    <string name="cd_agent_pending_image">待发送图片</string>
+    <string name="cd_agent_remove_image">移除</string>
+    <string name="cd_agent_add_image">添加图片</string>
+    <string name="cd_agent_stop">停止</string>
+    <string name="cd_agent_send">发送</string>
+    <string name="cd_agent_enlarged_image">查看大图</string>
+
+    <!-- ========== AI 配置页 AiConfigScreen ==========
+         界面上的技术标识（Base URL / API Key / Temperature / Max Tokens / https://… 占位）
+         刻意留在代码里当字面量：它们在两个语区里逐字相同，抽成资源只会多两份同值翻译。
+         「AI 助手」与 strings_editor.xml 的 editor_ai_assistant 文案相同但不复用：
+         那个键同时充当编辑器侧栏按钮的 contentDescription，两处将来不该互相牵动。 -->
+    <string name="ai_config_title">AI 助手</string>
+    <string name="cd_ai_config_back">返回</string>
+    <string name="ai_config_enable">启用 AI 助手</string>
+    <string name="ai_config_provider">API 提供商</string>
+    <!-- 四个 provider 名：品牌名不翻，只翻限定语（官方 / 兼容 / 等） -->
+    <string name="ai_config_provider_openai">OpenAI 官方</string>
+    <string name="ai_config_provider_openai_compatible">OpenAI 兼容 (Ollama / DeepSeek 等)</string>
+    <string name="ai_config_provider_claude">Anthropic Claude</string>
+    <string name="ai_config_provider_gemini">Google Gemini</string>
+    <!-- 密钥输入框尾部的小眼睛。与 strings_settings.xml 的 cd_sync_toggle_password
+         文案相近但不复用：那是 WebDAV 密码框的键，属于另一个模块。 -->
+    <string name="cd_ai_config_toggle_key_visibility">切换显隐</string>
+    <string name="ai_config_model_name">模型名称</string>
+    <string name="ai_config_fetch_models">获取模型列表</string>
+    <!-- %1$d = 拉回来的模型个数。这条走 UiMessage.Res → stringResource（不是
+         pluralStringResource），所以英文必须写成与数量无关的句式。 -->
+    <string name="ai_config_models_fetched">获取到 %1$d 个模型</string>
+    <string name="ai_config_stream">流式输出</string>
+    <string name="ai_config_rag">知识库 (RAG)</string>
+    <string name="ai_config_rag_desc">走 OpenAI 兼容 /embeddings 建立向量索引。Embedding 模型留空则不索引（仅文档全文检索可用）。</string>
+    <string name="ai_config_embedding_model">Embedding 模型（如 text-embedding-3-small）</string>
+    <string name="ai_config_rag_endpoint">Embedding 端点</string>
+    <string name="ai_config_rag_reuse_main">复用上方 Base URL 与 API Key</string>
+    <string name="ai_config_rag_separate">单独配置</string>
+    <string name="ai_config_rag_separate_desc">Claude、Gemini 不提供 /embeddings。选「单独配置」可把向量索引指向本地 Ollama 或其他 OpenAI 兼容端点。</string>
+    <string name="ai_config_rag_base_url">Embedding Base URL</string>
+    <string name="ai_config_rag_api_key">Embedding API Key（本地端点可留空）</string>
+    <string name="ai_config_base_url_required">请先填写上方的 Base URL</string>
+    <string name="ai_config_rag_base_url_required">请先填写 Embedding Base URL</string>
+    <string name="ai_config_rag_fetch_models">获取 Embedding 模型列表</string>
+    <string name="ai_config_web_search">网络搜索</string>
+    <string name="ai_config_search_engine">搜索引擎</string>
+    <string name="ai_config_search_duckduckgo">DuckDuckGo（免 Key）</string>
+    <string name="ai_config_search_tavily">Tavily</string>
+    <string name="ai_config_search_serper">Serper（Google）</string>
+    <string name="ai_config_search_brave">Brave</string>
+    <string name="ai_config_search_custom">自定义</string>
+    <string name="ai_config_search_api_key">搜索 API Key（DuckDuckGo 不需要）</string>
+    <string name="ai_config_custom_search_url">自定义搜索 URL</string>
+    <!-- 「测试连接」与 strings_settings.xml 的 sync_test（测试连接）文案相同但不复用：
+         一个测 AI 接口、一个测 WebDAV，属于两个模块的独立按钮。 -->
+    <string name="ai_config_test">测试连接</string>
+    <string name="ai_config_test_success">✓ 连接成功</string>
+    <string name="ai_config_test_failed">✗ 连接失败</string>
+    <!-- %1$d = 毫秒数（ModelTestResult 里是 Long，%d 收得下）。冒号沿用原文的半宽写法。 -->
+    <string name="ai_config_test_total_time">总耗时: %1$d ms</string>
+    <string name="ai_config_test_first_token">首 token 延迟: %1$d ms</string>
+    <!-- %1$s = 下面两条之一 -->
+    <string name="ai_config_test_streaming">流式: %1$s</string>
+    <string name="ai_config_streaming_available">可用</string>
+    <string name="ai_config_streaming_unavailable">不可用</string>
+    <string name="ai_config_unknown_error">未知错误</string>
+
+</resources>

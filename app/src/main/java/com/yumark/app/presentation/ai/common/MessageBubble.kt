@@ -1,7 +1,13 @@
 package com.yumark.app.presentation.ai.common
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.util.Log
 import android.view.ViewGroup
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -20,8 +26,10 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.net.toUri
 import com.yumark.app.domain.model.Message
 import com.yumark.app.domain.model.MessageRole
+import com.yumark.app.presentation.theme.AppSpacing
 import kotlinx.coroutines.delay
 
 /** 聊天/Agent 通用消息气泡。 */
@@ -36,17 +44,19 @@ fun MessageBubble(
     else MaterialTheme.colorScheme.surface
     val textColor = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer
     else MaterialTheme.colorScheme.onSurface
-    val outline = MaterialTheme.colorScheme.outline
+    // 气泡描边是装饰性容器边界（M3 的 outlineVariant），不是高强调控件轮廓（outline）；
+    // 与 AgentTimeline 连接线、AppShell 分隔线同档，随主题 outline 对比修正一起收敛到 outlineVariant。
+    val bubbleBorder = MaterialTheme.colorScheme.outlineVariant
 
     // 入场动画：alpha + 轻微上移，按 id 跑一次。
     // 仅用户气泡（纯文本）套 graphicsLayer——AI 气泡内是 WebView，放进带 alpha 的硬件图层
     // 会渲染成空白，故 AI 气泡不加该图层。
     val appear = remember(message.id) { Animatable(0f) }
-    LaunchedEffect(message.id) { if (isUser) appear.animateTo(1f, tween(260)) }
+    LaunchedEffect(message.id) { if (isUser) appear.animateTo(1f, tween(MessageBubbleMetrics.AppearDurationMs)) }
     val appearModifier = if (isUser) {
         Modifier.graphicsLayer {
             alpha = appear.value
-            translationY = (1f - appear.value) * 8.dp.toPx()
+            translationY = (1f - appear.value) * MessageBubbleMetrics.AppearSlide.toPx()
         }
     } else Modifier
 
@@ -68,8 +78,8 @@ fun MessageBubble(
                 .widthIn(max = AiDesign.BubbleMaxWidth)
                 .clip(shape)
                 .background(bubbleColor)
-                .then(if (isUser) Modifier else Modifier.border(1.dp, outline, shape))
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .then(if (isUser) Modifier else Modifier.border(MessageBubbleMetrics.BorderWidth, bubbleBorder, shape))
+                .padding(horizontal = AppSpacing.Cozy, vertical = AppSpacing.Default)
         ) {
             val shown = message.content.ifBlank { if (message.isStreaming) "▍" else "" }
             if (shown.isNotEmpty()) {
@@ -128,13 +138,26 @@ private fun MarkdownRenderedText(
     var isReady by remember { mutableStateOf(false) }
     // 上次已渲染的内容，避免对相同 markdown 重复 evaluateJavascript
     var lastRendered by remember { mutableStateOf("") }
+    // 实例代号：渲染进程消失后这个 WebView 永久不可用，自增此值让 key() 重建整块 AndroidView。
+    // 气泡不需要用户点重试——一条消息的重渲成本极低，直接静默自愈。
+    var webViewGeneration by remember { mutableIntStateOf(0) }
 
     val html = """
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset="UTF-8">
+            <!--
+              CSP：script-src 无 'unsafe-inline'/'unsafe-eval'，模型输出里的内联脚本与 on* 属性
+              全部失效；connect-src 'none' 断掉任何外传通道。渲染逻辑因此必须留在
+              raw/bubble.js，不能内联回本模板。style-src 需要 'unsafe-inline'（本模板内联主题色）。
+            -->
+            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src file:; style-src file: 'unsafe-inline'; img-src file: blob: data: https: http:; font-src file: data:; connect-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'">
+            <meta name="referrer" content="no-referrer">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <!-- purify → ym-sanitize → marked 顺序固定：净化器必须先于渲染逻辑就绪 -->
+            <script src="file:///android_asset/raw/purify.js"></script>
+            <script src="file:///android_asset/raw/ym-sanitize.js"></script>
             <script src="file:///android_asset/raw/markedjs.js"></script>
             <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -190,33 +213,8 @@ private fun MarkdownRenderedText(
         </head>
         <body>
             <div id="content"></div>
-            <script>
-                // 全局更新函数，供 Android 调用
-                window.updateContent = function(base64Markdown) {
-                    try {
-                        if (typeof marked === 'undefined') {
-                            document.getElementById('content').textContent = 'marked.js 未加载';
-                            return;
-                        }
-                        marked.setOptions({ breaks: true, gfm: true });
-
-                        var binaryStr = atob(base64Markdown);
-                        var markdown = decodeURIComponent(escape(binaryStr));
-
-                        // 直接渲染为 HTML
-                        document.getElementById('content').innerHTML = marked.parse(markdown);
-                    } catch(e) {
-                        console.error('Render error:', e);
-                    }
-                };
-
-                // 通知 Android WebView 已就绪
-                window.onload = function() {
-                    if (window.Android && window.Android.onReady) {
-                        window.Android.onReady();
-                    }
-                };
-            </script>
+            <!-- 渲染逻辑外置：CSP 无 'unsafe-inline'，内联脚本会静默不执行 -->
+            <script src="file:///android_asset/raw/bubble.js"></script>
         </body>
         </html>
     """.trimIndent()
@@ -231,6 +229,8 @@ private fun MarkdownRenderedText(
         lastRendered = content
     }
 
+    // key 在实例代号上：渲染进程消失后必须整块重建，原地复用一个已死的 WebView 只会得到空白气泡
+    key(webViewGeneration) {
     AndroidView(
         factory = {
             WebView(context).apply {
@@ -239,7 +239,41 @@ private fun MarkdownRenderedText(
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 )
                 settings.javaScriptEnabled = true
+                // 气泡只渲染 android_asset 下的模板与本地库，无需读用户文件/内容提供者。
+                // allowFileAccess=false 仍允许 file:///android_asset 与 file:///android_res，
+                // 因此模板与 raw/*.js 不受影响，但模型输出无法再通过 file:// 读取应用私有目录。
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.domStorageEnabled = false
+                settings.javaScriptCanOpenWindowsAutomatically = false
+                settings.setSupportMultipleWindows(false)
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
+
+                // 没有 WebViewClient 时，气泡里的链接会就地导航，把气泡变成浏览器。
+                // http/https 交给系统浏览器，其余方案（intent:/file:/javascript: 等）一律拦下。
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: WebResourceRequest?
+                    ): Boolean = handleBubbleUrl(context, request?.url?.toString())
+
+                    @Deprecated("兼容 API < 24")
+                    override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean =
+                        handleBubbleUrl(context, url)
+
+                    override fun onRenderProcessGone(
+                        view: WebView?,
+                        detail: android.webkit.RenderProcessGoneDetail?
+                    ): Boolean {
+                        // 返回 false（默认）= 框架杀掉整个应用进程。长会话里几十个气泡各自持有一个
+                        // WebView，系统在内存压力下回收渲染器是常态，绝不能因此丢掉整个对话。
+                        // 重置渲染缓存，否则新实例就绪后守卫判定"内容没变"而不渲染，气泡留白。
+                        isReady = false
+                        lastRendered = ""
+                        webViewGeneration++
+                        return true
+                    }
+                }
 
                 // 添加接口供 JavaScript 回调
                 addJavascriptInterface(object {
@@ -263,11 +297,16 @@ private fun MarkdownRenderedText(
             // 离开组合时销毁 WebView，防止长会话累积几十个 WebView 常驻内存。
             view.removeJavascriptInterface("Android")
             view.destroy()
-            webView = null
-            isReady = false
+            // 身份守卫：key 重建时「新 factory 先跑还是旧 onRelease 先跑」没有保证，
+            // 无条件清空会把刚建好的新实例引用抹掉，流式渲染随后全部落空。
+            if (webView === view) {
+                webView = null
+                isReady = false
+            }
         },
         modifier = Modifier.fillMaxWidth().wrapContentHeight()
     )
+    }
 
     // 流式期间节流渲染：合并高频 token 为约每 120ms 一帧；流式结束强制渲染最终全文。
     // 非流式（历史消息直接展示）由上面的 update 块一次性渲染，不走节流。
@@ -294,3 +333,40 @@ private fun MarkdownRenderedText(
 
 /** 流式渲染节流间隔（毫秒）。低于此间隔的多次 token 合并为一帧。 */
 private const val STREAM_RENDER_THROTTLE_MS = 120L
+
+/**
+ * 气泡内链接的统一出口。
+ *
+ * 返回 true 表示「本 WebView 不加载它」。仅 http/https 交给系统处理，
+ * 其余（intent:、file:、content:、javascript:、data: 等）直接丢弃——模型输出是不可信内容，
+ * 不能让它决定 WebView 导航到哪里。
+ */
+private fun handleBubbleUrl(context: Context, url: String?): Boolean {
+    val target = url?.trim().orEmpty()
+    if (target.isEmpty()) return true
+    val uri = target.toUri()
+    val scheme = uri.scheme?.lowercase()
+    if (scheme != "http" && scheme != "https") return true
+    try {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    } catch (e: ActivityNotFoundException) {
+        Log.d("MessageBubble", "no handler for link: ${e.message}")
+    }
+    return true
+}
+
+/**
+ * 本气泡特有的度量，刻意不并入全局 [AppSpacing]：非用户气泡的发丝描边宽度（1dp）、入场动画的
+ * 上移距离与时长。描边是绘制轴、动画量是运动轴，均离散于间距标度，保留原像素与原时长、不硬凑。
+ * 按 FileListMetrics 先例落屏幕局部。
+ */
+private object MessageBubbleMetrics {
+    /** AI 气泡描边：1dp 发丝线，勾出气泡边界（用户气泡用实底、无描边）。 */
+    val BorderWidth = 1.dp
+    /** 用户气泡入场上移距离：alpha 淡入同时轻微上移，收束到 0。 */
+    val AppearSlide = 8.dp
+    /** 用户气泡入场动画时长（毫秒）。 */
+    const val AppearDurationMs = 260
+}

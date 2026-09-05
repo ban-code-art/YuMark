@@ -1,9 +1,14 @@
 package com.yumark.app.domain.usecase.importing
 
 import android.content.Context
-import android.net.Uri
+import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
+import com.yumark.app.R
+import com.yumark.app.core.util.FriendlyIOException
+import com.yumark.app.core.util.UiMessage
 import com.yumark.app.data.local.file.FileManager
+import com.yumark.app.data.repository.NamedEntry
+import com.yumark.app.data.repository.findNameConflict
 import com.yumark.app.domain.repository.DocumentRepository
 import com.yumark.app.domain.repository.FolderRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -69,6 +74,14 @@ class ImportFolderUseCase @Inject constructor(
      * 扫描待导入文件夹，返回可导入的候选文档（供 UI 勾选）和图片资产。
      * 复用与工作区一致的过滤规则：跳隐藏项，限深限量。
      *
+     * 三处失败都用 [FriendlyIOException] 而不是 `error(...)`：`error` 抛的是裸
+     * [IllegalStateException]，[com.yumark.app.core.util.ErrorHandler.classify] 的 else 分支
+     * 把它归到「出现未知问题，请重试」，于是 `ImportFlow.scanImportFolder` 那一侧的
+     * `onFailureReport(UserAction.SCAN_FOLDER)` 只能弹出「扫描文件夹失败：出现未知问题」——
+     * 这里手写的三句中文一个字都到不了用户眼前，而它们恰好各自指向一件用户能做的事
+     * （重新选目录、重新授权、返回上一层）。前两条的文案与 `WorkspaceRepositoryImpl.openWorkspace`
+     * 共用同一个 key：同一棵 SAF 树取不到 / 读不了，在两个功能里不该有两种说法。
+     *
      * @param treeUri 系统选择器授权的根文件夹
      * @param relativePath 应用内浏览器从根逐层进入的子文件夹名称链；空表示扫根本身。
      *        部分 ROM 的系统选择器「点进文件夹即返回」，深层目录靠应用内浏览选定。
@@ -79,13 +92,19 @@ class ImportFolderUseCase @Inject constructor(
     ): Result<ImportScanResult> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val root = DocumentFile.fromTreeUri(context, Uri.parse(treeUri))
-                    ?: error("无法访问所选文件夹")
-                if (!root.canRead()) error("没有该文件夹的读取权限")
+                val root = DocumentFile.fromTreeUri(context, treeUri.toUri())
+                    ?: throw FriendlyIOException(
+                        UiMessage.Res(R.string.workspace_error_open_failed)
+                    )
+                if (!root.canRead()) throw FriendlyIOException(
+                    UiMessage.Res(R.string.workspace_error_no_read_permission)
+                )
                 var dir = root
                 for (segment in relativePath) {
                     dir = dir.findFile(segment)?.takeIf { it.isDirectory }
-                        ?: error("找不到子文件夹: $segment")
+                        ?: throw FriendlyIOException(
+                            UiMessage.of(R.string.import_error_subfolder_missing, segment)
+                        )
                 }
                 val docs = mutableListOf<ImportCandidate>()
                 val images = mutableListOf<ImportCandidate>()
@@ -185,17 +204,27 @@ class ImportFolderUseCase @Inject constructor(
     ): String? {
         var parentId: String? = baseFolderId
         val acc = StringBuilder()
-        for (segment in path) {
+        for (rawSegment in path) {
+            // 段落先 trim。下面判重用的 findNameConflict 比较前也 trim，两边必须一致：
+            // 从前这里是裸 `it.name == segment`，于是源目录里一个叫「Notes 」的文件夹遇上
+            // 库里已有的「Notes」就两头堵死——复用匹配不上，转去 createFolder 又被同级判重
+            // 当成重名挡下，那个目录下的每一篇文档都落进 failed，用户只看到一句「失败 N 篇」。
+            val segment = rawSegment.trim()
+            // 整段都是空白：不为它建一个没有名字的文件夹，直接压平这一层
+            if (segment.isEmpty()) continue
             acc.append('/').append(segment)
             val key = acc.toString()
             if (cache.containsKey(key)) {
                 parentId = cache[key]
                 continue
             }
-            // 同名子文件夹已存在则复用，否则新建
-            val existing = folderRepository.getFoldersByParent(parentId).getOrNull()
-                ?.firstOrNull { it.name == segment }
-            val folderId = existing?.id
+            // 同名子文件夹已存在则复用，否则新建。刻意复用 findNameConflict 而不是自己写
+            // 比较：判重规则（trim、区分大小写）只留一份，日后改动不会再让两侧分家。
+            val siblings = folderRepository.getFoldersByParent(parentId).getOrNull().orEmpty()
+            val existingId = findNameConflict(
+                siblings.map { NamedEntry(it.id, it.name) }, segment
+            )?.id
+            val folderId = existingId
                 ?: folderRepository.createFolder(segment, parentId).getOrThrow().id
             cache[key] = folderId
             parentId = folderId
@@ -216,7 +245,7 @@ class ImportFolderUseCase @Inject constructor(
                     .fold(assetsRoot) { parent, segment -> File(parent, segment) }
                 dir.mkdirs()
                 val target = File(dir, FileManager.sanitizeImportSegment(image.displayName))
-                val complete = context.contentResolver.openInputStream(Uri.parse(image.uri))
+                val complete = context.contentResolver.openInputStream(image.uri.toUri())
                     ?.use { input -> copyWithLimit(input, target) } ?: false
                 // 超过单张大小上限：不留半截文件
                 if (!complete) target.delete()
@@ -239,9 +268,20 @@ class ImportFolderUseCase @Inject constructor(
         }
     }
 
+    /**
+     * 读取单篇候选文档的正文。
+     *
+     * 打不开时同样抛 [FriendlyIOException] 而不是 `error("无法打开文件: $uri")`：
+     * 一是那句原文过不了 [com.yumark.app.core.util.ErrorHandler.classify]（裸
+     * [IllegalStateException] → 「出现未知问题」）；二是它把 `content://` URI 拼进了
+     * 异常 message，而这个异常正好落在 [invoke] 里逐篇 `runCatching` 的 `onFailure`
+     * 分支上——今天只累加 failed 计数、原文被丢掉，一旦哪天有人改成上报，URI 就跟着出去了。
+     * 复用 `saf_error_read_source`：调用点已经知道是「哪一篇」（失败计数按篇累加），
+     * 文案不必再点名文件。
+     */
     private fun readContent(uri: String): String {
-        val input = context.contentResolver.openInputStream(Uri.parse(uri))
-            ?: error("无法打开文件: $uri")
+        val input = context.contentResolver.openInputStream(uri.toUri())
+            ?: throw FriendlyIOException(UiMessage.Res(R.string.saf_error_read_source))
         return BufferedReader(InputStreamReader(input, Charsets.UTF_8)).use { it.readText() }
     }
 }

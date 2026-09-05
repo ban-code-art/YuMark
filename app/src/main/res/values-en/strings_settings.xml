@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Settings / cloud sync / theme name strings (English).
+
+    Mirrors values/strings_settings.xml key for key, in the same order and with the same
+    section breaks, so the two files can be diffed line by line. Every key added there MUST
+    be added here, otherwise lint's MissingTranslation check fails the build; every <plurals>
+    needs at least "other" in each locale or MissingQuantity fails it. Placeholder count and
+    type must match the Chinese source exactly; positional specifiers (%1$s / %2$d) are used
+    so English word order can differ from Chinese.
+
+    Do not translate provider names (Nextcloud, Nutstore, Synology), "WebDAV" or the
+    AiProvider name interpolated into settings_ai_enabled: they are identifiers, not prose.
+-->
+<resources>
+
+    <!-- ========== AppThemes ========== -->
+    <string name="theme_default_label">Default · Grey</string>
+    <string name="theme_claude_label">Claude</string>
+    <string name="theme_dynamic_label">Dynamic color (from wallpaper)</string>
+
+    <!-- ========== SettingsScreen ========== -->
+    <string name="settings_dark_mode">Dark mode</string>
+    <!-- Short FilterChip labels, deliberately not auto_theme / light_theme / dark_theme -->
+    <string name="settings_dark_mode_system">System</string>
+    <string name="settings_dark_mode_light">Light</string>
+    <string name="settings_dark_mode_dark">Dark</string>
+    <!-- Switch-off state, not the "Close" verb -->
+    <string name="settings_switch_off">Off</string>
+    <!-- %1$d = auto-save interval in seconds -->
+    <plurals name="settings_auto_save_every_seconds">
+        <item quantity="one">Every %1$d second</item>
+        <item quantity="other">Every %1$d seconds</item>
+    </plurals>
+    <string name="settings_default_preview">Open documents in preview mode</string>
+    <string name="settings_default_preview_on">On (empty documents still open for editing)</string>
+    <!-- %1$s = AI provider name (AiProvider.name, e.g. OPENAI; not translated) -->
+    <string name="settings_ai_enabled">Enabled · %1$s</string>
+    <string name="settings_ai_disabled">Off · Tap to set up the API and model</string>
+    <string name="settings_sync_desc">Back up and sync across devices over WebDAV</string>
+    <!-- Also the contentDescription of the update icon button -->
+    <string name="settings_check_update">Check for updates</string>
+    <!-- %1$s = BuildConfig.VERSION_NAME -->
+    <string name="settings_current_version">Current version: %1$s</string>
+    <string name="settings_update_none">Up to date</string>
+    <string name="settings_about">About</string>
+    <string name="settings_about_desc">YuMark - Markdown editor</string>
+    <!-- Separator between the section names listed by config_import_applied. The value is a
+         comma plus a space; the double quotes are aapt2's way of keeping the trailing space
+         (a plain one gets trimmed) and are stripped from the resource itself. -->
+    <string name="settings_list_separator">", "</string>
+
+    <!-- ========== UpdateDialog (shared with the file list screen) ========== -->
+    <string name="settings_update_available_title">Update available</string>
+    <string name="settings_update_file_size">File size:</string>
+    <string name="settings_update_publish_date">Release date:</string>
+    <string name="settings_update_changelog">Release notes:</string>
+    <!-- Standalone buttons, unlike version_history_collapse which is lowercase on purpose -->
+    <string name="settings_update_collapse">Show less</string>
+    <string name="settings_update_show_all">Show all</string>
+    <string name="settings_update_later">Remind me later</string>
+    <string name="settings_update_now">Update now</string>
+
+    <!-- ========== DownloadDialog ========== -->
+    <string name="settings_download_preparing">Preparing to download…</string>
+    <string name="settings_download_running">Downloading update</string>
+    <string name="settings_download_done">Download complete</string>
+    <string name="settings_download_installing">Installation will start shortly…</string>
+    <string name="settings_download_failed">Download failed</string>
+    <!-- The download succeeded but the installer never launched (verification refused, file gone).
+         Kept apart from "Download failed": a half-finished download and a package that cannot be
+         installed call for different next steps. -->
+    <string name="settings_install_failed">Installation did not start</string>
+
+    <!-- ========== SyncSettingsScreen ========== -->
+    <string name="sync_title">Cloud sync</string>
+    <string name="sync_enable">Enable WebDAV sync</string>
+    <string name="sync_providers_hint">Works with any WebDAV service — Nextcloud, Nutstore, Synology and others — using your own account.</string>
+    <string name="sync_server_url">Server address</string>
+    <string name="sync_username">Username</string>
+    <string name="sync_password">Password or app token</string>
+    <string name="sync_remote_dir">Remote folder</string>
+    <string name="sync_test">Test connection</string>
+    <string name="sync_now">Sync now</string>
+    <!-- %1$s = time of the last sync, e.g. 2026-09-03 14:30 -->
+    <string name="sync_last_synced">Last synced: %1$s</string>
+    <string name="sync_scope_note">Sync is manual and two-way for now, and covers only the document bodies in the library root (one .md file per document name). Folder hierarchy, image attachments, delete propagation and background sync arrive in a later version.</string>
+    <string name="sync_test_success">Connected successfully</string>
+    <!--
+      Sync summary shown in a Snackbar. %1$d = uploaded, %2$d = downloaded, %3$d = conflicts,
+      %4$d = skipped, and %5$d = failed in the _with_failed variant. Written as "label number"
+      rather than "number label" on purpose: four counts cannot go through <plurals> (it
+      switches on a single quantity), and this phrasing never reads "1 conflicts".
+    -->
+    <string name="sync_result">Sync complete: ↑%1$d ↓%2$d · Deleted %3$d · Conflicts %4$d · Skipped %5$d</string>
+    <string name="sync_result_with_failed">Sync complete: ↑%1$d ↓%2$d · Deleted %3$d · Conflicts %4$d · Skipped %5$d · Failed %6$d</string>
+
+    <!-- ========== contentDescription ========== -->
+    <string name="cd_settings_back">Back</string>
+    <!-- %1$d = current font size in sp; keep the value in the text, see the Chinese source -->
+    <string name="cd_font_size_slider">Font size %1$d</string>
+    <!-- %1$d = current width in pixels; keep the value in the text, see the Chinese source.
+         "px" rather than "pixels" on purpose: a number followed by a word trips lint's
+         PluralsCandidate, and <plurals> would be pointless here (the slider starts at 640). -->
+    <string name="cd_max_image_width_slider">Maximum image width %1$d px</string>
+    <string name="cd_sync_back">Back</string>
+    <string name="cd_sync_toggle_password">Show or hide password</string>
+</resources>

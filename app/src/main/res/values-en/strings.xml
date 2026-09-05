@@ -1,0 +1,320 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    英文语区（values-en）。
+
+    为什么是 values-en 而不是反过来：
+    本项目的默认语区 values/ 里放的是简体中文，不是英文。App 主要面向中文用户，
+    默认语言必须是简体中文，所以英文作为「附加语言」放在 values-en/，
+    而不是把英文当默认、中文塞进 values-zh/。
+    设备语言为英文（以及任何没有对应语区的语言）时，系统回退到本文件；
+    中文设备继续使用 values/strings.xml。
+
+    维护规则（必须遵守）：
+    1. 新增或删除任何 <string> 键，必须同时改 values/strings.xml 与本文件，
+       两边键名逐字一致，一个都不能少。
+    2. 只在一边加键会触发 lint 的 MissingTranslation。项目一旦有了多语区，
+       这个检查是 error 级，会直接让构建门禁失败。
+    3. 占位符（%s、%d、%1$s、%2$d …）的数量、类型、风格两边必须一致，
+       否则 lint 报 StringFormatInvalid，运行时可能抛 MissingFormatArgumentException。
+       英文语序需要调换参数顺序时，两边同时改成带位置的 %1$s / %2$d 形式。
+    4. 标了 translatable="false" 的键不要出现在本文件里，否则 lint 报 Untranslatable。
+    5. 键的顺序、分节注释与 values/strings.xml 保持一致，方便逐行对照。
+    6. 英文文案统一用 sentence case；按钮用动词原形；省略号一律写成单字符 …（U+2026），
+       不要写三个点 —— lint 的 TypographyEllipsis 规则盯的就是后者，两个 locale 同时守这条。
+-->
+<resources>
+    <string name="app_name">YuMark</string>
+
+    <!-- 通用 -->
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+    <string name="delete">Delete</string>
+    <string name="rename">Rename</string>
+    <string name="move_to">Move to…</string>
+    <string name="move_to_root">Root folder</string>
+    <string name="save">Save</string>
+    <string name="close">Close</string>
+    <string name="search">Search</string>
+    <string name="settings">Settings</string>
+
+    <!-- 文件列表 -->
+    <string name="all_documents">All documents</string>
+    <string name="create_document">New document</string>
+    <string name="create_folder">New folder</string>
+    <string name="import_file">Import file</string>
+    <string name="export">Export</string>
+    <string name="sort">Sort</string>
+    <!-- 收藏功能只做了一半，这个键留给缺的那个「只看收藏」入口；保留理由见
+         values/strings.xml 同一节的注释。要删必须两边成对删，单边删踩 ExtraTranslation。 -->
+    <string name="favorites">Favorites</string>
+
+    <!-- 文件夹操作 -->
+    <string name="folder_name">Folder name</string>
+    <string name="delete_folder">Delete folder</string>
+    <string name="delete_folder_with_contents">Delete this folder and everything in it?</string>
+    <string name="create_subfolder">New subfolder</string>
+
+    <!-- 文档操作 -->
+    <string name="document_name">Document name</string>
+    <string name="delete_document">Delete document</string>
+    <string name="delete_document_confirm">Delete the document \"%1$s\"? This cannot be undone.</string>
+    <string name="rename_document">Rename document</string>
+    <string name="favorite">Add to favorites</string>
+    <string name="unfavorite">Remove from favorites</string>
+    <plurals name="word_count">
+        <item quantity="one">%1$d word</item>
+        <item quantity="other">%1$d words</item>
+    </plurals>
+    <string name="updated_just_now">Just now</string>
+    <plurals name="updated_minutes_ago">
+        <item quantity="one">%1$d minute ago</item>
+        <item quantity="other">%1$d minutes ago</item>
+    </plurals>
+    <plurals name="updated_hours_ago">
+        <item quantity="one">%1$d hour ago</item>
+        <item quantity="other">%1$d hours ago</item>
+    </plurals>
+    <plurals name="updated_days_ago">
+        <item quantity="one">%1$d day ago</item>
+        <item quantity="other">%1$d days ago</item>
+    </plurals>
+    <plurals name="updated_weeks_ago">
+        <item quantity="one">%1$d week ago</item>
+        <item quantity="other">%1$d weeks ago</item>
+    </plurals>
+
+    <!-- 编辑器 -->
+    <string name="editor">Editor</string>
+    <string name="preview_mode">Preview mode</string>
+    <string name="edit_mode">Edit mode</string>
+    <string name="toggle_sidebar">Toggle sidebar</string>
+    <string name="saved">Saved</string>
+    <string name="auto_save">Auto-save</string>
+
+    <!-- 工具栏 -->
+    <string name="toolbar_heading">Heading</string>
+    <string name="toolbar_bold">Bold</string>
+    <string name="toolbar_italic">Italic</string>
+    <string name="toolbar_strikethrough">Strikethrough</string>
+    <string name="toolbar_link">Link</string>
+    <string name="toolbar_image">Image</string>
+    <string name="toolbar_code">Code</string>
+    <string name="toolbar_code_block">Code block</string>
+    <string name="toolbar_quote">Quote</string>
+    <string name="toolbar_list">Bulleted list</string>
+    <string name="toolbar_numbered_list">Numbered list</string>
+    <string name="toolbar_table">Table</string>
+    <string name="toolbar_horizontal_rule">Horizontal rule</string>
+
+    <!-- 菜单 -->
+    <!-- 桌面式菜单栏（未实现）的顶层菜单名，连同下面「文件菜单」里的 open_file / save_as 属于
+         同一套；保留理由见 values/strings.xml 同一节的注释。要删必须两边成对删。 -->
+    <string name="menu_file">File</string>
+    <string name="menu_edit">Edit</string>
+    <string name="menu_view">View</string>
+    <string name="menu_format">Format</string>
+    <string name="menu_help">Help</string>
+
+    <!-- 文件菜单 -->
+    <string name="open_file">Open file</string>
+    <string name="save_as">Save as</string>
+    <string name="export_html">Export as HTML</string>
+    <string name="export_rich_html">Export as rich HTML</string>
+    <string name="export_pdf">Export as PDF</string>
+    <string name="export_word">Export as Word</string>
+    <string name="export_image">Export as image</string>
+    <string name="history_versions">Version history</string>
+
+    <!-- 视图菜单 -->
+    <!-- 三种尚未实现的编辑器视图模式，整组保留；理由见 values/strings.xml 同一节的注释。 -->
+    <string name="source_code_mode">Source code mode</string>
+    <string name="typewriter_mode">Typewriter mode</string>
+    <string name="focus_mode">Focus mode</string>
+
+    <!-- 设置 -->
+    <!-- 尚未实现的设置分区标题，三条一组；保留理由见 values/strings.xml 同一节的注释。 -->
+    <string name="general_settings">General settings</string>
+    <string name="editor_settings">Editor settings</string>
+    <string name="appearance">Appearance</string>
+    <string name="font_size">Font size</string>
+    <string name="theme">Theme</string>
+    <!-- 整句形态的深浅选项标签（设置页当前用的是 settings_dark_mode_* 那三条短标签）；
+         保留理由见 values/strings.xml 同一节的注释。 -->
+    <string name="light_theme">Light theme</string>
+    <string name="dark_theme">Dark theme</string>
+    <string name="auto_theme">Follow system</string>
+    <!-- Titles for the UserSettings entries that are persisted and actually honoured;
+         see the comment in the same section of values/strings.xml. -->
+    <string name="auto_save_interval">Auto-save interval (seconds)</string>
+    <string name="image_compression">Image compression</string>
+    <string name="auto_compress_images">Compress images automatically</string>
+    <string name="compression_quality">Compression quality</string>
+    <string name="max_image_width">Maximum image width</string>
+    <!-- %1$d = seconds. Discrete chips rather than a slider, see the Chinese source. -->
+    <string name="settings_seconds_short">%1$d s</string>
+    <!-- The number in parentheses is the quality value handed to Bitmap.compress. -->
+    <string name="compression_quality_low">Low (60)</string>
+    <string name="compression_quality_medium">Medium (80)</string>
+    <string name="compression_quality_high">High (90)</string>
+    <string name="reset_settings">Reset settings</string>
+    <string name="reset_settings_confirm">Reset all settings to their default values?</string>
+
+    <!-- 排序选项 -->
+    <string name="sort_by_name_asc">Name (A-Z)</string>
+    <string name="sort_by_name_desc">Name (Z-A)</string>
+    <string name="sort_by_date_newest">Date (newest first)</string>
+    <string name="sort_by_date_oldest">Date (oldest first)</string>
+    <string name="sort_by_word_count_asc">Word count (fewest first)</string>
+    <string name="sort_by_word_count_desc">Word count (most first)</string>
+
+    <!-- 错误信息 -->
+    <!-- 与 values/strings.xml 同步删掉 7 条无引用键；只留还在用的这一条。
+         删除必须两边成对做，单边删会踩 error 级的 ExtraTranslation。 -->
+    <string name="error_create_folder">Failed to create the folder</string>
+
+    <!-- 提示信息 -->
+    <string name="hint_document_name">Enter a document name</string>
+    <string name="hint_folder_name">Enter a folder name</string>
+    <string name="hint_search">Search documents…</string>
+
+    <!-- 空状态 -->
+    <string name="empty_documents">No documents yet</string>
+    <string name="empty_documents_hint">Tap + to create your first document</string>
+    <string name="empty_search_results">No matching documents</string>
+
+    <!-- 工作区与大纲 -->
+    <string name="outline">Outline</string>
+    <string name="outline_empty">No headings found</string>
+    <string name="close_workspace">Close folder</string>
+    <string name="refresh">Refresh</string>
+    <!-- %1$d = WorkspaceScanner.MAX_FILES, a compile-time constant greater than 1, which is why
+         this is a plain string rather than plurals: the "one" branch could never render. -->
+    <string name="workspace_truncated">Too many files. Showing the first %1$d documents only</string>
+    <!-- %1$d = WorkspaceScanner.MAX_DEPTH. Deliberately a separate string: when depth is what
+         truncated the tree there may be only a dozen documents in total, and the message above
+         would send the user looking for 2000 documents that do not exist. -->
+    <string name="workspace_truncated_depth">Folders nested more than %1$d levels deep are not shown</string>
+    <string name="workspace_reselect">Choose again</string>
+    <string name="workspace_goto_settings">Open settings</string>
+    <string name="workspace_main_hint">Select a document in the sidebar to open it</string>
+    <string name="workspace_open_sidebar">Open sidebar</string>
+
+    <!-- 默认目录 -->
+    <string name="default_dir">Default folder</string>
+    <string name="default_dir_unset">Not set</string>
+    <string name="default_dir_choose">Choose</string>
+    <string name="default_dir_clear">Clear</string>
+    <string name="default_dir_confirm_title">Confirm default folder</string>
+    <string name="default_dir_confirm_message">You selected \"%1$s\". Set it as the default folder? It will be loaded automatically the next time you open the app.</string>
+    <string name="default_dir_picked_fallback">Selected folder</string>
+    <string name="open_folder_confirm_title">Confirm open folder</string>
+    <string name="open_folder_confirm_message">You selected \"%1$s\". Open this folder?</string>
+
+    <!-- 导入库 -->
+    <string name="import_library">Import Library</string>
+    <string name="import_folder">Import folder</string>
+    <string name="import_to_library">Import to Library</string>
+    <string name="import_select_folder_files">Select items to import (%1$d)</string>
+    <string name="import_select_all">Select all</string>
+    <string name="import_browser_title">Choose a folder to import</string>
+    <string name="import_browser_up">Up one level</string>
+    <string name="import_browser_empty">No subfolders</string>
+    <string name="import_browser_confirm">Import this folder</string>
+    <string name="import_in_progress">Importing…</string>
+    <string name="import_target">Import destination</string>
+    <string name="import_target_change">Change</string>
+    <string name="import_target_pick">Choose import destination</string>
+    <plurals name="import_files_count">
+        <item quantity="one">%1$d file will be imported</item>
+        <item quantity="other">%1$d files will be imported</item>
+    </plurals>
+
+    <!-- 导出 -->
+    <string name="export_markdown">Export as Markdown</string>
+    <string name="export_document">Export document</string>
+    <string name="export_markdown_desc">Plain text, keeps Markdown syntax</string>
+    <string name="export_html_desc">Web page format, opens in any browser</string>
+    <string name="export_rich_html_desc">Matches the preview: syntax highlighting, formulas and diagrams, self-contained and portable</string>
+    <string name="export_pdf_desc">Fixed layout, ideal for printing and sharing</string>
+    <string name="export_word_desc">Microsoft Word document (.docx)</string>
+    <string name="export_image_desc">The whole document rendered as one tall image</string>
+
+    <!-- 配置备份（设置项导出/导入） -->
+    <string name="config_backup">Configuration backup</string>
+    <string name="config_backup_desc">Export appearance, AI and sync settings as JSON, or restore them from a file</string>
+    <string name="config_backup_export">Export</string>
+    <string name="config_backup_import">Import</string>
+    <string name="config_export_title">Export configuration</string>
+    <string name="config_export_message">Exports appearance and editor settings, AI configuration and WebDAV sync configuration. Write the API key and WebDAV password into the file as well?</string>
+    <string name="config_export_warning">Secrets are stored as plain text in the file. Do not share it with anyone.</string>
+    <string name="config_export_with_secrets">Include secrets</string>
+    <string name="config_export_without_secrets">Exclude secrets</string>
+    <string name="config_import_title">Import configuration</string>
+    <string name="config_import_message">The settings in the file will overwrite the current configuration. Anything the file does not contain stays unchanged, and a file without secrets will not clear the API key and password already saved on this device.</string>
+    <string name="config_import_confirm">Import</string>
+    <string name="config_running">Working…</string>
+    <string name="config_export_done_title">Export complete</string>
+    <string name="config_export_done_message">The configuration has been written to the selected file.</string>
+    <string name="config_export_done_secrets">The file contains secrets as plain text. Keep it somewhere safe.</string>
+    <string name="config_import_done_title">Import complete</string>
+    <string name="config_import_nothing">The file contains no configuration sections that can be applied.</string>
+    <string name="config_import_applied">Applied: %1$s</string>
+    <string name="config_section_settings">Appearance and editor</string>
+    <string name="config_section_ai">AI configuration</string>
+    <string name="config_section_sync">Cloud sync</string>
+    <string name="config_import_secrets_applied">The secrets in the file have been applied.</string>
+    <string name="config_import_secrets_kept">The file contains no secrets, so the ones saved on this device are unchanged.</string>
+    <string name="config_import_warnings_title">The following values were adjusted or ignored:</string>
+    <string name="config_failed_title">Operation failed</string>
+    <string name="config_dialog_close">Got it</string>
+    <string name="config_dialog_cancel">Cancel</string>
+    <!-- 崩溃日志 -->
+    <string name="crash_logs">Crash logs</string>
+    <string name="crash_logs_desc">Kept on this device only and never uploaded. Suspected secrets are stripped before export</string>
+    <string name="crash_logs_empty">No entries yet</string>
+    <plurals name="crash_logs_count">
+        <item quantity="one">%1$d entry, tap to view it</item>
+        <item quantity="other">%1$d entries, tap to view the latest one</item>
+    </plurals>
+    <string name="crash_logs_export">Export</string>
+    <string name="crash_logs_clear">Clear</string>
+    <string name="crash_view_title">Latest entry</string>
+    <string name="crash_clear_title">Clear crash logs?</string>
+    <plurals name="crash_clear_message">
+        <item quantity="one">%1$d entry will be deleted and cannot be recovered.</item>
+        <item quantity="other">%1$d entries will be deleted and cannot be recovered.</item>
+    </plurals>
+    <string name="crash_clear_confirm">Clear</string>
+    <string name="crash_export_done_title">Export complete</string>
+    <plurals name="crash_export_done_message">
+        <item quantity="one">Exported %1$d entry.</item>
+        <item quantity="other">Exported %1$d entries.</item>
+    </plurals>
+    <string name="crash_export_failed_title">Export failed</string>
+    <!-- sync_trash rescue copies: the body saved before a remote delete propagates locally -->
+    <string name="sync_trash">Deleted-by-sync backups</string>
+    <string name="sync_trash_desc">Bodies are backed up before a remote delete lands here (up to 100 copies, oldest dropped first)</string>
+    <string name="sync_trash_empty">No backups yet</string>
+    <plurals name="sync_trash_count">
+        <item quantity="one">%1$d backup, tap to view</item>
+        <item quantity="other">%1$d backups, tap to view</item>
+    </plurals>
+    <string name="sync_trash_export">Export</string>
+    <string name="sync_trash_clear">Clear</string>
+    <string name="sync_trash_view_title">Backup contents (newest first)</string>
+    <string name="sync_trash_clear_title">Clear body backups?</string>
+    <plurals name="sync_trash_clear_message">
+        <item quantity="one">%1$d backup will be deleted and cannot be recovered.</item>
+        <item quantity="other">%1$d backups will be deleted and cannot be recovered.</item>
+    </plurals>
+    <string name="sync_trash_clear_confirm">Clear</string>
+    <plurals name="sync_trash_export_done_message">
+        <item quantity="one">Exported the body of %1$d backup.</item>
+        <item quantity="other">Exported the bodies of %1$d backups.</item>
+    </plurals>
+
+    <!-- ========== External open (MainActivity) ==========
+         Toast shown when IncomingUriGuard rejects a VIEW intent from a third-party app.
+         A Toast rather than a Snackbar: the Compose tree does not exist yet at this point. -->
+    <string name="open_external_rejected">Can\'t open this file: unsupported source</string>
+</resources>

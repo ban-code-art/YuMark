@@ -47,14 +47,21 @@ class WebDavXmlTest {
     fun `normalizes etag and parses last-modified`() {
         val note = WebDavXml.parseMultistatus(multistatus).first { it.name == "Note.md" }
         assertThat(note.etag).isEqualTo("abc123")           // 去掉包裹引号
+        assertThat(note.etagWeak).isFalse()                 // 强验证器，可以拿去当 If-Match
         assertThat(note.lastModifiedMs).isNotNull()
         assertThat(note.isDirectory).isFalse()
     }
 
+    /**
+     * 剥掉 `W/` 之后光看字符串是认不出弱强的，所以 `etagWeak` 这一位必须一路带到 [RemoteEntry]。
+     * 少了它，`SyncRepositoryImpl` 会把这个冒充强标签的弱验证器当 If-Match 发出去，
+     * 服务器只能回 412，而 412 不退化 → 这个文件的上传永久失败。
+     */
     @Test
     fun `decodes percent-encoded names and strips weak etag prefix`() {
         val cn = WebDavXml.parseMultistatus(multistatus).first { it.name == "中文.md" }
         assertThat(cn.etag).isEqualTo("weak-1")             // 去掉 W/ 与引号
+        assertThat(cn.etagWeak).isTrue()                    // 但「原本是弱的」这件事留了下来
         assertThat(cn.lastModifiedMs).isNull()              // 缺 getlastmodified
     }
 

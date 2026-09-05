@@ -12,18 +12,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Stop
@@ -34,18 +28,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.yumark.app.R
+import com.yumark.app.core.util.UiMessage
+import com.yumark.app.core.util.UserAction
+import com.yumark.app.core.util.onFailureReport
 import com.yumark.app.domain.model.AgentAction
 import com.yumark.app.domain.model.AgentActionStatus
 import com.yumark.app.domain.model.AgentStep
+import com.yumark.app.domain.model.AgentStatusCode
 import com.yumark.app.domain.model.AgentTaskAggregate
 import com.yumark.app.domain.model.AgentTaskStatus
 import com.yumark.app.domain.model.AgentTaskStepStatus
@@ -63,7 +65,11 @@ import com.yumark.app.presentation.ai.common.AiDesign
 import com.yumark.app.presentation.ai.common.MessageBubble
 import com.yumark.app.presentation.ai.common.StreamingIndicator
 import com.yumark.app.presentation.ai.common.ToolActivityRow
-import com.yumark.app.presentation.common.isNearBottom
+import com.yumark.app.presentation.common.SnackbarEffect
+import com.yumark.app.presentation.common.resolveOrNull
+import com.yumark.app.presentation.theme.AppIconSize
+import com.yumark.app.presentation.theme.AppShapes
+import com.yumark.app.presentation.theme.AppSpacing
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -103,6 +109,14 @@ class AgentChatViewModel @Inject constructor(
 
     /** 本轮流式协程与对应 assistant 消息 id；中断时据此取消并收尾。 */
     private var streamingJob: Job? = null
+
+    /**
+     * 本轮 assistant 消息 id。[stop] 要靠它把内存里的步骤写回那一行。
+     *
+     * 流式期间落库的只有正文（`AgentUseCases` 那条 `assistant.copy(content = …)`），`steps`
+     * 只在收尾的几处才写。用户点停止时协程被取消，一处收尾都到不了 —— 不在这里补写的话，
+     * 刚才看着走完的整条工具时间线就永久没了。
+     */
     private var streamingAssistantId: String? = null
 
     val messages: StateFlow<List<Message>> = conversationId
@@ -127,8 +141,12 @@ class AgentChatViewModel @Inject constructor(
     private val _isStreaming = MutableStateFlow(false)
     val isStreaming: StateFlow<Boolean> = _isStreaming.asStateFlow()
 
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
+    /**
+     * 错误/提示文案。用 [UiMessage] 而不是 String：来源（[AgentMessageState] 的 Error/Notice、
+     * [onFailureReport] 回传）本身就是 UiMessage，解析统一留到 Composable 侧。
+     */
+    private val _error = MutableStateFlow<UiMessage?>(null)
+    val error: StateFlow<UiMessage?> = _error.asStateFlow()
 
     /** 本轮 agent 执行步骤（内存态，不持久化；流式期间展示"正在调什么工具"） */
     private val _steps = MutableStateFlow<List<AgentStep>>(emptyList())
@@ -142,17 +160,24 @@ class AgentChatViewModel @Inject constructor(
     private val _attachments = MutableStateFlow<List<Uri>>(emptyList())
     val attachments: StateFlow<List<Uri>> = _attachments.asStateFlow()
 
-    private val _attachmentError = MutableStateFlow<String?>(null)
-    val attachmentError: StateFlow<String?> = _attachmentError.asStateFlow()
+    /**
+     * 附件相关提示。用 [UiMessage] 而不是 String：上限提示是本模块可翻译文案（[UiMessage.Res]），
+     * 而 [onFailureReport] 给回来的是 core 层产出的 [UiMessage]，两种来源都要能装。
+     */
+    private val _attachmentError = MutableStateFlow<UiMessage?>(null)
+    val attachmentError: StateFlow<UiMessage?> = _attachmentError.asStateFlow()
     fun clearAttachmentError() { _attachmentError.value = null }
 
     fun addAttachment(uri: Uri) {
-        if (_attachments.value.size >= 3) { _attachmentError.value = "最多只能添加 3 张图片"; return }
+        if (_attachments.value.size >= 3) {
+            _attachmentError.value = UiMessage.Res(R.string.agent_error_max_images, listOf(3))
+            return
+        }
         if (_attachments.value.contains(uri)) return
         viewModelScope.launch {
             imageProcessor.validate(uri)
                 .onSuccess { _attachments.value = _attachments.value + uri }
-                .onFailure { _attachmentError.value = it.message ?: "无法添加该图片" }
+                .onFailureReport(UserAction.ADD_IMAGE) { _attachmentError.value = it }
         }
     }
 
@@ -196,6 +221,7 @@ class AgentChatViewModel @Inject constructor(
             _isStreaming.value = true
             _error.value = null
             _steps.value = emptyList()
+            streamingAssistantId = null
             // 处理附件：下采样 → 落盘 → 持久化引用（失败的图静默跳过，已在添加时校验过）
             val processed = atts.mapNotNull { uri ->
                 imageProcessor.processForVision(uri).getOrNull()
@@ -204,8 +230,8 @@ class AgentChatViewModel @Inject constructor(
             _attachments.value = emptyList()
             sendAgentMessage(id, text, docId, docName, docContent, processed).collect { state ->
                 when (state) {
+                    is AgentMessageState.ActionProposed -> refreshBaseContent(state.action.targetDocumentId)
                     is AgentMessageState.AssistantMessageStarted -> streamingAssistantId = state.messageId
-                    is AgentMessageState.ActionProposed -> ensureBaseContent(state.action.targetDocumentId)
                     is AgentMessageState.ToolStep -> _steps.value = _steps.value + state.step
                     is AgentMessageState.Error -> { _error.value = state.message; _isStreaming.value = false }
                     is AgentMessageState.Notice -> _error.value = state.message
@@ -217,39 +243,92 @@ class AgentChatViewModel @Inject constructor(
         }
     }
 
-    /** 用户在思考过程中点击中断：取消本轮流式，把半截消息收尾、对话状态复位 IDLE。 */
+    /** 用户在思考过程中点击中断：取消本轮流式，把对话与任务状态复位。 */
     fun stop() {
-        streamingJob?.cancel()
+        // 留住被取消的 job：cancel() 只打标记，正在 IO 上飞的那次 updateMessage 还是会落库。
+        // 不 join 就补写，可能出现「补写先落地、迟到的 chunk 写入后落地」的顺序 ——
+        // 而那笔迟到的写入是 assistant.copy(content = …)（AgentUseCases.kt:240-242 每个
+        // chunk 都写），steps 是空的，于是刚补上的工具时间线当场被抹掉。
+        val cancelled = streamingJob
+        cancelled?.cancel()
         streamingJob = null
         _isStreaming.value = false
-        _steps.value = emptyList()
+        // 清空前先拿走：这是本轮唯一一份步骤记录，落库全靠下面那次补写。
+        val interruptedSteps = _steps.value
         val assistantId = streamingAssistantId
-        val convId = conversationId.value
+        _steps.value = emptyList()
         streamingAssistantId = null
+        val convId = conversationId.value
         // 收尾在独立协程里跑：被取消的 job 不能再执行
         viewModelScope.launch {
+            cancelled?.join()
+            // 一次读库，补写与状态判定共用。不能用 messages.value：那是 Room flow 经 stateIn
+            // 的快照，流式期间每个 chunk 都在写库，快照永远落后一拍；拿它 copy 回写等于把
+            // 最后几个 chunk 的正文回滚掉（updateMessage 是整行覆盖，ConversationRepositoryImpl.kt:52）。
+            val conv = convId?.let { conversationRepository.observeConversation(it).first() }
+            // 补写被中断的那条 assistant 消息。流式期间落库的只有正文，steps 只在收尾几处写，
+            // 而取消让那几处一处都到不了 —— 不补这一笔，用户刚看着走完的工具时间线就没了。
+            // `isStreaming` 本身不落库（messages 表无此列），这里带上只是保持领域对象自洽。
             assistantId?.let { mid ->
-                messages.value.firstOrNull { it.id == mid }?.takeIf { it.isStreaming }?.let { msg ->
-                    conversationRepository.updateMessage(msg.copy(isStreaming = false))
+                val row = conv?.messages?.firstOrNull { it.id == mid }
+                    ?: messages.value.firstOrNull { it.id == mid }   // 读不到会话时退回快照
+                row?.let { msg ->
+                    conversationRepository.updateMessage(
+                        msg.copy(
+                            isStreaming = false,
+                            // 内存里没步骤时不要把库里已有的抹掉（例如上一轮收尾写过的）
+                            steps = interruptedSteps.ifEmpty { msg.steps }
+                        )
+                    )
+                }
+            }
+            // 只收 WORKING，与 AgentUseCases 的兜底（AgentUseCases.kt:448-474）同一条规则。
+            // 从前写的是 != IDLE：那会把一轮已经正常跑完、状态为 COMPLETED 的会话降级回 IDLE
+            //（点停止时上一轮早已收尾、这一轮还没来得及置 WORKING，就会撞上这一支）。
+            conv?.let {
+                if (it.status == ConversationStatus.WORKING) {
+                    conversationRepository.updateConversation(it.copy(status = ConversationStatus.IDLE))
                 }
             }
             convId?.let { cid ->
-                conversationRepository.observeConversation(cid).first()?.let { conv ->
-                    if (conv.status != ConversationStatus.IDLE) {
-                        conversationRepository.updateConversation(conv.copy(status = ConversationStatus.IDLE))
-                    }
-                }
-                agentTaskRepository.getTaskByConversationId(cid)?.task?.let { task ->
+                agentTaskRepository.getTaskByConversationId(cid)?.let { aggregate ->
+                    val task = aggregate.task
+                    // 除了三个进行中状态，还要接住 AgentUseCases 的 finally 抢先写下的
+                    // FAILED + blocked.interrupted：那是它对「协程没了」的泛化判断，而用户点停止
+                    // 是更准确的事实。两处谁先落库并不确定（那边在 NonCancellable 里，这边在
+                    // join 之后），所以这里必须能覆盖它，否则历史里留下的是「执行失败」。
+                    val interruptedByFlow = task.status == AgentTaskStatus.FAILED &&
+                        task.blockingReason == AgentStatusCode.BLOCKED_INTERRUPTED.encode()
                     if (task.status == AgentTaskStatus.PLANNING ||
                         task.status == AgentTaskStatus.EXECUTING ||
-                        task.status == AgentTaskStatus.REPLANNING
+                        task.status == AgentTaskStatus.REPLANNING ||
+                        interruptedByFlow
                     ) {
+                        // 先把还挂在 RUNNING 的步骤退回 PENDING，再改判任务本身。
+                        //
+                        // 不退回的后果不是「数据不干净」，而是界面自相矛盾：顶部状态胶囊已经是
+                        // 「已由你中断」，而 [toUiStateOrNull] 的 activeStep 在 currentStepId 被
+                        // 置空后正好退到「第一条 RUNNING 步骤」这一支，AgentTimeline 会继续按
+                        // 进行中画脉冲、把标题高亮着——看上去像是停止没生效、还在跑。
+                        //
+                        // 冷启动那条复位路径救不回来：AgentTaskDao.resetRunningSteps 靠父任务仍在
+                        // liveStatuses（PLANNING/EXECUTING/REPLANNING）里定位，任务一旦改判成
+                        // BLOCKED，子查询就选不到它，那条 RUNNING 步骤会永久停在活动态。
+                        //
+                        // 顺序与 AgentTaskDao.reconcileInterrupted 一致（先步骤后任务），但理由不同：
+                        // 那边是 SQL 谓词依赖父任务状态，这里按 step id 定位不受影响，真正怕的是两笔
+                        // 写入之间进程被杀——先写终态就退化成上面那个救不回来的组合。
+                        aggregate.steps
+                            .filter { it.status == AgentTaskStepStatus.RUNNING }
+                            .forEach {
+                                agentTaskRepository.markStepStatus(it.id, AgentTaskStepStatus.PENDING)
+                            }
                         agentTaskRepository.updateTask(
                             task.copy(
                                 status = AgentTaskStatus.BLOCKED,
                                 updatedAt = System.currentTimeMillis(),
                                 currentStepId = null,
-                                blockingReason = "用户已停止本轮 Agent 执行"
+                                blockingReason = AgentStatusCode.BLOCKED_USER_STOPPED.encode()
                             )
                         )
                     }
@@ -269,15 +348,26 @@ class AgentChatViewModel @Inject constructor(
     fun isBaseContentLoading(documentId: String?): Boolean =
         documentId != null && loadingBaseContent[documentId] == true
 
-    fun ensureBaseContent(documentId: String?) {
-        if (documentId == null || documentBaseContent.containsKey(documentId) || loadingBaseContent[documentId] == true) {
-            return
-        }
+    /**
+     * 把 diff 闸门的 base 重新从库里读一遍。
+     *
+     * **不能沿用缓存里那一份**：`bind()` 会用编辑器传进来的内容给 base 打底，之后只有
+     * 批准成功才更新它。用户在编辑器里改了几行、或同步拉回了远端版本，缓存就落后了——
+     * 拿旧 base 算出的 diff，用户「只接受这几个 hunk」合成出来的正文里，恰好把那些改动
+     * 还原成了旧样子，而界面上完全看不出来。基线校验在
+     * [com.yumark.app.domain.usecase.ai.agent.ExecuteAgentActionUseCase] 里兜底（不一致直接拒），
+     * 这里做的是让用户**看到**的就是当前正文。
+     *
+     * 仍然挡住并发重入：一次加载在飞就不再排一次，否则每次重组都会多打一发请求。
+     * 读失败保留旧 base（并报错），执行侧的指纹校验保证不会因此写错内容。
+     */
+    fun refreshBaseContent(documentId: String?) {
+        if (documentId == null || loadingBaseContent[documentId] == true) return
         loadingBaseContent[documentId] = true
         viewModelScope.launch {
             loadDocumentUseCase(documentId)
                 .onSuccess { documentBaseContent[documentId] = it.content }
-                .onFailure { _error.value = "无法加载目标文档内容：${it.message}" }
+                .onFailureReport(UserAction.LOAD_TARGET_DOCUMENT) { _error.value = it }
             loadingBaseContent.remove(documentId)
         }
     }
@@ -294,7 +384,7 @@ class AgentChatViewModel @Inject constructor(
                         onDocumentUpdated?.invoke()
                     }
                 }
-                .onFailure { _error.value = "操作失败：${it.message}" }
+                .onFailureReport(UserAction.APPLY_ACTION) { _error.value = it }
         }
     }
 
@@ -367,20 +457,28 @@ private fun AgentHeader(
     Column(Modifier.fillMaxWidth()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp)
+            modifier = Modifier.fillMaxWidth().padding(start = AppSpacing.Tight, end = AppSpacing.Cozy, top = AppSpacing.Tight, bottom = AppSpacing.Tight)
         ) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.cd_agent_back))
+            }
             Box(
                 modifier = Modifier.size(AiDesign.GlyphSize).clip(CircleShape).background(cs.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.SmartToy, contentDescription = null, modifier = Modifier.size(20.dp), tint = cs.onPrimaryContainer)
+                Icon(Icons.Default.SmartToy, contentDescription = null, modifier = Modifier.size(AppIconSize.Medium), tint = cs.onPrimaryContainer)
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(AgentChatMetrics.HeaderTitleGap))
             Column(Modifier.weight(1f)) {
-                Text("Agent", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    if (isStreaming) "正在思考…" else "随时待命",
+                    stringResource(R.string.agent_header_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    stringResource(
+                        if (isStreaming) R.string.agent_header_thinking else R.string.agent_header_idle
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = if (isStreaming) cs.primary else cs.onSurfaceVariant
                 )
@@ -388,16 +486,16 @@ private fun AgentHeader(
         }
         if (documentName != null) {
             Surface(
-                modifier = Modifier.padding(start = AiDesign.ScreenPadding, end = AiDesign.ScreenPadding, bottom = 6.dp),
+                modifier = Modifier.padding(start = AiDesign.ScreenPadding, end = AiDesign.ScreenPadding, bottom = AppSpacing.Snug),
                 shape = RoundedCornerShape(AiDesign.PillCorner),
                 color = cs.surfaceVariant.copy(alpha = AiDesign.SoftFill)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    modifier = Modifier.padding(horizontal = AgentChatMetrics.DocChipPaddingH, vertical = AppSpacing.Tight)
                 ) {
-                    Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(14.dp), tint = cs.onSurfaceVariant)
-                    Spacer(Modifier.width(5.dp))
+                    Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(AgentChatMetrics.DocChipIconSize), tint = cs.onSurfaceVariant)
+                    Spacer(Modifier.width(AgentChatMetrics.DocChipIconGap))
                     Text(
                         documentName,
                         style = MaterialTheme.typography.labelMedium,
@@ -436,6 +534,10 @@ fun AgentContent(
     val taskPanelCollapsed by viewModel.taskPanelCollapsed.collectAsStateWithLifecycle()
     val attachments by viewModel.attachments.collectAsStateWithLifecycle()
     val attachmentError by viewModel.attachmentError.collectAsStateWithLifecycle()
+    // 组合期先解析成文本再交给下面的 LaunchedEffect：resolveOrNull() 是 @Composable，
+    // 协程体里调不了，只能在这里拿到 String 让 effect 捕获。
+    val errorText = error.resolveOrNull()
+    val attachmentErrorText = attachmentError.resolveOrNull()
     val context = LocalContext.current
     var enlarged by remember { mutableStateOf<Any?>(null) }
     val pickMedia = rememberLauncherForActivityResult(
@@ -476,13 +578,14 @@ fun AgentContent(
             programmaticScroll = false
         }
     }
-    LaunchedEffect(error) { error?.let { snackbar.showSnackbar(it); viewModel.clearError() } }
-    LaunchedEffect(attachmentError) { attachmentError?.let { snackbar.showSnackbar(it); viewModel.clearAttachmentError() } }
+    // 「弹完再清」的取消语义收在 SnackbarEffect 里，见那里的注释。
+    SnackbarEffect(errorText, snackbar) { viewModel.clearError() }
+    SnackbarEffect(attachmentErrorText, snackbar) { viewModel.clearAttachmentError() }
     LaunchedEffect(createdDoc) {
         createdDoc?.let { onNavigateToDocument(it); viewModel.consumeCreatedDocument() }
     }
 
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth().testTag(AgentChatTestTags.ROOT)) {
         AgentHeader(documentName = documentName, isStreaming = isStreaming, onBack = onBack)
         if (isStreaming) StreamingIndicator()
         taskProgress?.let { progress ->
@@ -498,8 +601,8 @@ fun AgentContent(
         }
         if (isStreaming && steps.isNotEmpty()) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = AiDesign.ScreenPadding, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                Modifier.fillMaxWidth().padding(horizontal = AiDesign.ScreenPadding, vertical = AppSpacing.Tight),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.Micro)
             ) {
                 val recent = steps.takeLast(4)
                 recent.forEachIndexed { index, step ->
@@ -514,10 +617,15 @@ fun AgentContent(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 200.dp, max = 460.dp)
+                // weight 必须在 heightIn 之前：没有 weight 时这一列会按 max=460dp 自行占位，
+                // 加上头部/任务面板/工具活动行（最多 4 行）之后总高可以超过 BottomSheet 的可用
+                // 高度，而 Column 不滚动也不压缩——超出的部分直接被裁掉，最下面的输入栏就消失了，
+                // 会话彻底没法继续。fill=false 保证消息少时仍按内容高度收缩，不留一大片空白。
+                .weight(1f, fill = false)
+                .heightIn(min = AgentChatMetrics.MessagesMinHeight, max = AgentChatMetrics.MessagesMaxHeight)
                 .verticalScroll(scrollState)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(horizontal = AppSpacing.Cozy, vertical = AppSpacing.Default),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.Default)
         ) {
             // 非懒列表：不回收条目，WebView 不被重建 → 无异步高度塌缩跳顶/白屏
             messages.forEach { msg ->
@@ -526,18 +634,18 @@ fun AgentContent(
                     Column {
                         if (msg.attachments.isNotEmpty()) {
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.padding(bottom = 4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(AppSpacing.Snug),
+                                modifier = Modifier.padding(bottom = AppSpacing.Tight)
                             ) {
                                 msg.attachments.forEach { att ->
                                     val model = File(context.filesDir, att.path)
                                     AsyncImage(
                                         model = model,
-                                        contentDescription = "图片附件",
+                                        contentDescription = stringResource(R.string.cd_agent_attachment),
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
-                                            .size(72.dp)
-                                            .clip(RoundedCornerShape(8.dp))
+                                            .size(AgentChatMetrics.MessageAttachmentThumb)
+                                            .clip(RoundedCornerShape(AppShapes.Small))
                                             .clickable { enlarged = model }
                                     )
                                 }
@@ -545,18 +653,24 @@ fun AgentContent(
                         }
                         if (msg.role == MessageRole.ASSISTANT && msg.steps.isNotEmpty()) {
                             var stepsExpanded by remember(msg.id) { mutableStateOf(false) }
+                            val toolStepCount = msg.steps.count { it is AgentStep.ToolCalling }
                             TextButton(
                                 onClick = { stepsExpanded = !stepsExpanded },
-                                contentPadding = PaddingValues(0.dp)
+                                contentPadding = PaddingValues(AppSpacing.None)
                             ) {
                                 Text(
-                                    if (stepsExpanded) "收起执行过程"
-                                    else "执行过程（${msg.steps.count { it is AgentStep.ToolCalling }} 步）",
+                                    // count 传两次：一次选 quantity，一次做 %1$d 的实参
+                                    if (stepsExpanded) stringResource(R.string.agent_steps_collapse)
+                                    else pluralStringResource(
+                                        R.plurals.agent_steps_expand,
+                                        toolStepCount,
+                                        toolStepCount
+                                    ),
                                     style = MaterialTheme.typography.labelSmall
                                 )
                             }
                             AnimatedVisibility(stepsExpanded) {
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.Micro)) {
                                     msg.steps.forEach { step ->
                                         ToolActivityRow(step = step)
                                     }
@@ -565,28 +679,37 @@ fun AgentContent(
                         }
                         val action = msg.agentAction
                         if (action != null && msg.role == MessageRole.ASSISTANT) {
+                            val isPendingEdit =
+                                action.type == com.yumark.app.domain.model.AgentActionType.EDIT_DOCUMENT &&
+                                    action.targetDocumentId != null &&
+                                    action.status == com.yumark.app.domain.model.AgentActionStatus.PENDING
+                            // 待审批的编辑：卡片进入组合就把 base 重读一遍，而不是只在缓存为空时读。
+                            // 缓存里那一份可能是 bind() 时编辑器给的旧内容——冷启动后重新水合出来的
+                            // PENDING 提议一定走这条路——拿它算 diff，用户看不见自己后来的改动。
+                            if (isPendingEdit) {
+                                LaunchedEffect(msg.id, action.targetDocumentId) {
+                                    viewModel.refreshBaseContent(action.targetDocumentId)
+                                }
+                            }
                             val base = if (action.type == com.yumark.app.domain.model.AgentActionType.EDIT_DOCUMENT) {
                                 viewModel.baseContentFor(action.targetDocumentId)
                             } else null
-                            val awaitingBase = action.type == com.yumark.app.domain.model.AgentActionType.EDIT_DOCUMENT &&
-                                action.targetDocumentId != null &&
-                                base == null &&
-                                action.status == com.yumark.app.domain.model.AgentActionStatus.PENDING
+                            val awaitingBase = isPendingEdit && base == null
                             if (awaitingBase) {
-                                LaunchedEffect(msg.id, action.targetDocumentId) {
-                                    viewModel.ensureBaseContent(action.targetDocumentId)
-                                }
                                 Card(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(top = AppSpacing.Default),
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                                 ) {
-                                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Text("正在加载目标文档内容，以生成可审阅的 diff。", style = MaterialTheme.typography.bodySmall)
+                                    Column(Modifier.padding(AppSpacing.Cozy), verticalArrangement = Arrangement.spacedBy(AppSpacing.Snug)) {
+                                        Text(
+                                            stringResource(R.string.agent_diff_loading_base),
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
                                         if (viewModel.isBaseContentLoading(action.targetDocumentId)) {
                                             LinearProgressIndicator(Modifier.fillMaxWidth())
                                         }
                                         OutlinedButton(onClick = { viewModel.reject(msg, action) }) {
-                                            Text("取消此次修改")
+                                            Text(stringResource(R.string.agent_diff_cancel_edit))
                                         }
                                     }
                                 }
@@ -613,25 +736,29 @@ fun AgentContent(
             Row(
                 modifier = Modifier.fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = AppSpacing.Cozy, vertical = AppSpacing.Tight),
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.Default)
             ) {
                 attachments.forEach { uri ->
                     Box {
                         AsyncImage(
                             model = uri,
-                            contentDescription = "待发送图片",
+                            contentDescription = stringResource(R.string.cd_agent_pending_image),
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
-                                .size(64.dp)
-                                .clip(RoundedCornerShape(8.dp))
+                                .size(AgentChatMetrics.PendingAttachmentThumb)
+                                .clip(RoundedCornerShape(AppShapes.Small))
                                 .clickable { enlarged = uri }
                         )
                         IconButton(
                             onClick = { viewModel.removeAttachment(uri) },
-                            modifier = Modifier.align(Alignment.TopEnd).size(20.dp)
+                            modifier = Modifier.align(Alignment.TopEnd).size(AgentChatMetrics.RemoveButtonSize)
                         ) {
-                            Icon(Icons.Default.Close, "移除", Modifier.size(16.dp))
+                            Icon(
+                                Icons.Default.Close,
+                                stringResource(R.string.cd_agent_remove_image),
+                                Modifier.size(AppIconSize.Inline)
+                            )
                         }
                     }
                 }
@@ -639,9 +766,9 @@ fun AgentContent(
         }
 
         Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(AppSpacing.Cozy),
             verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.Default)
         ) {
             IconButton(
                 onClick = {
@@ -649,20 +776,24 @@ fun AgentContent(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )
                 },
-                enabled = !isStreaming
+                enabled = !isStreaming,
+                modifier = Modifier.testTag(AgentChatTestTags.ADD_IMAGE)
             ) {
-                Icon(Icons.Default.Image, "添加图片")
+                Icon(Icons.Default.Image, stringResource(R.string.cd_agent_add_image))
             }
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
-                placeholder = { Text("让 AI 帮你创建或编辑文档…") },
-                modifier = Modifier.weight(1f),
+                placeholder = { Text(stringResource(R.string.agent_input_hint)) },
+                modifier = Modifier.weight(1f).testTag(AgentChatTestTags.INPUT),
                 maxLines = 4
             )
             if (isStreaming) {
-                FilledIconButton(onClick = { viewModel.stop() }) {
-                    Icon(Icons.Default.Stop, "停止")
+                FilledIconButton(
+                    onClick = { viewModel.stop() },
+                    modifier = Modifier.testTag(AgentChatTestTags.STOP)
+                ) {
+                    Icon(Icons.Default.Stop, stringResource(R.string.cd_agent_stop))
                 }
             } else {
                 FilledIconButton(
@@ -670,9 +801,10 @@ fun AgentContent(
                         autoScroll = true   // 发送新消息 → 恢复跟随，确保能看到回复
                         viewModel.send(input); input = ""
                     },
-                    enabled = input.isNotBlank() || attachments.isNotEmpty()
+                    enabled = input.isNotBlank() || attachments.isNotEmpty(),
+                    modifier = Modifier.testTag(AgentChatTestTags.SEND)
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, "发送")
+                    Icon(Icons.AutoMirrored.Filled.Send, stringResource(R.string.cd_agent_send))
                 }
             }
         }
@@ -681,10 +813,48 @@ fun AgentContent(
             Dialog(onDismissRequest = { enlarged = null }) {
                 AsyncImage(
                     model = model,
-                    contentDescription = "查看大图",
+                    contentDescription = stringResource(R.string.cd_agent_enlarged_image),
                     modifier = Modifier.fillMaxWidth().clickable { enlarged = null }
                 )
             }
         }
     }
+}
+
+/** UI 测试锚点：文案会随语言变，测试只能靠稳定的英文 tag 定位。 */
+private object AgentChatTestTags {
+    const val ROOT = "agent_chat_root"
+    const val INPUT = "agent_chat_input"
+    const val SEND = "agent_chat_send"
+    const val STOP = "agent_chat_stop"
+    const val ADD_IMAGE = "agent_chat_add_image"
+}
+
+/**
+ * 本 Agent 对话面板特有的度量，刻意不并入全局间距 / 图标标度：
+ * - 头部字形徽标与标题列间距（10dp）、关联文档 chip 水平内边距（10dp）与图标-文字间距（5dp）、
+ *   chip 内小文档图标（14dp，比最小图标标度 16 更紧）——都离散于 4/6/8/12 标度，硬凑会改像素。
+ * - 消息滚动区高度上下限（200/460dp，布局约束）、消息/待发附件缩略图边长（72/64dp）、
+ *   附件删除按钮容器（20dp，叠在 64dp 缩略图右上角，放大到 48 命中区会溢出缩略图，故保留）。
+ * 离散于全局标度，保留原像素、不硬凑。按 FileListMetrics 先例落屏幕局部。
+ */
+private object AgentChatMetrics {
+    /** 头部字形徽标与标题列的间距：10dp（off-grid，介于 Snug6/Cozy12）。 */
+    val HeaderTitleGap = 10.dp
+    /** 关联文档 chip 的水平内边距：10dp（off-grid）。 */
+    val DocChipPaddingH = 10.dp
+    /** chip 内文档图标与文件名的间距：5dp（off-grid，介于 Tight4/Snug6）。 */
+    val DocChipIconGap = 5.dp
+    /** chip 内小文档图标直径：14dp，比最小图标标度(16)略紧；off-grid。 */
+    val DocChipIconSize = 14.dp
+    /** 消息滚动区最小高度：200dp（布局约束，见 weight/heightIn 注释）。 */
+    val MessagesMinHeight = 200.dp
+    /** 消息滚动区最大高度：460dp（超出即滚动，避免挤掉底部输入栏）。 */
+    val MessagesMaxHeight = 460.dp
+    /** 消息内附件缩略图边长：72dp（可点放大）。 */
+    val MessageAttachmentThumb = 72.dp
+    /** 待发送附件预览缩略图边长：64dp。 */
+    val PendingAttachmentThumb = 64.dp
+    /** 附件删除按钮容器边长：20dp（叠在 64dp 缩略图右上角，off-grid）。 */
+    val RemoveButtonSize = 20.dp
 }

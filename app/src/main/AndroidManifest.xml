@@ -7,14 +7,23 @@
     <application
         android:name=".YuMarkApplication"
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:localeConfig="@xml/locales_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.YuMark">
 
+        <!-- launchMode 必须是单实例语义：MainActivity 覆写了 onNewIntent 来接后续的外部打开
+             请求，而默认的 standard 模式下 onNewIntent 永远不会被回调 —— 从文件管理器打开第二个
+             .md 会再新建一个 MainActivity 压在栈上。两个实例各有一份 NavController 与
+             EditorViewModel，同一个文件被两个编辑器同时持有，谁后保存谁覆盖谁。
+             本应用是单 Activity 架构，singleTask 不会清掉任何别的 Activity。 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.YuMark.Starting">
             <intent-filter>

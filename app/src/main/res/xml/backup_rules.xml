@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup 排除规则（android:fullBackupContent，作用于 API 23–30；本应用 minSdk 26 故此路径必然生效）。
+  API 31+ 走 data_extraction_rules.xml，两份必须同时维护，否则新旧系统行为不一致。
+
+  未列出的目录默认「包含」：filesDir/documents（正文）、filesDir/images、filesDir/import_assets、
+  databases/yumark_database（含框架自动配对的 -journal/-wal）、shared_prefs 其余文件、
+  filesDir/datastore/{settings,ai_config,sync_config,agent_ui_prefs}.preferences_pb。
+-->
+<full-backup-content>
+
+    <!--
+      EncryptedSharedPreferences 密文（含 Tink keyset）。主密钥在 AndroidKeyStore 里，设备绑定、
+      不可导出、不随备份走；密文恢复到新设备后无法解密，读取时抛 GeneralSecurityException。
+      排除后恢复方是「干净空状态」（重新建 keyset），用户重填 API Key / WebDAV 密码即可。
+    -->
+    <exclude domain="sharedpref" path="ai_config_encrypted.xml" />
+    <exclude domain="sharedpref" path="sync_config_encrypted.xml" />
+
+    <!--
+      工作区 SAF tree URI：takePersistableUriPermission 的授权按「安装实例」记账，
+      换机/重装后授权不存在，恢复出来的 URI 必然打不开。留着只会让启动时加载失败。
+    -->
+    <exclude domain="file" path="datastore/workspace.preferences_pb" />
+
+    <!-- 导出产物：随时可从正文重新生成，纯占备份配额 -->
+    <exclude domain="file" path="exports" />
+
+    <!--
+      崩溃日志：内容与「这台设备 + 这个版本」强绑定（堆栈、SDK 版本、机型）。
+      跟着备份走到新机上只会让用户看到一堆与当前环境无关的旧崩溃，误导排查。
+      目录名对应 CrashReporter.DIR_NAME。
+    -->
+    <exclude domain="file" path="crash" />
+
+    <!--
+      AI 视觉附件：体积最大且最可弃的一类（对话记录本身在 Room 里）。
+      Auto Backup 单应用配额 25 MB，超限整包备份失败，故云备份路径必须让位给正文。
+    -->
+    <exclude domain="file" path="ai_attachments" />
+
+    <!-- getExternalFilesDir()：只放下载的升级 APK，几十 MB 且可重新下载 -->
+    <exclude domain="external" path="." />
+
+</full-backup-content>

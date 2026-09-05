@@ -32,8 +32,6 @@ class FileListViewModelTest {
     private val manageFoldersUseCase: ManageFoldersUseCase = mockk()
     private val getFolderTreeUseCase: GetFolderTreeUseCase = mockk()
     private val workspaceRepository: WorkspaceRepository = mockk(relaxed = true)
-    private val importDocumentUseCase: com.yumark.app.domain.usecase.importing.ImportDocumentUseCase = mockk(relaxed = true)
-    private val importFolderUseCase: com.yumark.app.domain.usecase.importing.ImportFolderUseCase = mockk(relaxed = true)
     private val updateChecker: UpdateChecker = mockk(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
@@ -56,10 +54,11 @@ class FileListViewModelTest {
         clearAllMocks()
     }
 
+    // 导入相关的依赖已挪到 ImportViewModel，这里不再需要（见 ImportFlow.kt）
     private fun createViewModel() = FileListViewModel(
         documentRepository, folderRepository, createDocumentUseCase,
         deleteDocumentUseCase, searchUseCase, manageFoldersUseCase, getFolderTreeUseCase,
-        workspaceRepository, importDocumentUseCase, importFolderUseCase, updateChecker
+        workspaceRepository, updateChecker
     )
 
     @Test

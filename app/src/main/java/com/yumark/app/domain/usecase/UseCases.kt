@@ -1,6 +1,7 @@
 package com.yumark.app.domain.usecase
 
 import com.yumark.app.domain.model.Document
+import com.yumark.app.domain.model.withFreshCounts
 import com.yumark.app.domain.repository.DocumentRepository
 import com.yumark.app.domain.repository.FolderRepository
 import com.yumark.app.domain.repository.SettingsRepository
@@ -8,7 +9,6 @@ import com.yumark.app.domain.model.SearchResult
 import com.yumark.app.domain.model.Folder
 import com.yumark.app.domain.model.UserSettings
 import kotlinx.coroutines.flow.Flow
-import kotlinx.datetime.Clock
 import java.util.regex.Pattern
 import javax.inject.Inject
 
@@ -26,37 +26,8 @@ class SaveDocumentUseCase @Inject constructor(
         if (document.name.isBlank()) return Result.failure(
             IllegalArgumentException("Document name cannot be empty")
         )
-        val updated = document.copy(
-            updatedAt = Clock.System.now(),
-            wordCount = calculateWordCount(document.content),
-            characterCount = document.content.length
-        )
-        return repo.saveDocument(updated)
-    }
-
-    private fun calculateWordCount(content: String): Int {
-        // 移除 Markdown 语法符号
-        val plainText = content
-            .replace(Regex("```[\\s\\S]*?```"), "")        // 移除代码块
-            .replace(Regex("`[^`]+`"), "")                 // 移除行内代码
-            .replace(Regex("!?\\[([^]]+)]\\([^)]+\\)"), "$1")  // 保留链接文本
-            .replace(Regex("[#*_~`]"), "")                 // 移除 Markdown 符号
-            .trim()
-
-        if (plainText.isEmpty()) return 0
-
-        // 统计中文字符
-        val chineseChars = plainText.count { it in '一'..'鿿' }
-
-        // 统计英文单词（移除中文字符后再分词）
-        val englishText = plainText.replace(Regex("[一-鿿]"), " ")
-        val englishWords = englishText
-            .trim()
-            .split(Regex("\\s+"))
-            .filter { it.isNotBlank() }
-            .size
-
-        return chineseChars + englishWords
+        // 计数算法在 core/text，编辑器落历史版本快照时要用同一套：见 [WordCount]
+        return repo.saveDocument(document.withFreshCounts())
     }
 }
 

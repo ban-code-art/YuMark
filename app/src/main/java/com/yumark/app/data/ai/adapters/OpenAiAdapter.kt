@@ -1,8 +1,16 @@
 package com.yumark.app.data.ai.adapters
 
+import com.yumark.app.core.util.AiErrorMapper
+import com.yumark.app.core.util.FriendlyIOException
 import com.yumark.app.data.ai.AiApiAdapter
+import com.yumark.app.data.ai.ContentBlockedException
 import com.yumark.app.data.ai.HttpResponseException
 import com.yumark.app.data.ai.OpenAiToolCallAccumulator
+import com.yumark.app.data.ai.StreamInterruptedException
+import com.yumark.app.data.ai.inlineErrorStatus
+import com.yumark.app.data.ai.isBlockedStopReason
+import com.yumark.app.data.ai.isTruncatedStopReason
+import com.yumark.app.data.ai.presentableBlockReason
 import com.yumark.app.data.ai.runConnectionTest
 import com.yumark.app.data.ai.toJsonElement
 import com.yumark.app.data.ai.withRetryAndEmissionGuard
@@ -69,12 +77,25 @@ class OpenAiAdapter(
         // 推理模型（DeepSeek-R1 / o 系列等）把输出放进 reasoning_content/reasoning，content 可能为空。
         // 单独累积；若最终 content 为空而 reasoning 非空，则把 reasoning 作为答复兜底，避免“空响应”。
         val reasoning = StringBuilder()
+        // 本次流是否被 max_tokens 截断（finish_reason == "length"）。从前这个字段被整个忽略，
+        // 于是一段砍掉后半截的正文能一路走到 Agent 的隐式写入，把目标文档整篇覆盖成半成品。
+        var truncated = false
 
         // 一次完整请求：构建 body(可选 tools) → 请求 → 解析 SSE → emit Content/ToolCallComplete。
         // 返回本次是否“产出了有效内容”（有正文 或 有工具调用）。不在此 emit Done——交由 runAttempt。
         suspend fun streamOnce(emit: suspend (StreamEvent) -> Unit, includeTools: Boolean): Boolean {
             full.clear()
             reasoning.clear()
+            // 跟 full 一起复位：空补全重试会重跑本函数，上一次的截断标记不能带到下一次
+            truncated = false
+            // 完整性信号：[DONE] 哨兵与 finish_reason，任一出现即视为服务端正常收尾。
+            // 局部变量，随本函数每次重跑天然复位。
+            var sawDone = false
+            var sawFinishReason = false
+            // 内容被策略拦下（finish_reason == "content_filter"）。同为局部变量：这一轮的判决
+            // 不能带到下一轮空补全重试上。
+            var blocked = false
+            var blockedReason: String? = null
             // 每次请求新建累积器，避免主路径/兜底重试时残留上一轮的 tool_calls delta
             // 导致向模型回填陈旧或重复的工具调用。
             val toolAcc = OpenAiToolCallAccumulator()
@@ -93,11 +114,28 @@ class OpenAiAdapter(
                     val line = channel.readUTF8Line() ?: break
                     if (line.isBlank() || !line.startsWith("data:")) continue
                     val data = line.removePrefix("data:").trim()
-                    if (data == "[DONE]") break
+                    if (data == "[DONE]") { sawDone = true; break }
+                    val root = runCatching { json.parseToJsonElement(data).jsonObject }
+                        .getOrNull() ?: continue
+                    // 200 之后在流里内联报错（上游限流/过载最常见）。必须在读 choices 之前判：
+                    // 错误载荷里根本没有 choices，从前会被下面那个 `?: continue` 跳过，
+                    // 服务端随即关连接 → 报成「回复完成」或「AI 没有返回任何内容」。
+                    inlineErrorStatus(root)?.let { throw HttpResponseException(it, data) }
                     val choice = runCatching {
-                        json.parseToJsonElement(data).jsonObject["choices"]?.jsonArray
-                            ?.firstOrNull()?.jsonObject
+                        root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
                     }.getOrNull() ?: continue
+                    // finish_reason 落在最后一个 chunk 上，而部分实现的那一个 chunk 里没有 delta
+                    // （只有 finish_reason），所以必须在下面 delta 的 `?: continue` **之前**读，
+                    // 否则整个截断信号会被那一行悄悄跳过。
+                    choice["finish_reason"]?.jsonPrimitive?.contentOrNull?.let {
+                        sawFinishReason = true
+                        if (isTruncatedStopReason(it)) truncated = true
+                        // content_filter 与 length 分开记：一个要改写措辞，一个要调大上限
+                        if (isBlockedStopReason(it)) {
+                            blocked = true
+                            blockedReason = presentableBlockReason(it)
+                        }
+                    }
                     val delta = choice["delta"]?.jsonObject ?: continue
 
                     delta["content"]?.jsonPrimitive?.contentOrNull?.let {
@@ -118,6 +156,21 @@ class OpenAiAdapter(
                         val argsChunk = fn?.get("arguments")?.jsonPrimitive?.contentOrNull
                         toolAcc.accept(index, id, name, argsChunk)
                     }
+                }
+                // 被内容策略拦下、且这一轮什么都没产出：当场抛，不让空补全重试的阶梯继续跑。
+                // 那条阶梯是为「间歇性空补全」设计的（同一 prompt 重试几次就有了），而被拦是
+                // 确定性结果：EMPTY_RETRY_MAX 次带 tools 再 EMPTY_RETRY_MAX 次不带 tools，
+                // 十次请求、三秒多的等待，换回来的是同一个 content_filter，最后还落到一句
+                // 「请调大 max tokens」上。判空条件与本函数的返回值一致，再加上 reasoning
+                // ——那三样任一非空都说明有东西可以交给用户，此时不抛。
+                if (blocked && full.isBlank() && toolAcc.isEmpty() && reasoning.isBlank()) {
+                    throw ContentBlockedException(blockedReason)
+                }
+                // 既没读到 [DONE]，也没见过任何 finish_reason —— 这条流是被掐断的，不是正常收尾。
+                // 只认哨兵会误伤：不少中转从不发 [DONE]，但会照常给出 finish_reason。
+                // 只挡「已经产出过内容」的情况：真正的空补全交给下面的空补全重试，那条路文案更准。
+                if (!sawDone && !sawFinishReason && (full.isNotBlank() || !toolAcc.isEmpty())) {
+                    throw StreamInterruptedException()
                 }
                 if (!toolAcc.isEmpty()) {
                     emit(StreamEvent.ToolCallComplete(toolAcc.build()))
@@ -148,7 +201,7 @@ class OpenAiAdapter(
                 full.append(text)
                 emit(StreamEvent.Content(text))
             }
-            emit(StreamEvent.Done(full.toString()))
+            emit(StreamEvent.Done(full.toString(), truncated = truncated))
         }
 
         // 保守降级：带 tools 的请求若首字节前被拒（4xx，常见于模型不支持 function calling），
@@ -222,6 +275,11 @@ class OpenAiAdapter(
     override suspend fun fetchAvailableModels(): List<ModelInfo> {
         val resp = client.get("${baseUrl.trimEnd('/')}/models") {
             header(HttpHeaders.Authorization, "Bearer $apiKey")
+        }
+        // 必须先看状态码：401 的错误体里当然没有 "data" 字段，直接往下走会得到空列表，
+        // 界面报「获取到 0 个模型」——用户以为账号没有模型权限，真正的问题却是 Key 写错了。
+        if (!resp.status.isSuccess()) {
+            throw FriendlyIOException(AiErrorMapper.mapHttpError(resp.status.value))
         }
         val arr = runCatching {
             json.parseToJsonElement(resp.bodyAsText()).jsonObject["data"]?.jsonArray

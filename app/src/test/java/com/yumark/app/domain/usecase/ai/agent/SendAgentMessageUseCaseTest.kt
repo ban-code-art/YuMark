@@ -5,7 +5,11 @@ import com.yumark.app.data.ai.AiAdapterFactory
 import com.yumark.app.data.ai.AiApiAdapter
 import com.yumark.app.domain.model.AgentAction
 import com.yumark.app.domain.model.AgentActionType
+import com.yumark.app.domain.model.AgentTask
+import com.yumark.app.domain.model.AgentTaskAggregate
 import com.yumark.app.domain.model.AgentTaskStatus
+import com.yumark.app.domain.model.AgentTaskStep
+import com.yumark.app.domain.model.AgentTaskStepStatus
 import com.yumark.app.domain.model.AiConfig
 import com.yumark.app.domain.model.AiRequestConfig
 import com.yumark.app.domain.model.AiTool
@@ -234,6 +238,43 @@ class SendAgentMessageUseCaseTest {
     }
 
     @Test
+    fun `第二轮开头就出错时不能删掉第一轮已经显示的正文与步骤`() = runTest {
+        // full 每轮开头都被清空。出错分支从前只看 full 是否为空就决定删整条消息，于是第二轮
+        // 一开始断网时，用户眼前那条消息（第一轮的正文 + 整条工具时间线）会凭空消失。
+        coEvery { executeDocumentTool(any()) } returns Result.success("工具结果")
+        val adapter = FakeAdapter(listOf(
+            listOf(
+                StreamEvent.Content("先读一下文档"),
+                StreamEvent.ToolCallComplete(listOf(ToolCall("c1", "read_document", """{"document_id":"x"}"""))),
+                StreamEvent.Done("先读一下文档")
+            ),
+            listOf(StreamEvent.Error(com.yumark.app.core.util.UiMessage.Raw("网络中断")))
+        ))
+
+        val states = useCase(adapter).invoke("c1", "读一下", null, null, null).toList()
+
+        assertThat(states.filterIsInstance<AgentMessageState.Error>()).isNotEmpty()
+        coVerify(exactly = 0) { conversationRepository.deleteMessage(any()) }
+        // 正文保留 + 步骤一起写回（其余几处收尾都带 steps，只有出错这处漏了）
+        coVerify {
+            conversationRepository.updateMessage(match {
+                it.content == "先读一下文档" && !it.isStreaming && it.steps.isNotEmpty()
+            })
+        }
+    }
+
+    @Test
+    fun `第一轮什么都没产生就出错时删掉空消息`() = runTest {
+        // 反向守护：真正一个字、一步都没有的空气泡应该删掉，不能因为上一条测试而变成永不删除。
+        val adapter = FakeAdapter(listOf(listOf(StreamEvent.Error(com.yumark.app.core.util.UiMessage.Raw("网络中断")))))
+
+        val states = useCase(adapter).invoke("c1", "hi", null, null, null).toList()
+
+        assertThat(states.filterIsInstance<AgentMessageState.Error>()).isNotEmpty()
+        coVerify(exactly = 1) { conversationRepository.deleteMessage(any()) }
+    }
+
+    @Test
     fun `missing config resets conversation back to idle`() = runTest {
         every { configRepository.observeConfig() } returns flowOf(config.copy(apiKey = ""))
         val states = useCase(FakeAdapter(emptyList())).invoke("c1", "hi", null, null, null).toList()
@@ -307,5 +348,83 @@ class SendAgentMessageUseCaseTest {
         val prompt = buildAgentSystemPrompt(documentName = "笔记", documentContent = "# 标题\n正文", tools = DocumentContextTools.getAllTools())
         assertThat(prompt).contains("当前打开的文档：《笔记》")
         assertThat(prompt).contains("正文")
+    }
+
+    /** 让 getTaskByConversationId("c1") 返回一个含一条 RUNNING 步、一条 DONE 步的进行中任务。 */
+    private fun seedRunningTask() {
+        val now = System.currentTimeMillis()
+        val task = AgentTask("t1", "c1", "整理", AgentTaskStatus.EXECUTING, now, now)
+        val running = AgentTaskStep("s1", "t1", "检索", "", AgentTaskStepStatus.RUNNING, 0, completionCriteria = "")
+        val done = AgentTaskStep("s2", "t1", "阅读", "", AgentTaskStepStatus.DONE, 1, completionCriteria = "")
+        coEvery { agentTaskRepository.getTaskByConversationId("c1") } returns
+            AgentTaskAggregate(task, listOf(running, done), emptyList())
+    }
+
+    @Test
+    fun `完成收尾把残留 RUNNING 步收敛为 DONE 且不动已完成步`() = runTest {
+        // 模型把某步标 in_progress 后直接给最终答案、不再补收尾 update_plan：该 RUNNING 步必须随
+        // 任务终态收敛，否则时间线在 COMPLETED 胶囊下永久脉冲（finally/stop 只覆盖了中断路径）。
+        seedRunningTask()
+        val adapter = FakeAdapter(listOf(listOf(StreamEvent.Content("最终答案"), StreamEvent.Done("最终答案"))))
+
+        useCase(adapter).invoke("c1", "hi", null, null, null).toList()
+
+        coVerify(exactly = 1) { agentTaskRepository.markStepStatus("s1", AgentTaskStepStatus.DONE, any()) }
+        coVerify(exactly = 0) { agentTaskRepository.markStepStatus("s2", any(), any()) }
+        coVerify { agentTaskRepository.updateTask(match { it.status == AgentTaskStatus.COMPLETED && it.currentStepId == null }) }
+    }
+
+    @Test
+    fun `阻塞收尾把残留 RUNNING 步收敛为 BLOCKED`() = runTest {
+        // 空响应 → 任务 BLOCKED；在途那步正是被阻塞的那步。
+        seedRunningTask()
+        val adapter = FakeAdapter(listOf(listOf(StreamEvent.Done(""))))
+
+        useCase(adapter).invoke("c1", "hi", null, null, null).toList()
+
+        coVerify(exactly = 1) { agentTaskRepository.markStepStatus("s1", AgentTaskStepStatus.BLOCKED, any()) }
+        coVerify { agentTaskRepository.updateTask(match { it.status == AgentTaskStatus.BLOCKED }) }
+    }
+
+    @Test
+    fun `失败收尾把残留 RUNNING 步收敛为 FAILED`() = runTest {
+        // 到达 MAX_TURNS 仍未收敛 → 任务 FAILED；未完成的在途步随之判 FAILED。
+        seedRunningTask()
+        coEvery { executeDocumentTool(any()) } returns Result.success("结果")
+        val rounds = (1..15).map { i ->
+            listOf(
+                StreamEvent.ToolCallComplete(listOf(ToolCall("c$i", "search_in_project", """{"query":"q$i"}"""))),
+                StreamEvent.Done("")
+            )
+        }
+
+        useCase(FakeAdapter(rounds)).invoke("c1", "搜", null, null, null).toList()
+
+        coVerify(exactly = 1) { agentTaskRepository.markStepStatus("s1", AgentTaskStepStatus.FAILED, any()) }
+        coVerify { agentTaskRepository.updateTask(match { it.status == AgentTaskStatus.FAILED }) }
+    }
+
+    @Test
+    fun `重规划后 currentStepId 不保留旧步骤的悬空指针`() = runTest {
+        // replaceSteps 重铸全部步骤 UUID：若 updateTask 保留 existing.currentStepId，它就指向
+        // 已删除的步骤。今天没有代码写非 null 值，但一旦将来有人写，悬空指针只能靠 UI 侧
+        // toUiStateOrNull 的回退链「碰巧遮蔽」——显式清空不依赖那两条侥幸。
+        seedRunningTask()
+        val replan = """{"steps":[{"title":"新计划步骤","status":"in_progress"}]}"""
+        val adapter = FakeAdapter(listOf(
+            listOf(StreamEvent.ToolCallComplete(listOf(ToolCall("c1", "update_plan", replan))), StreamEvent.Done("")),
+            listOf(StreamEvent.Content("完成"), StreamEvent.Done("完成"))
+        ))
+
+        useCase(adapter).invoke("c1", "重规划", null, null, null).toList()
+
+        coVerify(exactly = 1) { agentTaskRepository.replaceSteps("t1", any()) }
+        // replan 后的 updateTask 必须把 currentStepId 置 null（旧值 "s-old" 若被保留即悬空）
+        coVerify(atLeast = 1) {
+            agentTaskRepository.updateTask(match { it.id == "t1" && it.currentStepId == null })
+        }
+        coVerify(exactly = 0) {
+            agentTaskRepository.updateTask(match { it.id == "t1" && it.currentStepId != null })
+        }
     }
 }

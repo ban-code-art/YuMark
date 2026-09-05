@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    设置 / 云端同步 / 主题名 文案（简体中文，基准语言）。
+
+    为什么单独一个文件而不是往 strings.xml 里加：
+    Android 资源合并器把 res/values/ 下「所有」 <resources> 合并进同一个 R.string
+    命名空间，文件名不参与命名。写在这里的 settings_about 与写在 strings.xml 里的
+    R.string.settings_about 完全等价，运行时没有区别。拆分纯粹是协作需要：多个任务
+    同时改文案时不会在同一个文件上产生 merge 冲突。
+
+    两条硬规则：
+    1. 键名是全局唯一的（同一命名空间）。新增前先确认 strings.xml / strings_editor.xml
+       里没有同名键，否则合并阶段直接报重复资源。能复用已有键（settings / save /
+       close / theme / font_size / auto_save / editor_ai_assistant 等）的就复用，
+       不要在这里重造同义键。
+    2. 每个键必须同时出现在 values-en/strings_settings.xml，缺一边 lint 的
+       MissingTranslation 会拦住构建；<plurals> 每个语区都要有 other，否则报
+       MissingQuantity。占位符一律用带位置的 %1$s / %2$d，方便英文调整语序。
+-->
+<resources>
+
+    <!-- ========== 主题名 AppThemes ==========
+         主题名存在 AppTheme.labelRes（资源 id）而不是 String：AppThemes 是个拿不到
+         Context 的单例，硬编码字符串等于在那里把语言定死，界面侧再也翻不了。 -->
+    <string name="theme_default_label">默认·灰白</string>
+    <string name="theme_claude_label">Claude</string>
+    <string name="theme_dynamic_label">动态取色（跟随壁纸）</string>
+
+    <!-- ========== 设置屏 SettingsScreen ==========
+         「设置」「主题」「字体大小」「自动保存」等标题复用 strings.xml 的
+         settings / theme / font_size / auto_save，此处不再重复定义。 -->
+    <string name="settings_dark_mode">深色模式</string>
+    <!-- 三个 FilterChip 的短标签。刻意不复用 strings.xml 的 auto_theme（跟随系统 /
+         Follow system）与 light_theme / dark_theme（浅色主题 / Light theme）：那三个是
+         整句标签，塞进 chip 会把一行撑破。 -->
+    <string name="settings_dark_mode_system">跟随系统</string>
+    <string name="settings_dark_mode_light">浅色</string>
+    <string name="settings_dark_mode_dark">深色</string>
+    <!-- 开关关掉时的副标题。不能复用 strings.xml 的 close（关闭 / Close）：那个是按钮上
+         的动词，这里是状态，英文一个是 Close 一个是 Off。 -->
+    <string name="settings_switch_off">关闭</string>
+    <!-- %1$d = 自动保存间隔秒数。做成 plurals 是为了英文——<string> 形态下
+         "Every 1 seconds" 没法修。调用点用 pluralStringResource，count 传两次。 -->
+    <plurals name="settings_auto_save_every_seconds">
+        <item quantity="other">每 %1$d 秒</item>
+    </plurals>
+    <string name="settings_default_preview">打开文档默认进入预览</string>
+    <string name="settings_default_preview_on">开启（空文档仍进入编辑）</string>
+    <!-- %1$s = AI 提供商名（AiProvider.name，形如 OPENAI，不翻译） -->
+    <string name="settings_ai_enabled">已启用 · %1$s</string>
+    <string name="settings_ai_disabled">未启用 · 点击配置 API 与模型</string>
+    <string name="settings_sync_desc">WebDAV 多端备份与同步</string>
+    <!-- 既做设置项标题，也做那个图标按钮的 contentDescription：同一个动作，另建 cd_ 键
+         只会让两处文案各自漂移。 -->
+    <string name="settings_check_update">检查更新</string>
+    <!-- %1$s = BuildConfig.VERSION_NAME -->
+    <string name="settings_current_version">当前版本: %1$s</string>
+    <string name="settings_update_none">已是最新版本</string>
+    <string name="settings_about">关于</string>
+    <string name="settings_about_desc">YuMark - Markdown 编辑器</string>
+    <!-- config_import_applied（已应用：%1$s）里几个分段名的连接符。中文用顿号、英文要
+         逗号加空格，所以连接符本身也得随语区变，不能写死在代码里。 -->
+    <string name="settings_list_separator">、</string>
+
+    <!-- ========== 更新对话框 UpdateDialog（设置页与文件列表页共用） ========== -->
+    <string name="settings_update_available_title">发现新版本</string>
+    <string name="settings_update_file_size">文件大小:</string>
+    <string name="settings_update_publish_date">发布日期:</string>
+    <string name="settings_update_changelog">更新内容:</string>
+    <!-- 更新日志过长时的展开/收起。不复用 strings_editor.xml 的 version_history_collapse：
+         那个英文是小写的 collapse，专门用来填进「点按%2$s」的句中。 -->
+    <string name="settings_update_collapse">收起</string>
+    <string name="settings_update_show_all">查看全部</string>
+    <string name="settings_update_later">稍后提醒</string>
+    <string name="settings_update_now">立即更新</string>
+
+    <!-- ========== 下载对话框 DownloadDialog ==========
+         「关闭」按钮复用 strings.xml 的 close。 -->
+    <string name="settings_download_preparing">准备下载…</string>
+    <string name="settings_download_running">正在下载更新</string>
+    <string name="settings_download_done">下载完成</string>
+    <string name="settings_download_installing">即将开始安装…</string>
+    <string name="settings_download_failed">下载失败</string>
+    <!-- 下载成功、但安装器没能拉起（校验被拒/文件已不在）。与「下载失败」分开标题：
+         下到一半失败和「装不上」不是同一件事，用户下一步该做的也不同。 -->
+    <string name="settings_install_failed">安装未开始</string>
+
+    <!-- ========== 云端同步 SyncSettingsScreen ==========
+         标题栏「保存」复用 strings.xml 的 save；ViewModel 的「已保存」复用 saved。
+         sync_title 同时做设置页里那一行的标题与本屏标题栏文案（同一个功能名）。 -->
+    <string name="sync_title">云端同步</string>
+    <string name="sync_enable">启用 WebDAV 同步</string>
+    <string name="sync_providers_hint">支持 Nextcloud、坚果云、群晖等任意 WebDAV 服务（使用你自己的账号）。</string>
+    <string name="sync_server_url">服务器地址</string>
+    <string name="sync_username">用户名</string>
+    <string name="sync_password">密码 / 应用授权码</string>
+    <string name="sync_remote_dir">远端目录</string>
+    <string name="sync_test">测试连接</string>
+    <string name="sync_now">立即同步</string>
+    <!-- %1$s = 上次同步时间，形如 2026-09-03 14:30 -->
+    <string name="sync_last_synced">上次同步：%1$s</string>
+    <string name="sync_scope_note">当前为手动双向同步，仅同步库根目录下的文档正文（按文档名生成 .md 文件）。文件夹层级、图片附件、删除传播与后台自动同步将在后续版本支持。</string>
+    <string name="sync_test_success">连接成功</string>
+    <!--
+      同步结果摘要（Snackbar）。%1$d = 上传数，%2$d = 下载数，%3$d = 冲突数，%4$d = 跳过数，
+      _with_failed 的 %5$d = 失败数。
+      拆成两个键而不是在 ViewModel 里拼「基础句 + 失败段」：拼接需要在 ViewModel 里取字符串，
+      而那里没有 Context。四个计数无法用 plurals（plurals 只能按一个数选分支），所以英文侧
+      统一写成「标签 + 数字」，任何取值都读得通，不会出现 "1 conflicts"。
+    -->
+    <string name="sync_result">同步完成：↑%1$d ↓%2$d 删除%3$d 冲突%4$d 跳过%5$d</string>
+    <string name="sync_result_with_failed">同步完成：↑%1$d ↓%2$d 删除%3$d 冲突%4$d 跳过%5$d 失败%6$d</string>
+
+    <!-- ========== contentDescription ==========
+         按屏分键而不是共用一个 cd_back：本文件与另外两个语区文件由不同任务并行维护，
+         同名键落在两个文件里会在资源合并阶段直接报重复。 -->
+    <string name="cd_settings_back">返回</string>
+    <!-- 字号滑块的读屏文案。%1$d = 当前字号（sp）。当前值必须念出来：滑块自身只报得出
+         「滑块」，否则读屏用户既不知道这个滑块管什么，也不知道拖到了哪一档。 -->
+    <string name="cd_font_size_slider">字体大小 %1$d</string>
+    <!-- 最大图片宽度滑块的读屏文案。%1$d = 当前值。单位跟界面上那行副标题写成一样的 px。 -->
+    <string name="cd_max_image_width_slider">最大图片宽度 %1$d px</string>
+    <string name="cd_sync_back">返回</string>
+    <string name="cd_sync_toggle_password">切换显隐</string>
+</resources>

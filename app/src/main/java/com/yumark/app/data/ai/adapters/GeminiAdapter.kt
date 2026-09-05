@@ -1,7 +1,15 @@
 package com.yumark.app.data.ai.adapters
 
+import com.yumark.app.core.util.AiErrorMapper
+import com.yumark.app.core.util.FriendlyIOException
 import com.yumark.app.data.ai.AiApiAdapter
+import com.yumark.app.data.ai.ContentBlockedException
 import com.yumark.app.data.ai.HttpResponseException
+import com.yumark.app.data.ai.StreamInterruptedException
+import com.yumark.app.data.ai.inlineErrorStatus
+import com.yumark.app.data.ai.isBlockedStopReason
+import com.yumark.app.data.ai.isTruncatedStopReason
+import com.yumark.app.data.ai.presentableBlockReason
 import com.yumark.app.data.ai.runConnectionTest
 import com.yumark.app.data.ai.toJsonElement
 import com.yumark.app.data.ai.withRetryAndEmissionGuard
@@ -57,8 +65,19 @@ class GeminiAdapter(
         val url = "${baseUrl.trimEnd('/')}/models/${config.model}:streamGenerateContent?alt=sse"
         val body = buildGeminiBody(messages, config, tools)
         val full = StringBuilder()
+        // 是否被 maxOutputTokens 截断（candidates[].finishReason == "MAX_TOKENS"）；
+        // 从前 finishReason 整个没读，截断和正常写完在上层看起来一模一样。
+        var truncated = false
 
         withRetryAndEmissionGuard(flowEmit = { e -> emit(e) }) { flowEmit ->
+            // 完整性信号：Gemini 没有 [DONE] 一类哨兵行，finishReason 是唯一的「说完了」判据。
+            // 声明在 block 内 → 每次重试天然复位。
+            var sawFinishReason = false
+            // 内容被策略拦下的信号，两处都可能给：promptFeedback.blockReason（整个请求被拦，
+            // 连 candidates 都没有）与 candidates[].finishReason（写到一半被拦）。
+            // 原因可能为空（OTHER / BLOCK_REASON_UNSPECIFIED），故「拦没拦」不能靠 reason 判空。
+            var blocked = false
+            var blockedReason: String? = null
             client.preparePost(url) {
                 header("x-goog-api-key", apiKey)
                 contentType(ContentType.Application.Json)
@@ -72,14 +91,42 @@ class GeminiAdapter(
                     val line = channel.readUTF8Line() ?: break
                     if (line.isBlank() || !line.startsWith("data:")) continue
                     val data = line.removePrefix("data:").trim()
+                    val root = runCatching { json.parseToJsonElement(data).jsonObject }
+                        .getOrNull() ?: continue
+                    // 200 之后在流里内联报错：{"error":{"code":429,"status":"RESOURCE_EXHAUSTED",…}}。
+                    // 必须在读 candidates 之前判 —— 错误载荷里没有 candidates，从前被下面那个
+                    // `?: continue` 跳过，服务端随即关连接 → 一次限流被报成「AI 没有返回任何内容」。
+                    inlineErrorStatus(root)?.let { throw HttpResponseException(it, data) }
+                    // 整个请求被内容策略拦下：Gemini 写在 promptFeedback.blockReason 上，并且
+                    // **不给** candidates —— 同样必须在下面那个 `?: continue` 之前判，否则这一行
+                    // 被跳过，服务端随即关连接，用户看到的是「AI 没有返回任何内容，请调大
+                    // max tokens / 换模型」，而这里真正该做的是改写措辞。
+                    runCatching {
+                        root["promptFeedback"]?.jsonObject
+                            ?.get("blockReason")?.jsonPrimitive?.contentOrNull
+                    }.getOrNull()?.takeIf { it.isNotBlank() }?.let { reason ->
+                        blocked = true
+                        blockedReason = presentableBlockReason(reason)
+                    }
                     val candidate = runCatching {
-                        json.parseToJsonElement(data).jsonObject["candidates"]?.jsonArray
-                            ?.firstOrNull()?.jsonObject
+                        root["candidates"]?.jsonArray?.firstOrNull()?.jsonObject
                     }.getOrNull() ?: continue
+                    // finishReason 挂在候选上，通常和最后一批 parts 同一个 chunk 到达
+                    candidate["finishReason"]?.jsonPrimitive?.contentOrNull?.let { reason ->
+                        // 任何取值都算「说完了」：STOP / SAFETY / MAX_TOKENS 都是服务端的终止判决。
+                        // 之后再分两类：MAX_TOKENS 一族是截断（调大上限），SAFETY 一族是被拦
+                        //（改写措辞）——补救办法相反，所以必须分开记。
+                        sawFinishReason = true
+                        if (isTruncatedStopReason(reason)) truncated = true
+                        if (isBlockedStopReason(reason)) {
+                            blocked = true
+                            blockedReason = presentableBlockReason(reason)
+                        }
+                    }
 
                     val parts = candidate["content"]?.jsonObject?.get("parts")?.jsonArray.orEmpty()
-                        val toolCalls = ArrayList<ToolCall>()
-                        parts.forEachIndexed { index, part ->
+                    val toolCalls = ArrayList<ToolCall>()
+                    parts.forEachIndexed { index, part ->
                         val obj = part.jsonObject
                         obj["text"]?.jsonPrimitive?.contentOrNull?.let { text ->
                             if (text.isNotEmpty()) {
@@ -102,7 +149,21 @@ class GeminiAdapter(
                         flowEmit(StreamEvent.ToolCallComplete(toolCalls))
                     }
                 }
-                flowEmit(StreamEvent.Done(full.toString()))
+                // 被内容策略拦下、且一个字都没产出：单独成一句话。落到上层的空响应文案上
+                // 就把话说反了——那句让人换模型 / 调大 max tokens，这里该做的是改写措辞。
+                // 有正文则不抛：被拦的往往只是后半段，已经流到屏幕上的前半段比一句错误更值钱
+                //（那时 withRetryAndEmissionGuard 也早就不会再重试了）。
+                if (blocked && full.isEmpty()) {
+                    throw ContentBlockedException(blockedReason)
+                }
+                // 一个 finishReason 都没见过就读到 EOF —— 连接被掐断，不是正常收尾。
+                // 只挡已经产出过正文的情况：真正的空响应走上层那句空响应文案，比说成网络故障准确
+                //（被拦的那一类已在上面单独成句）；已经发出去的工具调用也不回收，
+                // 它是从单个 chunk 里整块解析出来的，本身完整。
+                if (!sawFinishReason && full.isNotEmpty()) {
+                    throw StreamInterruptedException()
+                }
+                flowEmit(StreamEvent.Done(full.toString(), truncated = truncated))
             }
         }
     }.flowOn(Dispatchers.IO)
@@ -110,6 +171,10 @@ class GeminiAdapter(
     override suspend fun fetchAvailableModels(): List<ModelInfo> {
         val resp = client.get("${baseUrl.trimEnd('/')}/models") {
             header("x-goog-api-key", apiKey)
+        }
+        // 同 OpenAiAdapter：401/403 的错误体里没有 "models" 字段，不先判状态码就会静默返回空列表。
+        if (!resp.status.isSuccess()) {
+            throw FriendlyIOException(AiErrorMapper.mapHttpError(resp.status.value))
         }
         val arr = runCatching {
             json.parseToJsonElement(resp.bodyAsText()).jsonObject["models"]?.jsonArray
@@ -173,12 +238,25 @@ internal fun buildGeminiBody(
     }
 }
 
+/**
+ * 把一条标准化消息转成 Gemini 的 `parts` 数组。
+ *
+ * 有工具调用时也带上正文，理由与 [claudeMessageContent] 相同：Gemini 的 parts 允许
+ * `text` 与 `functionCall` 同时出现，而只发 functionCall 会让模型在下一轮丢掉自己
+ * 刚写的那段说明。空正文跳过——一个空 text part 没有意义，部分版本还会直接报错。
+ */
 internal fun geminiMessageParts(message: ChatMessage) = when {
     !message.toolCalls.isNullOrEmpty() -> buildJsonArray {
+        message.content?.takeIf { it.isNotBlank() }?.let { text ->
+            addJsonObject { put("text", text) }
+        }
         message.toolCalls.forEach { call ->
             addJsonObject {
                 putJsonObject("functionCall") {
-                    put("id", call.id)
+                    // 只回传 Gemini 真的下发过的 id。适配器在流里没拿到 id 时会拼一个
+                    // `name#index` 占位（见 sendChatStream），那是本地用来配对的，
+                    // 原样发回去等于凭空造一个 Gemini 不认识的 id。
+                    if (!isSyntheticGeminiToolCallId(call.id, call.name)) put("id", call.id)
                     put("name", call.name)
                     put("args", runCatching { Json.parseToJsonElement(call.arguments) }.getOrElse { buildJsonObject {} })
                 }
@@ -188,9 +266,19 @@ internal fun geminiMessageParts(message: ChatMessage) = when {
     message.role == "tool" -> buildJsonArray {
         addJsonObject {
             putJsonObject("functionResponse") {
+                // name 必须等于 functionDeclarations 里声明的函数名。从前这里写
+                // `toolCallId.substringBefore('#')`，只有在 id 是上面那个 `name#index`
+                // 占位时才凑巧对；模型做并行调用时 Gemini 会真的返回 id，反解就把整串
+                // id 当成了函数名，请求直接被拒。现在优先用调用方带过来的 toolName，
+                // 反解只作为老数据的兜底。
+                val name = message.toolName
+                    ?: message.toolCallId?.substringBefore('#')?.takeIf { it.isNotBlank() }
+                    ?: "tool"
                 val toolCallId = message.toolCallId
-                put("id", toolCallId)
-                put("name", toolCallId?.substringBefore('#') ?: "tool")
+                if (toolCallId != null && !isSyntheticGeminiToolCallId(toolCallId, name)) {
+                    put("id", toolCallId)
+                }
+                put("name", name)
                 putJsonObject("response") {
                     put("content", message.content)
                 }
@@ -202,3 +290,7 @@ internal fun geminiMessageParts(message: ChatMessage) = when {
         addJsonObject { put("text", message.content) }
     }
 }
+
+/** id 是否是本适配器自己拼的 `name#index` 占位——那种 id 不能回传给 Gemini。 */
+private fun isSyntheticGeminiToolCallId(id: String, name: String): Boolean =
+    name.isNotEmpty() && Regex("^${Regex.escape(name)}#\\d+$").matches(id)

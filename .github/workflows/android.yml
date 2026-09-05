@@ -5,10 +5,26 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
+  # 手动触发：instrumented 测试那个 job 平时不在 PR 上跑（起 emulator 太慢），
+  # 需要临时验一遍设备侧行为时从 Actions 页面点一下即可。
+  workflow_dispatch:
+
+# 同一分支连续推送时取消上一次还没跑完的流水线。整条跑一遍要好几分钟，
+# 连推三次就会同时占三个 runner，而只有最后一次的结论有意义。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# 最小权限。不显式声明时用的是仓库默认 GITHUB_TOKEN 权限，相当多仓库的默认值
+# 是 write-all——而这里的 job 只需要读代码和上传 artifact。
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 卡死的构建（Gradle daemon 死锁、依赖下载挂住）默认会一直烧到 6 小时上限
+    timeout-minutes: 45
 
     steps:
     - uses: actions/checkout@v4
@@ -23,11 +39,91 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Run unit tests
+    # compileSdk 37（AndroidX 2026.08 / Compose 1.12 / androidx.hilt 1.4 的硬性下限，
+    # 低于它 checkDebugAarMetadata 直接失败）。runner 预装的 SDK 不保证含 android-37.0，
+    # 显式安装比依赖 AGP 的自动下载可靠——后者一旦 license 未接受，报错信息很隐蔽。
+    - name: Install Android SDK Platform 37
+      uses: android-actions/setup-android@v3
+      with:
+        packages: 'platforms;android-37.0 build-tools;37.0.0'
+
+    # 供应链门禁：渲染管线的第三方 JS 跑在开了 JavaScript 的 WebView 里，
+    # 其中 purify.js 本身就是净化器。被替换掉的话 CSP 与 DOMPurify 一起失效，
+    # 所以哈希不匹配必须让构建直接失败，而不是留到人工发现。
+    - name: Verify vendored JS integrity
+      run: bash download-js-libs.sh verify
+
+    - name: Syntax-check first-party renderer scripts
+      run: |
+        for f in app/src/main/assets/raw/ym-sanitize.js \
+                 app/src/main/assets/raw/renderer.js \
+                 app/src/main/assets/raw/renderer-ready.js \
+                 app/src/main/assets/raw/bubble.js \
+                 app/src/main/assets/raw/static-md.js; do
+          node --check "$f"
+        done
+
+    # ---------------------------------------------------------------------
+    # 以下四步与本地门禁一一对应：
+    #   ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:minifyReleaseWithR8
+    # 拆成独立 step 而不是并成一条命令，有两个原因：
+    # 1. 一条命令挂了只能看到「构建失败」，拆开后在 GitHub 的 step 列表里能直接看出
+    #    是测试、lint 还是 R8 出的问题。
+    # 2. lintDebug 与 minifyReleaseWithR8 并在一条命令里会偶发崩溃：lint 的 Kotlin
+    #    分析会去读 app/build/generated/hilt/component_sources/**（含 release 变体），
+    #    而 release 那条链此刻正在重新生成同一批文件，于是 lintAnalyzeDebugUnitTest
+    #    抛 FileNotFoundException 并报「this is a bug in lint」。单独跑 lintDebug 必过，
+    #    所以那不是代码问题，是两个任务抢同一个生成目录。别把这几步再合回一条命令。
+    # ---------------------------------------------------------------------
+
+    - name: Unit tests
       run: ./gradlew :app:testDebugUnitTest
+
+    # lint 默认 abortOnError=true，出现 error 级问题这一步就会失败。
+    # 之前流水线完全没跑 lint——意味着 lint error 可以合进 main 而无人发现，
+    # 而本项目已把「多语言翻译完整性」交给 lint 的 MissingTranslation（error 级）来守。
+    - name: Android Lint
+      run: ./gradlew :app:lintDebug
 
     - name: Build debug APK
       run: ./gradlew :app:assembleDebug
+
+    # 只编译、不运行 instrumented 测试。跑起来需要 emulator（分钟级），
+    # 但「androidTest 源码编译不过」是这类测试最常见的失败模式，几秒就能查出来，
+    # 没理由放到 emulator job 里才发现。真正上设备跑见下面的 instrumented job。
+    - name: Compile instrumented tests
+      run: ./gradlew :app:assembleDebugAndroidTest
+
+    # release 变体不能跑 assembleRelease：签名配置读的是被 gitignore 的
+    # keystore.properties，CI 上不存在。minifyReleaseWithR8 不需要签名，
+    # 却能把 R8 规则、资源压缩、混淆配置整条走一遍——proguard 规则漏写导致
+    # 只有正式包崩溃，是这类项目最典型的「debug 一切正常」型 bug。
+    - name: R8 / release shrinking
+      run: ./gradlew :app:minifyReleaseWithR8
+
+    # Room 在 KSP 阶段把每个版本的 schema 导出到 app/schemas/，该目录已纳入 git 跟踪。
+    # 改了 @Entity 或 @Database(version) 却没提交重新导出的 json，这里的 diff 就非空。
+    #
+    # 为什么必须拦下来：手写的迁移建表语句唯一可核对的事实来源就是导出的 createSql
+    # （MigrationContractTest 正是拿它做逐字比对）。json 没提交，那条测试在别人机器上
+    # 就无从核对；而迁移语句写错**只在升级路径**执行，全新安装永远测不出来，
+    # 最后是已装老版本的真实用户升级后启动闪退。
+    #
+    # 这一步必须放在跑过 KSP 的构建之后（assembleDebug 已经跑过）。
+    - name: Guard committed Room schemas
+      run: |
+        if ! git diff --quiet -- app/schemas; then
+          echo "::error::app/schemas 与提交内容不一致，请把重新导出的 schema json 一并提交"
+          git diff --stat -- app/schemas
+          exit 1
+        fi
+        untracked="$(git ls-files --others --exclude-standard -- app/schemas)"
+        if [ -n "$untracked" ]; then
+          echo "::error::app/schemas 下存在未提交的新 schema 文件"
+          echo "$untracked"
+          exit 1
+        fi
+        echo "app/schemas 与提交内容一致"
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
@@ -40,4 +136,84 @@ jobs:
       if: always()
       with:
         name: test-reports
-        path: app/build/reports/tests/
+        path: |
+          app/build/reports/tests/
+          app/build/test-results/
+
+    # lint 报告在**失败时**最有用，所以 if: always()。SARIF 里带精确的
+    # 文件:行号:检查项，而 step 日志只有一句摘要，光看日志定位不到问题。
+    - name: Upload lint reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: lint-reports
+        path: |
+          app/build/reports/lint-results-debug.html
+          app/build/reports/lint-results-debug.sarif
+
+  # =======================================================================
+  # 设备侧测试。单独成 job 而不是塞进 build：起 emulator 是分钟级开销，
+  # 挂在每个 PR 上会把「推一次等几分钟」变成「等十几分钟」，反馈环一长就没人看了。
+  #
+  # 触发范围：push 到 main（守住主干），以及手动触发（改完迁移想立刻验一遍）。
+  # PR 上只做 assembleDebugAndroidTest 编译检查，见 build job。
+  #
+  # 这里跑的最关键一组是 Room 迁移测试：纯 JVM 的 MigrationContractTest 只能比对
+  # 建表语句的字符串，证明不了 SQLite 真的接受这条语句（FTS4 虚拟表写错会
+  # vtable constructor failed），也证明不了迁移后 Room 自己的 schema 校验能过。
+  # 只有 MigrationTestHelper 在真实 SQLite 上跑才能验这两件事。
+  # =======================================================================
+  instrumented:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    timeout-minutes: 60
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    - name: Install Android SDK Platform 37
+      uses: android-actions/setup-android@v3
+      with:
+        packages: 'platforms;android-37.0 build-tools;37.0.0'
+
+    # 没有 KVM 的话 x86_64 emulator 只能软件模拟，慢到必然超时。
+    # GitHub 的 Linux runner 支持 KVM，但设备节点默认不对普通用户开放。
+    - name: Enable KVM
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+          | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+
+    # API 30 是稳定性与速度的折中点：minSdk 26 能装，且这一档的系统镜像
+    # 在 CI 上启动最少出幺蛾子。target 用 default 而非 google_apis——
+    # 本项目不依赖 Play Services，装 GMS 只是白等镜像下载。
+    - name: Run instrumented tests
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: 30
+        arch: x86_64
+        target: default
+        disable-animations: true
+        emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+        script: ./gradlew :app:connectedDebugAndroidTest
+
+    - name: Upload instrumented test reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: instrumented-test-reports
+        path: |
+          app/build/reports/androidTests/
+          app/build/outputs/androidTest-results/

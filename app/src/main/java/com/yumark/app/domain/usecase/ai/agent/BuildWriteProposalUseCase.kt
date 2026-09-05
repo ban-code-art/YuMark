@@ -1,5 +1,8 @@
 package com.yumark.app.domain.usecase.ai.agent
 
+import com.yumark.app.core.text.ContentHash
+import com.yumark.app.core.util.ErrorHandler
+import com.yumark.app.core.util.UserAction
 import com.yumark.app.domain.model.AgentAction
 import com.yumark.app.domain.model.AgentActionType
 import com.yumark.app.domain.model.ToolCall
@@ -45,7 +48,19 @@ class BuildWriteProposalUseCase @Inject constructor(
                     ?: throw EditException("缺少目标文档：请提供 document_id，或在文档内发起编辑。")
                 if (args.edits.isEmpty()) throw EditException("edit_document 缺少 edits。")
                 val base = loadDocument(docId)
-                    .getOrElse { throw EditException("无法读取目标文档内容：${it.message}") }
+                    // 不直接拼 it.message：FileManager 的失败原文是应用内绝对路径
+                    // （/data/user/0/com.yumark.app/files/documents/<uuid>.md），而这句话既回填给
+                    // 模型也会显示给用户，不该带上内部路径。
+                    // ErrorHandler.message() 给的是 UiMessage（「加载目标文档内容失败：<原因>」，
+                    // 两段都是资源 id），只能整体交给 EditException 带走——插值进字符串模板会
+                    // 印出 `Res(id=…)`。模型那一路读 message，所以另给一句纯文本。
+                    .getOrElse { e ->
+                        throw EditException(
+                            uiMessage = ErrorHandler.message(e, UserAction.LOAD_TARGET_DOCUMENT),
+                            modelHint = "无法读取目标文档内容。",
+                            cause = e
+                        )
+                    }
                     .content
                 val ops = args.edits.map { EditOp(it.oldString, it.newString, it.replaceAll) }
                 val merged = DocumentEditApplier.applyEdits(base, ops).getOrThrow()
@@ -53,7 +68,10 @@ class BuildWriteProposalUseCase @Inject constructor(
                     type = AgentActionType.EDIT_DOCUMENT,
                     description = "编辑文档",
                     targetDocumentId = docId,
-                    content = merged
+                    content = merged,
+                    // merged 是「这一刻的 base + 模型的编辑」。批准时若文档已经不是这个 base，
+                    // 整篇覆盖就会吃掉这期间的改动 —— 指纹留给 ExecuteAgentActionUseCase 把关。
+                    baseContentHash = ContentHash.of(base)
                 )
             }
             else -> throw EditException("非写工具：${call.name}")

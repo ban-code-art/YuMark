@@ -14,4 +14,11 @@ interface ConversationRepository {
     suspend fun addMessage(message: Message)
     suspend fun updateMessage(message: Message)
     suspend fun deleteMessage(messageId: String)
+
+    /**
+     * 把仍停在 WORKING 的对话复位成 IDLE，返回受影响行数。仅供启动期调用。
+     *
+     * COMPLETED 不动：那是 Agent 正常收尾写下的终态，不是残留。
+     */
+    suspend fun resetInterruptedRuns(): Int
 }

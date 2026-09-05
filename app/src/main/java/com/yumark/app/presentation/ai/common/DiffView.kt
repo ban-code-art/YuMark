@@ -21,12 +21,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import com.yumark.app.R
 import com.yumark.app.core.util.diff.DiffLine
 import com.yumark.app.core.util.diff.DiffOp
 import com.yumark.app.core.util.diff.DiffResult
+import com.yumark.app.presentation.theme.AppSpacing
+import com.yumark.app.presentation.theme.extendedColors
 
 /**
  * 行级 diff 视图：高亮增删行，每个变更块(hunk)前带一个勾选框控制接受/拒绝。
@@ -47,9 +51,9 @@ fun DiffView(
     ) {
         Column(
             Modifier
-                .heightIn(max = 320.dp)
+                .heightIn(max = DiffViewMetrics.ListMaxHeight)
                 .verticalScroll(rememberScrollState())
-                .padding(vertical = 4.dp)
+                .padding(vertical = AppSpacing.Tight)
         ) {
             var lastHunk = DiffLine.NO_HUNK
             result.lines.forEach { line ->
@@ -71,11 +75,15 @@ fun DiffView(
 private fun HunkToggle(index: Int, accepted: Boolean, onToggle: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+        modifier = Modifier.fillMaxWidth().padding(top = AppSpacing.Snug)
     ) {
         Checkbox(checked = accepted, onCheckedChange = { onToggle() })
         Text(
-            text = if (accepted) "应用改动 #${index + 1}" else "保留原文 #${index + 1}",
+            // hunk 序号从 1 起（index 是 0 基）。序号不是数量词，所以是普通 <string> 而非 plurals
+            text = stringResource(
+                if (accepted) R.string.ai_diff_hunk_apply else R.string.ai_diff_hunk_keep,
+                index + 1
+            ),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -86,13 +94,13 @@ private fun HunkToggle(index: Int, accepted: Boolean, onToggle: () -> Unit) {
 private fun DiffLineRow(line: DiffLine, accepted: List<Boolean>) {
     val isAccepted = line.hunkId == DiffLine.NO_HUNK || accepted.getOrElse(line.hunkId) { true }
     val bg = when (line.op) {
-        DiffOp.ADDED -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (isAccepted) 0.45f else 0.12f)
+        DiffOp.ADDED -> extendedColors.successContainer.copy(alpha = if (isAccepted) 0.45f else 0.12f)
         DiffOp.REMOVED -> MaterialTheme.colorScheme.errorContainer.copy(alpha = if (!isAccepted) 0.45f else 0.12f)
         DiffOp.UNCHANGED -> Color.Transparent
     }
-    // 左侧色条强化“增/删”语义：新增=primary，删除=error，未变=无。
+    // 左侧色条强化“增/删”语义：新增=success（绿），删除=error（红），未变=无。
     val bar = when (line.op) {
-        DiffOp.ADDED -> MaterialTheme.colorScheme.primary
+        DiffOp.ADDED -> extendedColors.success
         DiffOp.REMOVED -> MaterialTheme.colorScheme.error
         DiffOp.UNCHANGED -> Color.Transparent
     }
@@ -109,7 +117,7 @@ private fun DiffLineRow(line: DiffLine, accepted: List<Boolean>) {
             .height(IntrinsicSize.Min)
             .background(bg)
     ) {
-        Box(Modifier.width(3.dp).fillMaxHeight().background(bar))
+        Box(Modifier.width(DiffViewMetrics.BarWidth).fillMaxHeight().background(bar))
         Text(
             text = prefix + line.text.ifEmpty { " " },
             style = MaterialTheme.typography.bodySmall,
@@ -119,7 +127,21 @@ private fun DiffLineRow(line: DiffLine, accepted: List<Boolean>) {
             textDecoration = if (strike) TextDecoration.LineThrough else null,
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = 8.dp, vertical = 1.dp)
+                .padding(horizontal = AppSpacing.Default, vertical = DiffViewMetrics.LineVerticalPadding)
         )
     }
+}
+
+/**
+ * 本 diff 视图特有的绘制度量，刻意不并入全局 [AppSpacing]：滚动区最大高度上界（超出内部滚动）、
+ * 左侧增删色条宽度（3dp 绘制轴）、等宽代码行的纵向内边距（1dp，紧到贴合行距）。各自成轴、
+ * 离散于 8dp 间距标度，保留原像素、不硬凑。按 FileListMetrics 先例落屏幕局部。
+ */
+private object DiffViewMetrics {
+    /** diff 滚动区最大高度：超出内部滚动，避免长 diff 把气泡 / 弹层顶满。 */
+    val ListMaxHeight = 320.dp
+    /** 行左侧增/删语义色条宽度：细窄竖条，非间距轴。 */
+    val BarWidth = 3.dp
+    /** 等宽代码行的纵向内边距：紧贴行距、密排 diff，off-grid。 */
+    val LineVerticalPadding = 1.dp
 }

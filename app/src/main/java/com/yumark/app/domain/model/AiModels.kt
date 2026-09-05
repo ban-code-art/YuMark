@@ -61,9 +61,52 @@ data class AiConfig(
     val webSearchProvider: WebSearchProvider = WebSearchProvider.DUCKDUCKGO,
     val webSearchApiKey: String = "",
     val webSearchCustomUrl: String = "",
-    /** OpenAI 兼容 /embeddings 模型名（如 text-embedding-3-small）；为空则 RAG 不索引。复用 baseUrl/apiKey。 */
-    val embeddingModel: String = ""
+    /** OpenAI 兼容 /embeddings 模型名（如 text-embedding-3-small）；为空则 RAG 不索引。 */
+    val embeddingModel: String = "",
+    /**
+     * embedding 端点是否复用上面 chat 的 [baseUrl] / [apiKey]。
+     *
+     * 默认 true 是为了兼容既有安装：这个字段从前不存在，那时 RAG 走的就是 chat 那一组，
+     * 默认 false 会让升级后的用户知识库突然停止索引，而界面上只多出一个空输入框——
+     * 没有任何提示告诉他刚才发生了什么。
+     *
+     * 之所以需要「分开配」：能跑 chat 的端点不一定提供 `/embeddings`（Claude、Gemini 都不提供
+     * OpenAI 那套 embedding 协议），而 embedding 是按量计费里最便宜、最适合指向本地 Ollama /
+     * 自建 vLLM 的一段。把两者绑死等于「想用 Claude 聊天就别想建向量索引」。
+     */
+    val ragUseMainEndpoint: Boolean = true,
+    /** [ragUseMainEndpoint] 为 false 时生效的独立 embedding 端点，仍走 OpenAI 兼容 `/embeddings`。 */
+    val ragBaseUrl: String = "",
+    /** [ragUseMainEndpoint] 为 false 时生效的独立 embedding 密钥。 */
+    val ragApiKey: String = "",
+    /**
+     * 从 embedding 端点 `/models` 拉回来的候选列表，只做输入提示。
+     * 与 [availableModels] 分开存：两个端点可以是完全不同的服务，模型集合没有交集也正常。
+     */
+    val ragAvailableModels: List<String> = emptyList()
 )
+
+/**
+ * embedding 请求真正会打到的 baseUrl。
+ *
+ * 复用模式下与 chat 完全同源（含「留空则取 provider 默认值」这一层）；独立模式下只认
+ * [AiConfig.ragBaseUrl]，**不**在它为空时悄悄回落到 chat 那一组——用户明确选了「单独配置」，
+ * 静默换回另一个地址就是把请求连同密钥发去了一个他没指定的服务器。
+ *
+ * 空串表示「没配」，由调用方拦下来报错（见 `RagPipeline` 的 embedding 前置检查），
+ * 而不是让它拼成 `/embeddings` 这种相对路径去撞一个语焉不详的网络异常。
+ */
+val AiConfig.ragBaseUrlResolved: String
+    get() = if (ragUseMainEndpoint) baseUrl.ifBlank { provider.defaultBaseUrl } else ragBaseUrl.trim()
+
+/**
+ * 与 [ragBaseUrlResolved] 同一套判据的密钥。
+ *
+ * 独立模式下为空也照发：本地 Ollama、自建 vLLM 这类端点根本不校验 Authorization，
+ * 在这里强制要求密钥会把最主要的使用场景挡在门外。
+ */
+val AiConfig.ragApiKeyResolved: String
+    get() = if (ragUseMainEndpoint) apiKey else ragApiKey
 
 /** 对话类型 */
 enum class ConversationType {
@@ -148,7 +191,22 @@ data class AgentAction(
     val description: String,
     val targetDocumentId: String? = null,
     val content: String,
-    val status: AgentActionStatus = AgentActionStatus.PENDING
+    val status: AgentActionStatus = AgentActionStatus.PENDING,
+    /**
+     * EDIT_DOCUMENT：提议生成那一刻目标文档原文的指纹
+     * （[com.yumark.app.core.text.ContentHash]）。
+     *
+     * [content] 是「原文 + 模型的编辑」合成出来的**新全文**，批准时会整篇覆盖目标文档。
+     * 提议会随消息落库（agentActionJson），批准可以发生在几分钟甚至一次冷启动之后——
+     * 这期间用户在编辑器里改了几行、WebDAV 拉回了远端版本，覆盖就把那些改动无声吃掉了
+     * （历史版本里还能翻回来，但用户不会知道发生过）。
+     * 记下这个指纹，[com.yumark.app.domain.usecase.ai.agent.ExecuteAgentActionUseCase]
+     * 在写入前重新读文档比对：不一致就拒绝执行并提示重新生成。
+     *
+     * 可空且有默认值：本字段之前的提议已经在库里，缺这个 key 时解码成 null，
+     * 那些老提议按「无基线可校验」放行（行为与从前一致），不会因为升级而失效。
+     */
+    val baseContentHash: String? = null
 )
 
 /**

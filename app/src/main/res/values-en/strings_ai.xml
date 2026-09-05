@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    AI / Agent 模块文案（英文语区）。
+
+    维护规则（与 values-en/strings.xml 一致，必须遵守）：
+    1. 键名、顺序、分节注释与 values/strings_ai.xml 逐行对齐，方便对照。
+    2. 新增或删除任何键必须同时改两边。只在一边加键会触发 lint 的 MissingTranslation，
+       本项目无 lint.xml、无 baseline，它是 error 级，会直接卡住构建。
+    3. 占位符的数量、类型、位置写法两边必须一致（一律 %1$s / %1$d），
+       否则 lint 报 StringFormatInvalid / StringFormatMatches。
+    4. <plurals> 英文必须同时有 one 与 other（缺 other 报 MissingQuantity）。
+    5. 省略号一律写成单字符 …（U+2026），不要写三个点 —— lint 的 TypographyEllipsis
+       盯的就是后者。撇号一律避开或写成 \'，否则 aapt2 直接报错。
+    6. 文案用 sentence case；按钮用动词原形。
+    7. 品牌与技术标识不翻：Agent / OpenAI / Anthropic Claude / Google Gemini /
+       DuckDuckGo / Tavily / Serper / Brave / RAG / token。
+-->
+<resources>
+
+    <!-- ========== Agent 任务 / 步骤 / 操作状态标签 AiDesign.kt ==========
+         任务级 Completed 与步骤级 Done 刻意用两个词，与中文侧「已完成 / 完成」的
+         区分对齐；共用一个键会让其中一处读起来不对。 -->
+    <string name="ai_task_status_planning">Planning</string>
+    <string name="ai_task_status_executing">Executing</string>
+    <string name="ai_task_status_replanning">Replanning</string>
+    <string name="ai_task_status_blocked">Blocked</string>
+    <string name="ai_task_status_completed">Completed</string>
+    <string name="ai_task_status_failed">Failed</string>
+
+    <string name="ai_step_status_pending">Pending</string>
+    <string name="ai_step_status_running">Running</string>
+    <string name="ai_step_status_done">Done</string>
+    <string name="ai_step_status_blocked">Blocked</string>
+    <string name="ai_step_status_failed">Failed</string>
+    <string name="ai_step_status_skipped">Skipped</string>
+
+    <!-- Applied（而不是 Executed）：这一组说的是 diff 审阅的结果 -->
+    <string name="ai_action_status_pending">Pending review</string>
+    <string name="ai_action_status_approved">Approved</string>
+    <string name="ai_action_status_rejected">Rejected</string>
+    <string name="ai_action_status_executed">Applied</string>
+
+    <!-- ========== 工具调用旁白 ToolActivityRow.narrateTool ==========
+         同一句既出现在「正在执行」也出现在「已完成」的行里，所以用时态中立的动词原形，
+         不写 Reading / Read the document。when 的键是 function name，不在本文件里。 -->
+    <string name="ai_tool_read_document">Read document</string>
+    <string name="ai_tool_search_in_project">Search project</string>
+    <string name="ai_tool_list_documents">Browse documents</string>
+
+    <!-- ========== 逐块 diff 审阅 DiffView ==========
+         %1$d = hunk 序号（从 1 起），是序号不是数量，故不做 plurals。 -->
+    <string name="ai_diff_hunk_apply">Apply change #%1$d</string>
+    <string name="ai_diff_hunk_keep">Keep original #%1$d</string>
+
+    <!-- ========== Agent 状态小圆点 AgentStatusIndicator ==========
+         IDLE 两个语区都是 "Agent"：读屏播报的是产品里这个功能的名字。 -->
+    <string name="cd_agent_status_idle">Agent</string>
+    <string name="cd_agent_status_working">Agent working</string>
+    <string name="cd_agent_status_completed">Completed</string>
+
+    <!-- ========== 执行流程时间轴 AgentTimeline ========== -->
+    <string name="agent_timeline_task_label">Task</string>
+    <string name="cd_agent_timeline_expand">Show execution steps</string>
+    <string name="cd_agent_timeline_collapse">Hide execution steps</string>
+    <!-- %1$d = 被折叠掉的步骤数。中文侧用全宽＋，英文侧用半宽 + 才不至于突兀。 -->
+    <plurals name="agent_timeline_more_steps">
+        <item quantity="one">+%1$d more step</item>
+        <item quantity="other">+%1$d more steps</item>
+    </plurals>
+    <string name="agent_timeline_note_blocked">Blocked</string>
+    <string name="agent_timeline_note_result">Result</string>
+
+    <!-- ========== 阻塞原因 / 结果摘要 ==========
+         落库的是 AgentStatusCode 稳定码，不是这里的文案；认不出的值按原文透出。 -->
+    <string name="agent_blocked_empty_response">The model returned no content</string>
+    <string name="agent_blocked_duplicate_tool_call">Repeated tool call detected</string>
+    <!-- %1$d = MAX_TURNS -->
+    <string name="agent_blocked_max_steps">Reached the step limit (%1$d)</string>
+    <string name="agent_blocked_interrupted">Task interrupted (cancelled or failed)</string>
+    <string name="agent_blocked_user_stopped">You stopped this agent run</string>
+    <string name="agent_blocked_process_killed">The task was interrupted when the app last closed. You can start it again.</string>
+    <string name="agent_summary_empty_response">No content returned</string>
+    <string name="agent_summary_completed">Done</string>
+    <string name="agent_summary_action_proposed">Proposed document changes are ready for review</string>
+
+    <!-- ========== 待审阅操作卡 AgentActionCard ========== -->
+    <string name="agent_action_type_create">Create document</string>
+    <string name="agent_action_type_edit">Edit document</string>
+    <string name="agent_action_no_change">The AI did not propose any actual changes.</string>
+    <string name="agent_action_dismiss">Got it</string>
+    <string name="agent_action_diff_degraded">The document is large, so a whole-document comparison is shown instead.</string>
+    <string name="agent_action_expand_diff">View changes</string>
+    <string name="agent_action_collapse_diff">Hide changes</string>
+    <!-- %1$d = 勾选上的 hunk 数。0 走 other 分支，读作 "Apply 0 selected changes"，通顺。 -->
+    <plurals name="agent_action_apply_selected">
+        <item quantity="one">Apply %1$d selected change</item>
+        <item quantity="other">Apply %1$d selected changes</item>
+    </plurals>
+    <string name="agent_action_reject_all">Reject all</string>
+    <string name="agent_action_expand_content">View content</string>
+    <string name="agent_action_collapse_content">Hide content</string>
+    <string name="agent_action_approve">Approve</string>
+    <string name="agent_action_reject">Reject</string>
+
+    <!-- ========== 普通聊天面板 AiChatSheet ========== -->
+    <string name="ai_chat_default_title">Chat</string>
+    <string name="ai_chat_replying">Replying…</string>
+    <string name="ai_chat_input_hint">Type a message…</string>
+    <string name="cd_ai_chat_back">Back</string>
+    <string name="cd_ai_chat_stop">Stop</string>
+    <string name="cd_ai_chat_send">Send</string>
+
+    <!-- ========== 对话列表 ConversationListSheet ========== -->
+    <string name="ai_conversation_title">AI chats</string>
+    <string name="ai_conversation_new_chat">New chat</string>
+    <string name="ai_conversation_new_agent">New Agent</string>
+    <string name="ai_conversation_empty">No chats yet. Tap a button above to start one</string>
+    <!-- 新建时写进数据库的默认会话名，是创建时语区的快照，之后换语言不会改已有会话名 -->
+    <string name="ai_conversation_default_title_chat">New chat</string>
+    <string name="ai_conversation_default_title_agent">New Agent chat</string>
+    <string name="ai_conversation_delete_title">Delete chat</string>
+    <!-- %1$s = 会话标题 -->
+    <string name="ai_conversation_delete_message">Delete \"%1$s\"? This cannot be undone.</string>
+    <string name="ai_conversation_rename_title">Rename chat</string>
+    <string name="ai_conversation_rename_hint">Enter a new name</string>
+    <string name="ai_conversation_yesterday">Yesterday</string>
+    <!-- 下标 = Calendar.DAY_OF_WEEK - 1：周日必须在第 0 位，七项齐全，顺序不能动。
+         用缩写是为了跟中文侧「周三」一样占一格宽度，列表行不会被撑开。 -->
+    <string-array name="ai_conversation_weekdays">
+        <item>Sun</item>
+        <item>Mon</item>
+        <item>Tue</item>
+        <item>Wed</item>
+        <item>Thu</item>
+        <item>Fri</item>
+        <item>Sat</item>
+    </string-array>
+
+    <!-- ========== Agent 会话 AgentChatSheet ========== -->
+    <string name="agent_header_title">Agent</string>
+    <string name="agent_header_thinking">Thinking…</string>
+    <string name="agent_header_idle">Ready</string>
+    <string name="agent_steps_collapse">Hide steps</string>
+    <!-- %1$d = 本轮工具调用步数 -->
+    <plurals name="agent_steps_expand">
+        <item quantity="one">Show %1$d step</item>
+        <item quantity="other">Show %1$d steps</item>
+    </plurals>
+    <string name="agent_diff_loading_base">Loading the target document so the changes can be reviewed.</string>
+    <!-- 批准时目标文档已不是提议生成时那一份，整篇覆盖会吃掉这期间的改动 -->
+    <string name="agent_edit_base_changed">The target document changed after this proposal was generated, so applying it would overwrite those changes. Ask the AI to redo this edit.</string>
+    <string name="agent_diff_cancel_edit">Cancel this edit</string>
+    <string name="agent_input_hint">Ask the AI to create or edit a document…</string>
+    <!-- %1$d = 附件上限（代码里的常量 3）。不做 plurals：实参恒大于 1，one 分支永远用不到。 -->
+    <string name="agent_error_max_images">You can add up to %1$d images</string>
+    <string name="cd_agent_back">Back</string>
+    <!-- 已发出的图片 -->
+    <string name="cd_agent_attachment">Image attachment</string>
+    <!-- 还没发出去的图片，与上一条区分 -->
+    <string name="cd_agent_pending_image">Image to send</string>
+    <string name="cd_agent_remove_image">Remove</string>
+    <string name="cd_agent_add_image">Add image</string>
+    <string name="cd_agent_stop">Stop</string>
+    <string name="cd_agent_send">Send</string>
+    <string name="cd_agent_enlarged_image">View full image</string>
+
+    <!-- ========== AI 配置页 AiConfigScreen ==========
+         Base URL / API Key / Temperature / Max Tokens / https://… 占位仍是代码里的字面量：
+         两个语区逐字相同，抽出来只会多两份同值翻译。 -->
+    <string name="ai_config_title">AI assistant</string>
+    <string name="cd_ai_config_back">Back</string>
+    <string name="ai_config_enable">Enable AI assistant</string>
+    <string name="ai_config_provider">API provider</string>
+    <string name="ai_config_provider_openai">OpenAI (official)</string>
+    <string name="ai_config_provider_openai_compatible">OpenAI-compatible (Ollama, DeepSeek, etc.)</string>
+    <string name="ai_config_provider_claude">Anthropic Claude</string>
+    <string name="ai_config_provider_gemini">Google Gemini</string>
+    <string name="cd_ai_config_toggle_key_visibility">Show or hide the key</string>
+    <string name="ai_config_model_name">Model name</string>
+    <string name="ai_config_fetch_models">Fetch model list</string>
+    <!-- %1$d = 模型个数。走 stringResource 而不是 pluralStringResource，
+         所以句式必须与数量无关（不能写 "Fetched %1$d models"）。 -->
+    <string name="ai_config_models_fetched">Models fetched: %1$d</string>
+    <string name="ai_config_stream">Streaming output</string>
+    <string name="ai_config_rag">Knowledge base (RAG)</string>
+    <string name="ai_config_rag_desc">Builds the vector index through the OpenAI-compatible /embeddings endpoint. Leave the embedding model empty to skip indexing (full-text document search still works).</string>
+    <string name="ai_config_embedding_model">Embedding model (e.g. text-embedding-3-small)</string>
+    <string name="ai_config_rag_endpoint">Embedding endpoint</string>
+    <string name="ai_config_rag_reuse_main">Reuse the Base URL and API key above</string>
+    <string name="ai_config_rag_separate">Configure separately</string>
+    <string name="ai_config_rag_separate_desc">Claude and Gemini do not offer /embeddings. Choose “Configure separately” to point the vector index at a local Ollama or another OpenAI-compatible endpoint.</string>
+    <string name="ai_config_rag_base_url">Embedding Base URL</string>
+    <string name="ai_config_rag_api_key">Embedding API key (optional for local endpoints)</string>
+    <string name="ai_config_base_url_required">Enter the Base URL above first</string>
+    <string name="ai_config_rag_base_url_required">Enter the embedding Base URL first</string>
+    <string name="ai_config_rag_fetch_models">Fetch embedding models</string>
+    <string name="ai_config_web_search">Web search</string>
+    <string name="ai_config_search_engine">Search engine</string>
+    <string name="ai_config_search_duckduckgo">DuckDuckGo (no key needed)</string>
+    <string name="ai_config_search_tavily">Tavily</string>
+    <string name="ai_config_search_serper">Serper (Google)</string>
+    <string name="ai_config_search_brave">Brave</string>
+    <string name="ai_config_search_custom">Custom</string>
+    <string name="ai_config_search_api_key">Search API key (not needed for DuckDuckGo)</string>
+    <string name="ai_config_custom_search_url">Custom search URL</string>
+    <string name="ai_config_test">Test connection</string>
+    <string name="ai_config_test_success">✓ Connected</string>
+    <string name="ai_config_test_failed">✗ Connection failed</string>
+    <!-- %1$d = 毫秒数（ModelTestResult 里是 Long，%d 收得下）。冒号沿用原文写法。 -->
+    <string name="ai_config_test_total_time">Total time: %1$d ms</string>
+    <string name="ai_config_test_first_token">First token latency: %1$d ms</string>
+    <!-- %1$s = 下面两条之一 -->
+    <string name="ai_config_test_streaming">Streaming: %1$s</string>
+    <string name="ai_config_streaming_available">available</string>
+    <string name="ai_config_streaming_unavailable">unavailable</string>
+    <string name="ai_config_unknown_error">Unknown error</string>
+
+</resources>

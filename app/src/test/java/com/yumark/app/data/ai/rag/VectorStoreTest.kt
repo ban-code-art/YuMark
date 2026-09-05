@@ -1,6 +1,7 @@
 package com.yumark.app.data.ai.rag
 
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import org.junit.jupiter.api.Test
 
 class VectorStoreTest {
@@ -95,19 +96,42 @@ class VectorStoreTest {
     }
 
     @Test
-    fun `duplicate content hash collapses to one result`() {
+    fun `同内容的两块只保留一条`() {
         val store = VectorStore()
         val vec = floatArrayOf(1f, 0f)
-        // 两块内容相同、contentHash 相同
+        // 两块正文完全相同，但 contentHash 字段不同（chunk() 拿 id 当 hash）：
+        // 去重要看的是正文本身，不是 chunk 上那个 contentHash 字段。
         val same = "重复正文重复正文重复正文重复正文重复正文重复正文"
         store.upsertDocument("d1", "文档A", listOf(
-            chunk("c1", "d1", same).copy(contentHash = "H"),
-            chunk("c2", "d1", same).copy(contentHash = "H")
+            chunk("c1", "d1", same),
+            chunk("c2", "d1", same)
         ))
         store.setEmbedding("c1", vec)
         store.setEmbedding("c2", vec)
         val results = store.search(vec, topK = 5, threshold = 0.5f)
         assertThat(results).hasSize(1)
+    }
+
+    @Test
+    fun `摘要撞车的两条检索结果都要留下`() {
+        val store = VectorStore()
+        val vec = floatArrayOf(1f, 0f)
+        // 这两段正文的 FNV-1a 32 位摘要都是 8a5bfafa（真实碰撞对，与 MarkdownChunkerTest 里的是同一对）
+        val first = "# jiaduan\nj7bzn2en8l66qp0qfuldzktpcfaa0je567nnq3c3"
+        val second = "# yiduan\n24geigdun4yejmiy1ttjptotoy6bzlpe1nxs16wg"
+        assertThat(createContentHash(first)).isEqualTo(createContentHash(second))
+
+        store.upsertDocument("d1", "文档A", listOf(
+            chunk("c1", "d1", first).copy(contentHash = createContentHash(first)),
+            chunk("c2", "d1", second).copy(contentHash = createContentHash(second))
+        ))
+        store.setEmbedding("c1", vec)
+        store.setEmbedding("c2", vec)
+        val results = store.search(vec, topK = 5, threshold = 0.5f)
+        assertWithMessage(
+            "两段内容毫不相干、只是 32 位摘要撞车：按 contentHash 去重会把分数不占优的那条从检索结果里" +
+                "删掉——用户写过、也花钱算过 embedding，却永远检索不到，还不报错不提示"
+        ).that(results.map { it.chunk.id }).containsExactly("c1", "c2")
     }
 
     @Test

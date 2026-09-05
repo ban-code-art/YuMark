@@ -1,0 +1,284 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  错误文案集中地。
+
+  产出侧全在 core（ErrorHandler / AiErrorMapper / WebViewFailure），那三处拿不到 Context，
+  只持有这里的资源 id 与实参（见 core.util.UiMessage），解析发生在 presentation.common.resolve。
+  单独成一个文件是为了让并行改动不撞车：res/values 下所有 resources 节点会被合并进同一个 R 命名空间。
+-->
+<resources>
+
+    <!-- ==== 失败原因：AppError 的六个分类，与 ErrorMessages 一一对应 ==== -->
+    <string name="error_reason_network">网络连接失败，请检查网络</string>
+    <string name="error_reason_timeout">网络请求超时，请检查网络后重试</string>
+    <string name="error_reason_storage">无法读写文件，请检查存储空间后重试</string>
+    <string name="error_reason_database">本地数据访问异常，请重试</string>
+    <string name="error_reason_permission">路径不合法或权限不足，操作已被拒绝</string>
+    <string name="error_reason_unknown">出现未知问题，请重试</string>
+
+    <!-- 「动作」失败：「原因」。两段实参在解析时已各自变成字符串，故都用 %s。 -->
+    <string name="error_action_failed">%1$s失败：%2$s</string>
+
+    <!-- ==== AI 请求失败：AiErrorMapper 的映射表，刻意不回显响应体原文 ==== -->
+    <string name="ai_error_http_401">API Key 无效或已过期，请在设置中检查</string>
+    <string name="ai_error_http_403">无访问权限，请检查 API Key 与账户权限</string>
+    <string name="ai_error_http_404">接口地址不存在，请检查 Base URL</string>
+    <string name="ai_error_http_400">请求格式错误，模型或参数可能有误</string>
+    <string name="ai_error_http_429">请求过于频繁，已被限流，请稍后重试</string>
+    <string name="ai_error_http_server">AI 服务暂时不可用（HTTP %1$d），请稍后重试</string>
+    <string name="ai_error_http_other">请求失败（HTTP %1$d）</string>
+    <!-- 唯一保留异常原文的分支：原文已由 ErrorHandler.safeDetail 脱敏、压平、截断 -->
+    <string name="ai_error_unknown_detail">发生未知错误：%1$s</string>
+    <string name="ai_error_not_configured">请先在设置中配置 API Key 和模型</string>
+    <string name="ai_error_empty_response">AI 没有返回任何内容。可能是所选模型不支持本次请求、max tokens 过小，或为推理模型（正文在 reasoning 字段）。请重试，或在设置里更换模型 / 调大 max tokens。</string>
+    <!--
+      被内容策略拦下、因此一个字都没产出（三家的信号见 data.ai.isBlockedStopReason）。
+      与上面那条空响应文案必须分开，理由是补救办法相反：那句让人去换模型 / 调大 max tokens，
+      这里该做的是改写措辞——照那句做一遍，用户会先把 max tokens 调到顶再换一个模型，
+      然后撞上同一堵墙。%1$s 是服务商给的原因原词（SAFETY / content_filter / RECITATION…），
+      经 presentableBlockReason 净化后原样保留：它是用户唯一能拿去搜服务商文档的线索。
+    -->
+    <string name="ai_error_content_blocked">本次请求被模型的内容策略拦下，没有生成任何回复。请改写措辞后重试，或在设置里更换模型。</string>
+    <string name="ai_error_content_blocked_reason">本次请求被模型的内容策略拦下（%1$s），没有生成任何回复。请改写措辞后重试，或在设置里更换模型。</string>
+    <!-- Agent 收敛时文本里有 [[ACTION]] 但解析不出可应用的改动 -->
+    <string name="agent_notice_bad_action_block">AI 输出的操作块格式有误，未生成可应用的改动</string>
+    <!-- 服务端 stop reason 为 length / max_tokens / MAX_TOKENS：回复写到一半被上限砍断。
+         Agent 侧此时还会拒绝把这段半截正文覆盖到已有文档上，所以文案要点明「未改动文档」。 -->
+    <string name="ai_notice_response_truncated">回复被输出上限截断，未写完（已保留现有内容、未改动文档）。请在设置里调大 max tokens 后重试，或让 AI 分几次输出。</string>
+
+    <!--
+      ==== 动作标签：与 core.util.UserAction 的枚举项一一对应 ====
+      命名规则 action_<枚举名小写>，改名时两侧必须同步（枚举里写死了资源 id，编译期即可发现缺失）。
+    -->
+    <string name="action_read_file">读取文件</string>
+    <string name="action_open_document">打开文档</string>
+    <string name="action_create_document">创建文档</string>
+    <string name="action_rename_document">重命名文档</string>
+    <string name="action_delete_document">删除文档</string>
+    <string name="action_move_document">移动文档</string>
+    <string name="action_create_folder">创建文件夹</string>
+    <string name="action_create_subfolder">创建子文件夹</string>
+    <string name="action_rename_folder">重命名文件夹</string>
+    <string name="action_delete_folder">删除文件夹</string>
+    <string name="action_move_folder">移动文件夹</string>
+    <string name="action_open_folder">打开文件夹</string>
+    <string name="action_search">搜索</string>
+    <string name="action_refresh">刷新</string>
+    <string name="action_save">保存</string>
+    <string name="action_save_on_exit">退出时保存</string>
+    <string name="action_export">导出</string>
+    <string name="action_version_snapshot">历史版本快照</string>
+    <string name="action_open_link">打开链接</string>
+    <string name="action_create_import_library">创建导入库</string>
+    <string name="action_import">导入</string>
+    <string name="action_import_folder">导入文件夹</string>
+    <string name="action_scan_folder">扫描文件夹</string>
+    <string name="action_add_image">添加图片</string>
+    <string name="action_load_target_document">加载目标文档内容</string>
+    <string name="action_fetch_models">获取模型列表</string>
+    <string name="action_rag_enqueue">RAG 索引入队</string>
+    <!-- Agent 动作的兜底标签：那一步具体做什么由模型决定，说不出更细的名字 -->
+    <string name="action_apply_action">操作</string>
+    <string name="action_check_update">检查更新</string>
+    <string name="action_save_settings">保存设置</string>
+    <string name="action_export_config">导出配置</string>
+    <string name="action_import_config">导入配置</string>
+    <string name="action_export_crash_logs">导出崩溃日志</string>
+    <string name="action_connect">连接</string>
+    <string name="action_sync">同步</string>
+    <string name="action_list_remote_dir">列目录</string>
+    <string name="action_download_remote_file">下载</string>
+    <string name="action_upload_remote_file">上传</string>
+    <string name="action_create_remote_dir">创建目录</string>
+
+    <!--
+      ==== 文件名校验：core.validation.FileNameValidator 的九个分支 ====
+      每条都直说「哪儿不合规」，用户改一次就能过；不写「文件名不合法」这种要靠猜的说法。
+    -->
+    <string name="validation_name_empty">文件名不能为空</string>
+    <string name="validation_name_too_long">文件名过长（最多 %1$d 字符）</string>
+    <string name="validation_name_edge_space">文件名开头或结尾不能有空格</string>
+    <string name="validation_name_leading_dot">文件名不能以点号开头</string>
+    <string name="validation_name_trailing_dot">文件名不能以点号结尾</string>
+    <string name="validation_name_dot_dot">文件名不能包含 \'..\'</string>
+    <string name="validation_name_invalid_chars">文件名包含非法字符: / \\ : * ? \" &lt; &gt; |</string>
+    <!-- %1$s 是用户自己输入的那个名字（CON / PRN…），回显它才知道该改哪个词 -->
+    <string name="validation_name_reserved">\'%1$s\' 是系统保留名称，不能使用</string>
+
+    <!-- ==== 图片附件：core.image.ImageProcessor ==== -->
+    <string name="image_error_unsupported_format">不支持的图片格式，请选择 JPG / PNG / GIF / WEBP</string>
+    <string name="image_error_too_large">图片过大（超过 %1$d MB），请选择更小的图片</string>
+    <string name="image_error_decode_failed">图片读取失败，请重试</string>
+
+    <!-- ==== 文件夹移动的防环校验：data.repository.FolderRepositoryImpl ==== -->
+    <string name="folder_error_move_into_self">不能移动到自身</string>
+    <string name="folder_error_move_into_descendant">不能移动到自己的子文件夹</string>
+
+    <!--
+      ==== 同级重名：DocumentRepositoryImpl / FolderRepositoryImpl ====
+      回显冲突的那个名字（%1$s）：同一目录下可能已有好几个近似名，不点名用户改不准。
+    -->
+    <string name="document_error_duplicate_name">同一文件夹下已有名为「%1$s」的文档</string>
+    <string name="folder_error_duplicate_name">同一位置下已有名为「%1$s」的文件夹</string>
+
+    <!--
+      ==== 库里查不到这一行：DocumentRepositoryImpl ====
+      成因只有一个：这篇文档在这次操作发生之前已经被删掉了（展开态双窗格下左右两侧
+      同时活着，删一边、在另一边点改名/移动就会撞上）。这是预期内的竞态，文案要说清
+      「已经没了」而不是泛化成「出现未知问题」，也不该占崩溃日志配额。
+    -->
+    <string name="document_error_not_found">文档不存在</string>
+    <!-- 文件夹侧的对应文案。从前这里抛的是裸 Exception("Folder not found")，被
+         ErrorHandler 归成 Unknown → 用户看到「出现未知问题，请重试」，还白占一格崩溃日志配额。
+         触发场景是平板双栏：一栏删了文件夹，另一栏对同一行改名/移动。 -->
+    <string name="folder_error_not_found">文件夹不存在</string>
+
+    <!-- ==== 同步前置条件：这两条都是用户自己能在同步设置页修好的 ==== -->
+    <string name="sync_error_disabled">未启用云端同步</string>
+    <string name="sync_error_config_incomplete">WebDAV 配置不完整</string>
+
+    <!-- ==== 导出前置条件。刻意不带绝对路径：应用私有目录路径对用户毫无意义 ==== -->
+    <string name="export_error_dir_missing">导出目录不存在，请重试</string>
+    <string name="export_error_dir_not_writable">导出目录不可写，请检查存储空间后重试</string>
+
+    <!--
+      ==== WebDAV HTTP 失败：data.remote.webdav.WebDavClient ====
+      401/403 单独成句：这两种情况服务器**是**连上了，说「连接失败」会把用户推去查网络，
+      而真正要改的是账号密码。响应体一律不回显——WebDAV 的错误页动辄是一整篇 HTML。
+    -->
+    <string name="webdav_error_unauthorized">账号或密码不正确（HTTP 401）</string>
+    <string name="webdav_error_forbidden">账号无权访问该目录（HTTP 403）</string>
+    <string name="webdav_error_insufficient_storage">远端空间不足或文件过大（HTTP %1$d）</string>
+    <!--
+      下面四条各自指向一件用户能做的事，所以不能落到「上传失败：HTTP 412」那种兜底文案上：
+      409 要去建上级目录、412 什么都不用做（下次同步自会按冲突处理）、423/429 是等一会儿再来。
+    -->
+    <string name="webdav_error_conflict_path">远端路径不可用（HTTP 409）：上级目录不存在，或同名位置已被一个文件占用</string>
+    <string name="webdav_error_precondition_failed">远端文件刚被其他设备改动（HTTP 412），本次已跳过，下次同步会按冲突处理</string>
+    <string name="webdav_error_locked">远端文件被锁定（HTTP 423），请稍后重试</string>
+    <string name="webdav_error_rate_limited">请求过于频繁，已被服务器限流（HTTP 429），请稍后重试</string>
+    <!-- 兜底：作为 error_action_failed 的「原因」半句使用，故这里只出状态码 -->
+    <string name="webdav_error_http_status">HTTP %1$d</string>
+
+    <!--
+      ==== 升级包校验：core.update.ApkVerification / ApkDownloader ====
+      四条都以「已删除该文件」收尾：校验不通过的包会被就地删掉，用户不必自己去清。
+      包名那条回显实际包名（%1$s）——那是唯一能说明「这是别人的包」的证据。
+    -->
+    <string name="update_error_digest_mismatch">安装包校验失败：内容摘要与发布方公布的不一致，已删除该文件</string>
+    <string name="update_error_package_mismatch">安装包校验失败：这不是本应用的安装包（包名 %1$s），已删除该文件</string>
+    <string name="update_error_signer_mismatch">安装包校验失败：签名证书与已安装版本不一致，可能被篡改，已删除该文件</string>
+    <string name="update_error_unreadable">安装包校验失败：文件无法解析成 APK，已删除该文件</string>
+    <!--
+      下载本身的失败（与上面四条「下到了但不可信」区分开）。
+      %2$s 收的是最后一个候选源的真实原因（校验结论或已脱敏的异常原文），不是「都连不上」那种
+      笼统话——「签名不一致」和「网络不通」要用户做的事完全不同。
+    -->
+    <string name="update_error_storage_unavailable">无法访问存储空间，请检查存储状态后重试</string>
+    <string name="update_error_download_failed">下载失败</string>
+    <string name="update_error_all_sources_failed">下载失败（已尝试 %1$d 个源）：%2$s</string>
+    <!-- 安装器拒绝安装：包名/签名在拉起安装界面前又校验了一次（见 ApkDownloader.installApk） -->
+    <string name="update_error_install_refused">已阻止安装：%1$s</string>
+    <!--
+      拉起安装界面这一步自己的失败。与上面的「校验不过」分开：这三条都不是安装包的问题，
+      而是路径、文件已不在、或 startActivity 抛了异常。
+    -->
+    <string name="update_error_install_bad_path">安装失败：路径无效</string>
+    <string name="update_error_install_missing_file">安装失败：安装包已不存在，请重新下载</string>
+    <!-- %1$s 已由 ErrorHandler.safeDetail 脱敏、压平、截断 -->
+    <string name="update_error_install_failed_detail">安装失败：%1$s</string>
+
+    <!-- ==== SAF 打开失败：用户选的位置当场就不可读/不可写 ==== -->
+    <string name="saf_error_write_target">无法写入所选位置</string>
+    <string name="saf_error_read_source">无法读取所选文件</string>
+
+    <!--
+      ==== 外部文件夹（SAF 工作区）：data.repository.WorkspaceRepositoryImpl ====
+      这五条从前写成 `error("…")`，抛的是裸 IllegalStateException，被 ErrorHandler 归到
+      「出现未知问题，请重试」（见 ErrorHandler.classify 的 else 分支）——五句手写的话
+      一句都到不了用户眼前。而它们恰好都指向一件用户自己能做的事：换个目录、重新授权、
+      检查那个文件是不是只读，所以必须资源化并带上 UserFacingMessage 标记透出去。
+
+      前两条另有第二个消费者：domain.usecase.importing.ImportFolderUseCase.scan。
+      「导入文件夹」与「打开工作区」是两个功能，但这两种失败是同一件事——用户刚选的那棵
+      SAF 目录树取不到 / 读不了，补救办法也同一个。刻意共用一句而不是各写一条：同一种故障
+      在两处说法不同是最容易攒出来的不一致（见 ErrorMessages 的同款理由）。
+    -->
+    <string name="workspace_error_open_failed">无法访问所选文件夹，请重新选择</string>
+    <string name="workspace_error_no_read_permission">没有该文件夹的读取权限，请重新选择并授权</string>
+    <string name="workspace_error_none_open">当前没有打开任何文件夹</string>
+    <string name="workspace_error_file_unreadable">无法打开该文件，它可能已被移动或删除</string>
+    <string name="workspace_error_file_not_writable">无法写入该文件，它可能是只读的</string>
+    <!-- 冷启动恢复默认目录失败。这句话从前是 WorkspaceRepositoryImpl 里的中文字面量，
+         经 restoreOnLaunch(): String? 一路透到 UiMessage.Raw —— 英文环境下原样显示中文，
+         而它指的菜单在 en 下叫 "Settings → Default folder"，两种语言的用户都照不到。 -->
+    <string name="workspace_error_default_dir_invalid">默认目录已失效，请到 设置 → 默认目录 重新选择</string>
+
+    <!--
+      ==== 导入文件夹：domain.usecase.importing.ImportFolderUseCase ====
+      成因是竞态而非用户操作有误：部分 ROM 的系统选择器「点进文件夹即返回」，深层目录靠应用内
+      浏览逐层选定，从浏览到点「扫描」之间那个子文件夹可能已被外部改名或删掉。%1$s 回显的是
+      用户自己刚点过的那一层名字（不是完整路径），不点名就没法判断是哪一层出的问题。
+    -->
+    <string name="import_error_subfolder_missing">找不到子文件夹「%1$s」，它可能已被移动或删除，请返回上一层重新选择</string>
+
+    <!--
+      ==== 配置备份文件：core.config.ConfigBackupCodec / domain.usecase.config ====
+      这份文件是用户可手改的外部输入，所以每条都得说清是「哪一处」不对。
+    -->
+    <!-- %1$s 已由 ErrorHandler.safeDetail 脱敏：kotlinx 的解析错误会回显出错位置附近的原文，
+         而那儿可能正躺着 API Key / WebDAV 密码 -->
+    <string name="config_error_not_json">无法解析为 JSON：%1$s</string>
+    <string name="config_error_not_yumark">这不是 YuMark 配置文件（缺少 format=\"%1$s\" 标记）</string>
+    <string name="config_error_bad_schema">文件格式版本 %1$d 非法</string>
+    <string name="config_error_schema_too_new">文件格式版本 %1$d 高于本应用支持的 %2$d，请先升级 YuMark</string>
+    <string name="config_error_no_sections">文件里没有任何可导入的配置分段</string>
+    <string name="config_error_too_large">文件超过 %1$d KB，不像是 YuMark 配置文件</string>
+
+    <!--
+      ==== WebView 失败文案：对应 core.webview.WebViewFailure ====
+      硬约束：不回显 URL 与 description（预览加载的是 file:///data/user/0/… 与 content://…）；
+      HTTP 状态码可以留，它是用户能拿去搜的线索。
+    -->
+    <string name="webview_error_not_ready">渲染器未能就绪，请重试</string>
+    <string name="webview_error_generic">页面加载失败，请重试</string>
+    <string name="webview_error_host_lookup">无法解析域名，请检查网络</string>
+    <string name="webview_error_unsupported_auth">不支持的身份验证方式</string>
+    <string name="webview_error_auth">身份验证失败</string>
+    <string name="webview_error_proxy_auth">代理身份验证失败</string>
+    <string name="webview_error_connect">无法建立连接，请检查网络</string>
+    <string name="webview_error_io">读取内容失败，请重试</string>
+    <string name="webview_error_timeout">加载超时，请重试</string>
+    <string name="webview_error_redirect_loop">重定向次数过多</string>
+    <string name="webview_error_unsupported_scheme">不支持的链接类型</string>
+    <string name="webview_error_ssl">安全连接建立失败</string>
+    <string name="webview_error_bad_url">链接格式不正确</string>
+    <string name="webview_error_file">读取文件失败，请检查存储空间</string>
+    <string name="webview_error_file_not_found">找不到要加载的文件</string>
+    <string name="webview_error_too_many_requests">请求过多，请稍后重试</string>
+    <string name="webview_error_unsafe_resource">内容被安全策略拦截</string>
+    <string name="webview_http_forbidden">无权访问该内容（HTTP %1$d）</string>
+    <string name="webview_http_not_found">内容不存在（HTTP %1$d）</string>
+    <string name="webview_http_timeout">服务端响应超时（HTTP %1$d）</string>
+    <!-- 只在 429 这一个状态码上触发，故状态码直接写死在文案里 -->
+    <string name="webview_http_too_many">请求过多，请稍后重试（HTTP 429）</string>
+    <string name="webview_http_server">服务端出错（HTTP %1$d）</string>
+    <string name="webview_http_client">内容加载被拒绝（HTTP %1$d）</string>
+    <string name="webview_render_crash">渲染进程异常退出，请重试</string>
+    <!-- 低端机上的常态，不是缺陷：文案要说清是内存不足而不是出错了 -->
+    <string name="webview_render_reclaimed">系统内存不足，渲染进程已被回收，请重试</string>
+    <!-- 导出渲染的整体超时（WebViewDocumentRenderer），与 webview_error_timeout 的单次加载超时不同 -->
+    <string name="webview_render_timeout">渲染超时，页面未就绪，请重试</string>
+    <!--
+      长图导出的高度上限。%1$d 是文档实际渲染高度、%2$d 是上限，两个数都给出来是因为
+      「差一点」和「差十倍」用户该做的选择不同（前者删几段就能导出，后者只能换 PDF）。
+      从前这里是静默截断 + 一条 Log.w：导出照样报成功，用户拿到一张在半句话处结束的长图。
+    -->
+    <string name="export_image_too_tall">文档过长，长图导出无法容纳（渲染高度 %1$d px，上限 %2$d px）。请改用 PDF 导出，或拆分文档后重试。</string>
+    <!--
+      密文存储（EncryptedSharedPreferences）写入失败。AI 的 API Key 与 WebDAV 的密码共用这一条：
+      两处的成因、后果、用户能做的事完全一样，分成两条只会让翻译多一份而说不出新东西。
+      必须明说「其余设置已保存」：写入是分开成败的（明文那半边照写），不说清楚用户会以为整次保存都没生效。
+    -->
+    <string name="secret_write_failed">加密存储写入失败：密码 / API Key 未能保存，其余设置已保存。多为更改屏幕锁或系统还原导致密钥失效，重启应用后重试；仍失败请重新设置屏幕锁。</string>
+</resources>

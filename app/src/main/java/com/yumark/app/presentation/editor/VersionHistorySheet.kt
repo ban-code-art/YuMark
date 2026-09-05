@@ -1,5 +1,10 @@
 package com.yumark.app.presentation.editor
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,12 +20,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.yumark.app.R
 import com.yumark.app.core.util.diff.DiffOp
 import com.yumark.app.core.util.diff.LineDiffer
 import com.yumark.app.domain.model.DocumentVersion
+import com.yumark.app.presentation.theme.AppIconSize
+import com.yumark.app.presentation.theme.AppMotion
+import com.yumark.app.presentation.theme.AppSpacing
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -40,38 +51,48 @@ fun VersionHistorySheet(
     var pendingRestore by remember { mutableStateOf<DocumentVersion?>(null) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).navigationBarsPadding()) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = AppSpacing.Screen).navigationBarsPadding()) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = AppSpacing.Default)) {
                 Icon(Icons.Default.History, null)
-                Spacer(Modifier.width(8.dp))
-                Text("历史版本", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.width(AppSpacing.Default))
+                // 标题复用 strings.xml 里侧栏/菜单同名入口的键，避免同一文案两份
+                Text(stringResource(R.string.history_versions), style = MaterialTheme.typography.titleLarge)
             }
 
             if (versions.isEmpty()) {
-                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                    Text("暂无历史版本——编辑并保存后会自动记录。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Box(Modifier.fillMaxWidth().padding(AppSpacing.Section), contentAlignment = Alignment.Center) {
+                    Text(
+                        stringResource(R.string.version_history_empty),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             } else {
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = VersionHistoryMetrics.ListMaxHeight)) {
                     items(versions, key = { it.id }) { version ->
                         VersionRow(version, currentContent) { pendingRestore = version }
                         HorizontalDivider()
                     }
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(AppSpacing.Default))
         }
     }
 
     pendingRestore?.let { v ->
         AlertDialog(
             onDismissRequest = { pendingRestore = null },
-            title = { Text("恢复此版本") },
-            text = { Text("将文档内容恢复到「${formatTime(v.createdAt)}」的版本？当前内容会先存为一条历史，可再恢复回来。") },
-            confirmButton = {
-                TextButton(onClick = { onRestore(v); pendingRestore = null; onDismiss() }) { Text("恢复") }
+            title = { Text(stringResource(R.string.version_history_restore_title)) },
+            text = {
+                Text(stringResource(R.string.version_history_restore_message, formatTime(v.createdAt)))
             },
-            dismissButton = { TextButton(onClick = { pendingRestore = null }) { Text("取消") } }
+            confirmButton = {
+                TextButton(onClick = { onRestore(v); pendingRestore = null; onDismiss() }) {
+                    Text(stringResource(R.string.version_history_restore))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRestore = null }) { Text(stringResource(R.string.cancel)) }
+            }
         )
     }
 }
@@ -83,23 +104,38 @@ private fun VersionRow(
     onRestore: () -> Unit
 ) {
     var expanded by remember(version.id) { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    // 展开/收起提示单独一个键：整句由 version_history_row_meta 拼，英文语序可自行调整
+    val toggleHint = stringResource(
+        if (expanded) R.string.version_history_collapse else R.string.version_history_expand
+    )
+    Column(Modifier.fillMaxWidth().padding(vertical = AppSpacing.Default)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).clickable { expanded = !expanded }) {
                 Text(formatTime(version.createdAt), style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    "${version.wordCount} 字 · 点按${if (expanded) "收起" else "查看改动"}",
+                    // wordCount 传两次：第一个实参选 quantity 分支（英文 1 → "1 word"），
+                    // 第二个填 %1$d；toggleHint 填 %2$s。
+                    pluralStringResource(
+                        R.plurals.version_history_row_meta,
+                        version.wordCount,
+                        version.wordCount,
+                        toggleHint
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             TextButton(onClick = onRestore) {
-                Icon(Icons.Default.Restore, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("恢复")
+                Icon(Icons.Default.Restore, null, Modifier.size(AppIconSize.Small))
+                Spacer(Modifier.width(AppSpacing.Tight))
+                Text(stringResource(R.string.version_history_restore))
             }
         }
-        if (expanded) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(AppMotion.enter()) + fadeIn(AppMotion.enter()),
+            exit = shrinkVertically(AppMotion.exit()) + fadeOut(AppMotion.exit())
+        ) {
             ReadOnlyDiff(oldContent = version.content, newContent = currentContent)
         }
     }
@@ -111,23 +147,23 @@ private fun ReadOnlyDiff(oldContent: String, newContent: String) {
     val diff = remember(oldContent, newContent) { LineDiffer.diff(oldContent, newContent) }
     if (!diff.hasChanges) {
         Text(
-            "与当前内容一致。",
+            stringResource(R.string.version_history_no_diff),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp)
+            modifier = Modifier.padding(top = AppSpacing.Tight)
         )
         return
     }
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = MaterialTheme.shapes.small,
-        modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+        modifier = Modifier.fillMaxWidth().padding(top = AppSpacing.Snug)
     ) {
         Column(
-            Modifier.heightIn(max = 260.dp)
+            Modifier.heightIn(max = VersionHistoryMetrics.DiffMaxHeight)
                 .verticalScroll(rememberScrollState())
                 .horizontalScroll(rememberScrollState())
-                .padding(8.dp)
+                .padding(AppSpacing.Default)
         ) {
             diff.lines.forEach { line ->
                 val (bg, prefix) = when (line.op) {
@@ -143,7 +179,7 @@ private fun ReadOnlyDiff(oldContent: String, newContent: String) {
                     else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Clip,
-                    modifier = Modifier.background(bg).padding(horizontal = 4.dp)
+                    modifier = Modifier.background(bg).padding(horizontal = AppSpacing.Tight)
                 )
             }
         }
@@ -152,3 +188,14 @@ private fun ReadOnlyDiff(oldContent: String, newContent: String) {
 
 private fun formatTime(ts: Long): String =
     SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(ts))
+
+/**
+ * 本弹层特有的两处布局上界，刻意不并入全局 [AppSpacing]：均为「最大可视高度」（超出内部滚动），
+ * 属布局上界而非间距节奏，保留原像素、不硬凑标度。按 FileListMetrics 先例落屏幕局部。
+ */
+private object VersionHistoryMetrics {
+    /** 版本列表最大高度：超出滚动，避免快照多时把弹层顶满。 */
+    val ListMaxHeight = 480.dp
+    /** 展开后只读 diff 的最大高度：超出内部纵/横向滚动。 */
+    val DiffMaxHeight = 260.dp
+}

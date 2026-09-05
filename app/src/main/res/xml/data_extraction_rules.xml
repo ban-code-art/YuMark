@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup / 换机迁移排除规则（android:dataExtractionRules，作用于 API 31+）。
+  API 23–30 走 backup_rules.xml，两份必须同步维护。
+
+  两段的差异是刻意的：cloud-backup 有 25 MB 单应用配额，device-transfer 是端到端直传、无配额，
+  所以「体积大但可弃」的 ai_attachments 只在云备份里排除。
+-->
+<data-extraction-rules>
+
+    <!--
+      disableIfNoEncryptionCapabilities：设备不具备客户端加密能力（无锁屏等）时直接不做云备份。
+      正文是用户笔记，宁可不备份也不以明文形态进第三方云。
+    -->
+    <cloud-backup disableIfNoEncryptionCapabilities="true">
+        <!-- 见 backup_rules.xml 注释：主密钥设备绑定，密文换机即不可解 -->
+        <exclude domain="sharedpref" path="ai_config_encrypted.xml" />
+        <exclude domain="sharedpref" path="sync_config_encrypted.xml" />
+        <!-- SAF 授权按安装实例记账，恢复出的 tree URI 必然失效 -->
+        <exclude domain="file" path="datastore/workspace.preferences_pb" />
+        <!-- 可再生的派生产物 -->
+        <exclude domain="file" path="exports" />
+        <!-- 崩溃日志与「这台设备 + 这个版本」强绑定，见 backup_rules.xml 注释 -->
+        <exclude domain="file" path="crash" />
+        <!-- 25 MB 配额下让位给正文 -->
+        <exclude domain="file" path="ai_attachments" />
+        <!-- 升级 APK -->
+        <exclude domain="external" path="." />
+    </cloud-backup>
+
+    <device-transfer>
+        <exclude domain="sharedpref" path="ai_config_encrypted.xml" />
+        <exclude domain="sharedpref" path="sync_config_encrypted.xml" />
+        <exclude domain="file" path="datastore/workspace.preferences_pb" />
+        <exclude domain="file" path="exports" />
+        <exclude domain="file" path="crash" />
+        <exclude domain="external" path="." />
+    </device-transfer>
+
+</data-extraction-rules>

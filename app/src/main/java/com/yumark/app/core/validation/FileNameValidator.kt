@@ -1,5 +1,8 @@
 package com.yumark.app.core.validation
 
+import com.yumark.app.R
+import com.yumark.app.core.util.UiMessage
+
 /**
  * 文件名验证器
  * 提供完整的文件名验证，包括：
@@ -8,6 +11,9 @@ package com.yumark.app.core.validation
  * - 路径遍历检查
  * - 长度限制检查
  * - 空格和点号检查
+ *
+ * 文案一律以 [UiMessage] 形式返回：本文件在 `core`，拿不到 Context，解析留给界面层
+ * （见 `presentation.common.resolve`）。也正因为只持有资源 id，本文件仍能在 JVM 测试里跑。
  */
 object FileNameValidator {
 
@@ -27,6 +33,15 @@ object FileNameValidator {
      */
     private val INVALID_CHARS_REGEX = Regex("[/\\\\:*?\"<>|]")
 
+    /** 单个路径分量的长度上限：ext4 / APFS / NTFS 都是 255，取最小公分母。 */
+    const val MAX_NAME_LENGTH = 255
+
+    /**
+     * [sanitize] 的截断阈值：比 [MAX_NAME_LENGTH] 留出扩展名与冲突后缀的余量
+     * （远端同名文档会在主体后拼 `-<id前6位>`，见 `core.export.UniqueFileNames`）。
+     */
+    const val MAX_SANITIZED_LENGTH = 200
+
     /**
      * 验证文件名
      * @param name 要验证的文件名
@@ -36,39 +51,43 @@ object FileNameValidator {
         return when {
             // 检查是否为空
             name.isBlank() ->
-                ValidationResult.Error("文件名不能为空")
+                ValidationResult.Error(UiMessage.Res(R.string.validation_name_empty))
 
             // 检查长度限制
-            name.length > 255 ->
-                ValidationResult.Error("文件名过长（最多 255 字符）")
+            name.length > MAX_NAME_LENGTH ->
+                ValidationResult.Error(
+                    UiMessage.of(R.string.validation_name_too_long, MAX_NAME_LENGTH)
+                )
 
-            // 检查���头或结尾是否有空格
+            // 检查开头或结尾是否有空格
             name.trim() != name ->
-                ValidationResult.Error("文件名开头或结尾不能有空格")
+                ValidationResult.Error(UiMessage.Res(R.string.validation_name_edge_space))
 
             // 检查是否以点号开头
             name.startsWith(".") ->
-                ValidationResult.Error("文件名不能以点号开头")
+                ValidationResult.Error(UiMessage.Res(R.string.validation_name_leading_dot))
 
             // 检查是否以点号结尾
             name.endsWith(".") ->
-                ValidationResult.Error("文件名不能以点号结尾")
+                ValidationResult.Error(UiMessage.Res(R.string.validation_name_trailing_dot))
 
             // 检查路径遍历攻击
             name.contains("..") ->
-                ValidationResult.Error("文件名不能包含 '..'")
+                ValidationResult.Error(UiMessage.Res(R.string.validation_name_dot_dot))
 
             // 检查非法字符
             INVALID_CHARS_REGEX.containsMatchIn(name) ->
-                ValidationResult.Error("文件名包含非法字符: / \\ : * ? \" < > |")
+                ValidationResult.Error(UiMessage.Res(R.string.validation_name_invalid_chars))
 
             // 检查 Windows 保留名称（不区分大小写）
             name.uppercase() in WINDOWS_RESERVED_NAMES ->
-                ValidationResult.Error("'$name' 是系统保留名称，不能使用")
+                ValidationResult.Error(UiMessage.of(R.string.validation_name_reserved, name))
 
             // 检查带扩展名的保留名称（例如 CON.txt 也是非法的）
             name.substringBefore(".").uppercase() in WINDOWS_RESERVED_NAMES ->
-                ValidationResult.Error("'${name.substringBefore(".")}' 是系统保留名称，不能使用")
+                ValidationResult.Error(
+                    UiMessage.of(R.string.validation_name_reserved, name.substringBefore("."))
+                )
 
             // 所有检查通过
             else -> ValidationResult.Success
@@ -85,20 +104,12 @@ object FileNameValidator {
     }
 
     /**
-     * 获取验证错误信息
-     * @param name 要验证的文件名
-     * @return 错误信息字符串，如果验证通过则返回 null
-     */
-    fun getErrorMessage(name: String): String? {
-        return when (val result = validate(name)) {
-            is ValidationResult.Success -> null
-            is ValidationResult.Error -> result.message
-        }
-    }
-
-    /**
      * 清理文件名用于安全落盘：替换非法字符与路径片段；空结果回退 "document"
      * 与 validate 不同，sanitize 永远返回可用的文件名（用于导出等不应失败的场景）
+     *
+     * 截断**按码点**而不是按 Char：emoji 与部分生僻汉字在 UTF-16 里占两个 Char（代理对），
+     * 裸 `substring(0, 200)` 若正好切在对中间，留下的是半个字符（孤立代理）——
+     * 以 UTF-8 编码落盘时它无法映射，会变成 `?` 或乱码字节，拼进 WebDAV 的 PUT 还可能直接 400。
      */
     fun sanitize(name: String): String {
         val cleaned = name
@@ -107,8 +118,11 @@ object FileNameValidator {
             .trim()
 
         if (cleaned.isBlank()) return "document"
+        if (cleaned.length <= MAX_SANITIZED_LENGTH) return cleaned
 
-        return if (cleaned.length > 200) cleaned.substring(0, 200) else cleaned
+        val cut = cleaned.substring(0, MAX_SANITIZED_LENGTH)
+        // 末位是高位代理 → 它的低位被切掉了，整对一起丢（少一个字符，不留半个）
+        return if (cut.last().isHighSurrogate()) cut.dropLast(1) else cut
     }
 }
 
@@ -123,7 +137,8 @@ sealed class ValidationResult {
 
     /**
      * 验证失败
-     * @param message 错误信息
+     * @param message 错误信息。是 [UiMessage] 而不是 String：产出侧在 `core`，拿不到 Context，
+     *   由界面层解析成当前语区的文案。
      */
-    data class Error(val message: String) : ValidationResult()
+    data class Error(val message: UiMessage) : ValidationResult()
 }

@@ -4,6 +4,11 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,13 +23,16 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.yumark.app.R
 import com.yumark.app.core.util.SafLocations
+import com.yumark.app.data.local.file.WorkspaceScanner
 import com.yumark.app.domain.model.Document
 import com.yumark.app.domain.model.Folder
 import com.yumark.app.domain.model.SearchResult
@@ -33,12 +41,66 @@ import com.yumark.app.domain.repository.FolderRepository
 import com.yumark.app.domain.usecase.importing.ImportCandidate
 import com.yumark.app.presentation.ai.AiAssistantHost
 import com.yumark.app.presentation.common.FolderConfirmDialog
+import com.yumark.app.presentation.common.SnackbarEffect
+import com.yumark.app.presentation.common.displayName
+import com.yumark.app.presentation.common.resolveOrNull
 import com.yumark.app.presentation.navigation.Screen
 import com.yumark.app.presentation.sidebar.SidebarActions
 import com.yumark.app.presentation.sidebar.SidebarFileTree
 import com.yumark.app.presentation.sidebar.MoveToFolderDialog
 import com.yumark.app.presentation.sidebar.selfAndDescendantFolderIds
 import com.yumark.app.presentation.sidebar.WorkspaceFileTree
+import com.yumark.app.presentation.theme.AppIconSize
+import com.yumark.app.presentation.theme.AppMotion
+import com.yumark.app.presentation.theme.AppSpacing
+import com.yumark.app.presentation.theme.extendedColors
+
+/**
+ * UI 测试用的稳定标签。
+ *
+ * 集中成一个 object 而不是散着写字面量：标签一旦被测试引用就是契约，
+ * 散落的魔法字符串改名时必然漏改，而漏改在测试里只表现成「节点找不到」，很难查。
+ *
+ * 会重复出现的列表行共用同一个标签（[ITEM] / [SEARCH_ITEM]），测试侧用
+ * onAllNodesWithTag 取集合再按文本筛。不做 id 后缀是因为文档 id 是运行时生成的
+ * UUID，测试里写不出字面量；拼接出来的标签还会在每次重组时多分配一个 String。
+ *
+ * 标签一律挂在真正可点的那个节点上（卡片本体，不是外层做动画的 Box），
+ * 否则 performClick() 点不到东西。
+ */
+private object FileListTags {
+    /** 文档列表根容器（LazyColumn） */
+    const val ROOT = "filelist_root"
+    /** 单个文档行（重复节点，共用同一标签） */
+    const val ITEM = "filelist_item"
+    /** 搜索结果列表根容器 */
+    const val SEARCH_RESULTS = "filelist_search_results"
+    /** 单条搜索结果（重复节点，共用同一标签） */
+    const val SEARCH_ITEM = "filelist_search_item"
+    const val SEARCH_FIELD = "filelist_search_field"
+    const val SORT_TOGGLE = "filelist_sort_toggle"
+    const val CREATE_DOCUMENT = "filelist_create_document"
+    const val CREATE_FOLDER = "filelist_create_folder"
+    const val DELETE_CONFIRM = "filelist_delete_confirm"
+    const val DELETE_CANCEL = "filelist_delete_cancel"
+    const val DELETE_FOLDER_CONFIRM = "filelist_delete_folder_confirm"
+    const val DELETE_FOLDER_CANCEL = "filelist_delete_folder_cancel"
+    const val IMPORT_SELECT_ALL = "filelist_import_select_all"
+    const val IMPORT_CONFIRM = "filelist_import_confirm"
+    const val IMPORT_CANCEL = "filelist_import_cancel"
+}
+
+/**
+ * 本屏特有的两个布局上界，刻意不塞进全局 [AppSpacing] / [AppIconSize] 标度：它们是对话框内
+ * 滚动列表的最大高度——超过就让列表自身滚动，而不是把 AlertDialog 顶穿屏幕。这类「布局上界」
+ * 与「间距标度」是两回事，按 AiConfigMetrics 的先例落在屏幕局部。
+ */
+private object FileListMetrics {
+    /** 导入勾选列表最大高度 */
+    val ImportListMaxHeight = 320.dp
+    /** 导入位置选择树最大高度 */
+    val ImportPickerMaxHeight = 360.dp
+}
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -68,19 +130,19 @@ fun FileListScreen(
 
     val workspace by viewModel.workspace.collectAsStateWithLifecycle()
     val workspaceError by viewModel.workspaceError.collectAsStateWithLifecycle()
+    // 错误条的文案在这里一次性解析：下面两处显示点（抽屉里 / 工作区树上方）共用同一个字符串，
+    // 各自 resolve 一次没有收益，还会让「同一条错误」的两处渲染分别持有各自的解析结果。
+    val workspaceErrorText = workspaceError.resolveOrNull()
     val defaultDirRestoreFailed by viewModel.defaultDirRestoreFailed.collectAsStateWithLifecycle()
     val isWorkspaceLoading by viewModel.isWorkspaceLoading.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // 操作失败提示（删除/重命名/创建失败等），不影响列表
+    // 操作失败提示（删除/重命名/创建失败等），不影响列表。
+    // 文案先在组合期解析：LaunchedEffect 的 block 不是 @Composable，里面调不了 stringResource。
     val actionError by viewModel.actionError.collectAsStateWithLifecycle()
-    LaunchedEffect(actionError) {
-        actionError?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.clearActionError()
-        }
-    }
+    val actionErrorText = actionError.resolveOrNull()
+    SnackbarEffect(actionErrorText, snackbarHostState) { viewModel.clearActionError() }
 
     // 打开抽屉时自动重扫工作区，保持文件树新鲜
     LaunchedEffect(drawerState.isOpen) {
@@ -125,15 +187,6 @@ fun FileListScreen(
         )
     }
 
-    // 导入成功提示
-    val importMessage by viewModel.importMessage.collectAsStateWithLifecycle()
-    LaunchedEffect(importMessage) {
-        importMessage?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.clearImportMessage()
-        }
-    }
-
     // 启动时自动检查更新
     val autoUpdateInfo by viewModel.autoUpdateInfo.collectAsStateWithLifecycle()
     var downloadingUpdate by remember { mutableStateOf<com.yumark.app.domain.model.UpdateInfo?>(null) }
@@ -159,96 +212,12 @@ fun FileListScreen(
         )
     }
 
-    // 导入文件：系统多选选择器，仅勾选项被导入（手动选择，非自动导入）；
-    // 选完先弹确认对话框回显文件数与导入位置（默认导入库，可自定义）
-    var pendingImportFiles by remember { mutableStateOf<List<android.net.Uri>?>(null) }
-    val importFilesLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments()
-    ) { uris ->
-        if (uris.isNotEmpty()) {
-            // 持久读取授权对每个文件单独生效（复制读取需要）
-            uris.forEach { uri ->
-                runCatching {
-                    context.contentResolver.takePersistableUriPermission(
-                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-                }
-            }
-            pendingImportFiles = uris
-        }
-    }
-
-    pendingImportFiles?.let { uris ->
-        ImportFilesDialog(
-            fileCount = uris.size,
-            folders = (uiState as? FileListUiState.Success)?.folders ?: emptyList(),
-            onConfirm = { targetFolderId ->
-                viewModel.importFiles(uris, targetFolderId)
-                pendingImportFiles = null
-            },
-            onDismiss = { pendingImportFiles = null }
-        )
-    }
-
-    // 导入文件夹：系统选择器只负责授权入口文件夹（部分 ROM 点进文件夹即返回，
-    // 选不到深层），之后弹应用内浏览器逐层进入，点「导入此文件夹」才扫描
-    var pendingImportDir by remember { mutableStateOf<android.net.Uri?>(null) }
-    val importFolderLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        if (uri != null) {
-            // 浏览即需读权限，拿到结果立即持久授权
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            }
-            pendingImportDir = uri
-        }
-    }
-
-    pendingImportDir?.let { uri ->
-        ImportFolderBrowserDialog(
-            treeUri = uri,
-            onConfirm = { relativePath ->
-                viewModel.scanImportFolder(uri.toString(), relativePath)
-                pendingImportDir = null
-            },
-            onDismiss = { pendingImportDir = null }
-        )
-    }
-
-    // 文件夹导入勾选对话框（默认全不选，手动勾；可自定义导入位置）
-    val importCandidates by viewModel.importCandidates.collectAsStateWithLifecycle()
-    importCandidates?.let { candidates ->
-        ImportSelectionDialog(
-            candidates = candidates,
-            folders = (uiState as? FileListUiState.Success)?.folders ?: emptyList(),
-            onConfirm = { selected, targetFolderId ->
-                viewModel.confirmImportFolder(selected, targetFolderId)
-            },
-            onDismiss = { viewModel.cancelImportFolder() }
-        )
-    }
-
-    // 导入中状态：模态进度提示（扫描/复制期间均显示）
-    val isImporting by viewModel.isImporting.collectAsStateWithLifecycle()
-    if (isImporting) {
-        AlertDialog(
-            onDismissRequest = { /* 导入中不可取消 */ },
-            confirmButton = {},
-            text = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(28.dp),
-                        strokeWidth = 3.dp
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text(stringResource(R.string.import_in_progress))
-                }
-            }
-        )
-    }
+    // 「导入到库」整条流程（选文件/选文件夹 → 确认 → 勾选 → 复制 → 结果提示）都在这里面，
+    // 包括它自己的对话框与 Snackbar；本页只保留两个入口。编辑器侧栏用的是同一个函数。
+    val importFlow = rememberImportFlow(
+        folders = (uiState as? FileListUiState.Success)?.folders ?: emptyList(),
+        snackbarHostState = snackbarHostState
+    )
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -260,7 +229,7 @@ fun FileListScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(AppSpacing.Screen),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -283,7 +252,7 @@ fun FileListScreen(
                                         text = { Text(stringResource(R.string.import_file)) },
                                         onClick = {
                                             showImportMenu = false
-                                            importFilesLauncher.launch(arrayOf("text/*", "text/markdown", "application/octet-stream"))
+                                            importFlow.pickFiles()
                                         },
                                         leadingIcon = { Icon(Icons.Default.Description, null) }
                                     )
@@ -291,13 +260,16 @@ fun FileListScreen(
                                         text = { Text(stringResource(R.string.import_folder)) },
                                         onClick = {
                                             showImportMenu = false
-                                            importFolderLauncher.launch(SafLocations.storageRootHint())
+                                            importFlow.pickFolder()
                                         },
                                         leadingIcon = { Icon(Icons.Default.FolderOpen, null) }
                                     )
                                 }
                             }
-                            IconButton(onClick = { showFolderDialog = true }) {
+                            IconButton(
+                                onClick = { showFolderDialog = true },
+                                modifier = Modifier.testTag(FileListTags.CREATE_FOLDER)
+                            ) {
                                 Icon(Icons.Default.CreateNewFolder, stringResource(R.string.create_folder))
                             }
                         }
@@ -306,13 +278,13 @@ fun FileListScreen(
                     HorizontalDivider()
 
                     // 工作区错误提示条（如恢复失败/打开失败）
-                    workspaceError?.let { err ->
+                    workspaceErrorText?.let { err ->
                         Surface(
                             color = MaterialTheme.colorScheme.errorContainer,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                modifier = Modifier.padding(horizontal = AppSpacing.Screen, vertical = AppSpacing.Default),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
@@ -343,7 +315,11 @@ fun FileListScreen(
                         }
                     }
 
-                    if (isWorkspaceLoading) {
+                    AnimatedVisibility(
+                        visible = isWorkspaceLoading,
+                        enter = expandVertically(AppMotion.enter()) + fadeIn(AppMotion.enter()),
+                        exit = shrinkVertically(AppMotion.exit()) + fadeOut(AppMotion.exit())
+                    ) {
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     }
 
@@ -369,7 +345,9 @@ fun FileListScreen(
                                     showSubfolderDialog = parentId
                                 },
                                 onRenameFolder = { folderId ->
-                                    // 找到文件夹名称
+                                    // 预填的是 Room 里真实存的 name，不是 displayName()：
+                                    // 这个对话框编辑的就是那个值，预填本地化文案会让「不改直接保存」
+                                    // 把导入库改名成一句英文，之后中文语区也只能看到英文。
                                     s.folders.find { it.id == folderId }?.let { folder ->
                                         folderToRename = folderId to folder.name
                                     }
@@ -391,15 +369,15 @@ fun FileListScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .padding(horizontal = AppSpacing.Screen, vertical = AppSpacing.Cozy),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             Icons.Default.FolderOpen,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = extendedColors.primaryText
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(AppSpacing.Default))
                         Text(
                             ws.name,
                             style = MaterialTheme.typography.titleMedium,
@@ -417,25 +395,46 @@ fun FileListScreen(
 
                     HorizontalDivider()
 
-                    if (ws.truncated) {
+                    // 上限由 WorkspaceScanner 定，文案里不能再抄一份数字：
+                    // 改了常量而文案没跟着改，界面就会对用户说谎。
+                    val fileLimitNotice = stringResource(
+                        R.string.workspace_truncated,
+                        WorkspaceScanner.MAX_FILES
+                    )
+                    val depthLimitNotice = stringResource(
+                        R.string.workspace_truncated_depth,
+                        WorkspaceScanner.MAX_DEPTH
+                    )
+                    // 两条分开说：撞深度上限时文档总数可能只有十几个，此时说「仅显示前 2000 个
+                    // 文档」就是在骗用户，他会反复去找那 2000 个在哪。两个上限都撞上就都显示，
+                    // 它们指的是两件不同的缺失（横向没收完 / 纵向没下钻）。
+                    val limitNotices = listOfNotNull(
+                        fileLimitNotice.takeIf { ws.fileLimitHit },
+                        depthLimitNotice.takeIf { ws.depthLimitHit }
+                    )
+                    limitNotices.forEach { notice ->
                         Text(
-                            stringResource(R.string.workspace_truncated),
+                            notice,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(horizontal = AppSpacing.Screen, vertical = AppSpacing.Tight)
                         )
                     }
 
-                    workspaceError?.let { err ->
+                    workspaceErrorText?.let { err ->
                         Text(
                             err,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(horizontal = AppSpacing.Screen, vertical = AppSpacing.Tight)
                         )
                     }
 
-                    if (isWorkspaceLoading) {
+                    AnimatedVisibility(
+                        visible = isWorkspaceLoading,
+                        enter = expandVertically(AppMotion.enter()) + fadeIn(AppMotion.enter()),
+                        exit = shrinkVertically(AppMotion.exit()) + fadeOut(AppMotion.exit())
+                    ) {
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     }
 
@@ -467,7 +466,9 @@ fun FileListScreen(
                                 },
                                 placeholder = { Text(stringResource(R.string.hint_search)) },
                                 singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag(FileListTags.SEARCH_FIELD)
                             )
                         },
                         navigationIcon = {
@@ -476,7 +477,10 @@ fun FileListScreen(
                                 searchQuery = ""
                                 viewModel.onSearchQueryChanged("")
                             }) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.close))
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    stringResource(R.string.cd_exit_search)
+                                )
                             }
                         }
                     )
@@ -495,12 +499,17 @@ fun FileListScreen(
                                 IconButton(onClick = { isSearchActive = true }) {
                                     Icon(Icons.Default.Search, stringResource(R.string.search))
                                 }
-                                IconButton(onClick = { showSortMenu = true }) {
+                                IconButton(
+                                    onClick = { showSortMenu = true },
+                                    modifier = Modifier.testTag(FileListTags.SORT_TOGGLE)
+                                ) {
                                     Icon(Icons.AutoMirrored.Filled.Sort, stringResource(R.string.sort))
                                 }
                             }
                             IconButton(onClick = { showAiSheet = true }) {
-                                Icon(Icons.Default.AutoAwesome, "AI 助手")
+                                // 复用编辑器的 editor_ai_assistant：那个键的注释已经写明它既做
+                                // contentDescription 也做可见文案，不再造一个同义键
+                                Icon(Icons.Default.AutoAwesome, stringResource(R.string.editor_ai_assistant))
                             }
                             IconButton(onClick = { navController.navigate("settings") }) {
                                 Icon(Icons.Default.Settings, stringResource(R.string.settings))
@@ -520,7 +529,10 @@ fun FileListScreen(
             floatingActionButton = {
                 // 工作区模式下 FAB 新建的是内部文档，隐藏避免误解
                 if (workspace == null) {
-                    FloatingActionButton(onClick = { showCreateDialog = true }) {
+                    FloatingActionButton(
+                        onClick = { showCreateDialog = true },
+                        modifier = Modifier.testTag(FileListTags.CREATE_DOCUMENT)
+                    ) {
                         Icon(Icons.Default.Add, stringResource(R.string.create_document))
                     }
                 }
@@ -531,27 +543,27 @@ fun FileListScreen(
                 if (ws != null) {
                     // 工作区模式：主界面提示从侧栏打开文档（内部文档库列表在此模式下隐藏）
                     Column(
-                        modifier = Modifier.align(Alignment.Center).padding(32.dp),
+                        modifier = Modifier.align(Alignment.Center).padding(AppSpacing.Section),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
                             Icons.Default.FolderOpen,
                             contentDescription = null,
-                            modifier = Modifier.size(56.dp),
-                            tint = MaterialTheme.colorScheme.primary
+                            modifier = Modifier.size(AppIconSize.Hero),
+                            tint = extendedColors.primaryText
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(AppSpacing.Screen))
                         Text(
-                            "正在浏览「${ws.name}」",
+                            stringResource(R.string.filelist_workspace_browsing, ws.name),
                             style = MaterialTheme.typography.titleMedium
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(AppSpacing.Tight))
                         Text(
                             stringResource(R.string.workspace_main_hint),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(AppSpacing.Cozy))
                         TextButton(onClick = { scope.launch { drawerState.open() } }) {
                             Text(stringResource(R.string.workspace_open_sidebar))
                         }
@@ -562,7 +574,7 @@ fun FileListScreen(
                         if (s.documents.isEmpty() && !s.isSearching) {
                             Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(stringResource(R.string.empty_documents), style = MaterialTheme.typography.headlineSmall)
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(AppSpacing.Default))
                                 Text(stringResource(R.string.empty_documents_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         } else if (s.isSearching && s.searchResults.isEmpty()) {
@@ -571,7 +583,11 @@ fun FileListScreen(
                             }
                         } else if (s.isSearching) {
                             // 搜索结果列表
-                            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            LazyColumn(
+                                modifier = Modifier.testTag(FileListTags.SEARCH_RESULTS),
+                                contentPadding = PaddingValues(AppSpacing.Screen),
+                                verticalArrangement = Arrangement.spacedBy(AppSpacing.Default)
+                            ) {
                                 items(s.searchResults, key = { it.document.id }) { result ->
                                     SearchResultCard(
                                         result = result,
@@ -582,9 +598,15 @@ fun FileListScreen(
                                 }
                             }
                         } else {
-                            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            LazyColumn(
+                                modifier = Modifier.testTag(FileListTags.ROOT),
+                                contentPadding = PaddingValues(AppSpacing.Screen),
+                                verticalArrangement = Arrangement.spacedBy(AppSpacing.Default)
+                            ) {
                                 items(s.documents, key = { it.id }) { doc ->
-                                    Box(modifier = Modifier.animateItemPlacement()) {
+                                    // Compose Foundation 1.7 移除了实验性的 animateItemPlacement()，
+                                    // 换成已转正的 animateItem()（同时覆盖出现/移动/消失三种动画）。
+                                    Box(modifier = Modifier.animateItem()) {
                                         DocumentCard(
                                             doc = doc,
                                             onClick = { navController.navigate(Screen.Editor.createRoute(doc.id)) },
@@ -723,12 +745,20 @@ fun FileListScreen(
                         viewModel.deleteFolder(folderId, deleteContents = true)
                         folderToDelete = null
                     },
+                    modifier = Modifier.testTag(FileListTags.DELETE_FOLDER_CONFIRM),
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) {
                     Text(stringResource(R.string.delete))
                 }
             },
-            dismissButton = { TextButton(onClick = { folderToDelete = null }) { Text(stringResource(R.string.cancel)) } }
+            dismissButton = {
+                TextButton(
+                    onClick = { folderToDelete = null },
+                    modifier = Modifier.testTag(FileListTags.DELETE_FOLDER_CANCEL)
+                ) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
         )
     }
 
@@ -769,7 +799,7 @@ fun FileListScreen(
         // 禁选文档当前所在位置(重选等同 no-op，仍会刷新 updated_at/重排)：
         // 在某文件夹内 → 禁该文件夹；在根目录 → 禁根目录行。
         MoveToFolderDialog(
-            title = "移动「${doc.name}」到",
+            title = stringResource(R.string.editor_move_to_title, doc.name),
             folders = moveFolders,
             disabledFolderIds = setOfNotNull(doc.folderId),
             rootEnabled = doc.folderId != null,
@@ -784,10 +814,12 @@ fun FileListScreen(
     // 移动文件夹到其他文件夹
     folderToMove?.let { folderId ->
         val moveFolders = (uiState as? FileListUiState.Success)?.folders ?: emptyList()
-        val name = moveFolders.find { it.id == folderId }?.name ?: ""
+        // 收 String 的重载：接收者可空，?. 会把 @Composable 调用变成条件调用
+        val importLibraryName = stringResource(R.string.import_library)
+        val name = moveFolders.find { it.id == folderId }?.displayName(importLibraryName) ?: ""
         val folderParentId = moveFolders.find { it.id == folderId }?.parentId
         MoveToFolderDialog(
-            title = "移动「$name」到",
+            title = stringResource(R.string.editor_move_to_title, name),
             folders = moveFolders,
             disabledFolderIds = selfAndDescendantFolderIds(moveFolders, folderId),
             rootEnabled = folderParentId != null,
@@ -810,12 +842,20 @@ fun FileListScreen(
                         viewModel.deleteDocument(doc.id)
                         documentToDelete = null
                     },
+                    modifier = Modifier.testTag(FileListTags.DELETE_CONFIRM),
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) {
                     Text(stringResource(R.string.delete))
                 }
             },
-            dismissButton = { TextButton(onClick = { documentToDelete = null }) { Text(stringResource(R.string.cancel)) } }
+            dismissButton = {
+                TextButton(
+                    onClick = { documentToDelete = null },
+                    modifier = Modifier.testTag(FileListTags.DELETE_CANCEL)
+                ) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
         )
     }
 }
@@ -826,25 +866,37 @@ fun SearchResultCard(
     onClick: () -> Unit
 ) {
     OutlinedCard(
+        // 标签挂在可点的卡片本体上（不是外层容器），测试里 performClick 才点得到
         modifier = Modifier
             .fillMaxWidth()
+            .testTag(FileListTags.SEARCH_ITEM)
             .clickable(onClick = onClick)
     ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(AppSpacing.Screen)) {
             Text(
                 result.document.name,
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(AppSpacing.Tight))
             Text(
-                if (result.matchCount > 0) "${result.matchCount} 处匹配" else "标题匹配",
+                // 命中次数走 plurals：英文 "1 match" / "2 matches" 分支不同；
+                // 只有标题命中（正文 0 处）是另一条独立文案，不能当成 0 的复数形式。
+                if (result.matchCount > 0) {
+                    pluralStringResource(
+                        R.plurals.filelist_search_match_count,
+                        result.matchCount,
+                        result.matchCount
+                    )
+                } else {
+                    stringResource(R.string.filelist_search_title_match)
+                },
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary
+                color = extendedColors.primaryText
             )
             result.snippets.firstOrNull()?.let { snippet ->
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(AppSpacing.Tight))
                 Text(
                     snippet,
                     style = MaterialTheme.typography.bodySmall,
@@ -868,14 +920,17 @@ fun DocumentCard(
     var showMenu by remember { mutableStateOf(false) }
 
     OutlinedCard(
+        // 标签挂在可点的卡片本体上（不是外层做 animateItem 的 Box），
+        // 测试里 onAllNodesWithTag(ITEM)[i].performClick() 才点得到
         modifier = Modifier
             .fillMaxWidth()
+            .testTag(FileListTags.ITEM)
             .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(AppSpacing.Screen),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -886,9 +941,14 @@ fun DocumentCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(AppSpacing.Tight))
+                // 字数与相对时间都必须走资源：英文语境下 "1 word" / "1 minute ago" 的单复数
+                // 只能由 plurals 决定，Kotlin 字符串模板拼不出来。中间的「 • 」是标点分隔符，
+                // 不进资源表。
+                val words = pluralStringResource(R.plurals.word_count, doc.wordCount, doc.wordCount)
+                val updated = formatElapsedTime(doc.updatedAt)
                 Text(
-                    "${doc.wordCount} 字 • ${formatDate(doc.updatedAt)}",
+                    "$words • $updated",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -898,15 +958,19 @@ fun DocumentCard(
                 IconButton(onClick = onFavorite) {
                     Icon(
                         if (doc.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = "Favorite",
-                        tint = if (doc.isFavorite) MaterialTheme.colorScheme.primary
+                        // 图标是收藏/取消收藏的**开关**，contentDescription 必须跟着状态变，
+                        // 否则读屏用户听到的永远是同一句，无从知道按下去会发生什么。
+                        contentDescription = stringResource(
+                            if (doc.isFavorite) R.string.unfavorite else R.string.favorite
+                        ),
+                        tint = if (doc.isFavorite) extendedColors.primaryText
                         else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
                 Box {
                     IconButton(onClick = { showMenu = true }) {
-                        Icon(Icons.Default.MoreVert, "更多")
+                        Icon(Icons.Default.MoreVert, stringResource(R.string.cd_more_options))
                     }
 
                     DropdownMenu(
@@ -914,12 +978,12 @@ fun DocumentCard(
                         onDismissRequest = { showMenu = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("重命名") },
+                            text = { Text(stringResource(R.string.rename)) },
                             onClick = { showMenu = false; onRename() },
                             leadingIcon = { Icon(Icons.Default.Edit, null) }
                         )
                         DropdownMenuItem(
-                            text = { Text("删除") },
+                            text = { Text(stringResource(R.string.delete)) },
                             onClick = { showMenu = false; onDelete() },
                             leadingIcon = {
                                 Icon(
@@ -936,24 +1000,63 @@ fun DocumentCard(
     }
 }
 
-private fun formatDate(instant: kotlinx.datetime.Instant): String {
+/**
+ * 把「上次修改时间」渲染成相对时间。
+ *
+ * 标 @Composable 是为了能读 plurals：英文的 "1 minute ago" 和 "5 minutes ago" 不是同一条文案，
+ * 只有 plurals 选得对分支，而 plurals 只能在 composition 里读。原来这里是五条硬编码中文
+ * （"刚刚" / "N分钟前" …），英文用户看到的就是中文——资源表里 updated_* 那几条键一直都在，
+ * 只是从来没人引用它们。
+ *
+ * 改名的原因：本项目里有两个 `formatDate`，另一个在 SettingsScreen 里把 ISO 字符串格式化成
+ * 绝对日期。这个函数做的是相对时间，同名会让人以为是同一件事。
+ *
+ * 叫 formatElapsedTime 而不是 formatRelativeTime：ConversationListSheet 里另有一个曾经同名的
+ * 函数，两者**不合并**。这个算的是已流逝时长（"5 分钟前" / "3 天前"），那个算的是日历归档
+ * （今天报 HH:mm、昨天报「昨天」、本周报星期几、更早报 MM/dd）。合并只有两条路：改掉某个
+ * 页面用户已经看惯的格式，或者加个开关参数把两套逻辑塞进一个函数体——都比同名更糟。
+ * 于是各自按自己算的东西命名，冲突自然消失。
+ *
+ * 已知取舍：now 在 composition 期间只取一次，不会自己往前走。列表滚动或数据刷新会触发重组
+ * 从而更新，但静止不动的卡片会一直显示旧值。要做到秒级自走得再引一个 ticker 状态，不值。
+ *
+ * 未来时间戳（设备时钟回拨、同步下来的文档带了未来时间）会落进第一个分支显示「刚刚」，
+ * 而不是负数分钟，这是有意的降级。
+ */
+@Composable
+private fun formatElapsedTime(instant: kotlinx.datetime.Instant): String {
     val now = kotlinx.datetime.Clock.System.now()
     val diff = now - instant
     return when {
-        diff.inWholeMinutes < 1 -> "刚刚"
-        diff.inWholeMinutes < 60 -> "${diff.inWholeMinutes}分钟前"
-        diff.inWholeHours < 24 -> "${diff.inWholeHours}小时前"
-        diff.inWholeDays < 7 -> "${diff.inWholeDays}天前"
-        else -> "${diff.inWholeDays / 7}周前"
+        diff.inWholeMinutes < 1 -> stringResource(R.string.updated_just_now)
+        diff.inWholeMinutes < 60 -> {
+            val minutes = diff.inWholeMinutes.toInt()
+            pluralStringResource(R.plurals.updated_minutes_ago, minutes, minutes)
+        }
+        diff.inWholeHours < 24 -> {
+            val hours = diff.inWholeHours.toInt()
+            pluralStringResource(R.plurals.updated_hours_ago, hours, hours)
+        }
+        diff.inWholeDays < 7 -> {
+            val days = diff.inWholeDays.toInt()
+            pluralStringResource(R.plurals.updated_days_ago, days, days)
+        }
+        else -> {
+            val weeks = (diff.inWholeDays / 7).toInt()
+            pluralStringResource(R.plurals.updated_weeks_ago, weeks, weeks)
+        }
     }
 }
 
 /**
  * 文件夹导入勾选对话框：列出扫描到的候选文件，默认全不选，用户手动勾选要导入的项。
  * 按相对文件夹路径分组，便于在嵌套结构中辨认。顶部可查看/更改导入位置（默认导入库）。
+ *
+ * internal 而不是 private：编辑器侧栏也有「导入到库」入口，两处共用 [rememberImportFlow]，
+ * 而这个对话框由它统一发射。留在本文件里不动是为了少搬 150 行——它只被同包内调用。
  */
 @Composable
-private fun ImportSelectionDialog(
+internal fun ImportSelectionDialog(
     candidates: List<ImportCandidate>,
     folders: List<Folder>,
     onConfirm: (List<ImportCandidate>, String?) -> Unit,
@@ -998,11 +1101,12 @@ private fun ImportSelectionDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .testTag(FileListTags.IMPORT_SELECT_ALL)
                         .clickable {
                             val target = !allSelected
                             candidates.forEach { checked[it.uri] = target }
                         }
-                        .padding(vertical = 4.dp),
+                        .padding(vertical = AppSpacing.Tight),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Checkbox(
@@ -1012,13 +1116,13 @@ private fun ImportSelectionDialog(
                     Text(stringResource(R.string.import_select_all), style = MaterialTheme.typography.bodyMedium)
                 }
                 HorizontalDivider()
-                LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                LazyColumn(modifier = Modifier.heightIn(max = FileListMetrics.ImportListMaxHeight)) {
                     items(candidates, key = { it.uri }) { candidate ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { checked[candidate.uri] = !(checked[candidate.uri] ?: false) }
-                                .padding(vertical = 4.dp),
+                                .padding(vertical = AppSpacing.Tight),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Checkbox(
@@ -1052,18 +1156,22 @@ private fun ImportSelectionDialog(
         confirmButton = {
             TextButton(
                 onClick = { onConfirm(candidates.filter { checked[it.uri] == true }, targetFolderId) },
+                modifier = Modifier.testTag(FileListTags.IMPORT_CONFIRM),
                 enabled = selectedCount > 0
             ) { Text(stringResource(R.string.ok)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag(FileListTags.IMPORT_CANCEL)
+            ) { Text(stringResource(R.string.cancel)) }
         }
     )
 }
 
-/** 导入文件确认对话框：回显文件数 + 导入位置（默认导入库，可更改） */
+/** 导入文件确认对话框：回显文件数 + 导入位置（默认导入库，可更改）。internal 理由同 [ImportSelectionDialog]。 */
 @Composable
-private fun ImportFilesDialog(
+internal fun ImportFilesDialog(
     fileCount: Int,
     folders: List<Folder>,
     onConfirm: (String?) -> Unit,
@@ -1093,8 +1201,8 @@ private fun ImportFilesDialog(
         title = { Text(stringResource(R.string.import_file)) },
         text = {
             Column {
-                Text(stringResource(R.string.import_files_count, fileCount))
-                Spacer(modifier = Modifier.height(12.dp))
+                Text(pluralStringResource(R.plurals.import_files_count, fileCount, fileCount))
+                Spacer(modifier = Modifier.height(AppSpacing.Cozy))
                 ImportTargetRow(
                     targetFolderId = targetFolderId,
                     folders = folders,
@@ -1125,10 +1233,10 @@ private fun ImportTargetRow(
         Icon(
             Icons.Default.Folder,
             contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.primary
+            modifier = Modifier.size(AppIconSize.Medium),
+            tint = extendedColors.primaryText
         )
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(AppSpacing.Default))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 stringResource(R.string.import_target),
@@ -1146,17 +1254,27 @@ private fun ImportTargetRow(
     }
 }
 
-/** 导入位置的完整路径文案：沿父链拼出「a / b / c」，根目录与未建的导入库有专名 */
+/**
+ * 导入位置的完整路径文案：沿父链拼出「a / b / c」，根目录与未建的导入库有专名。
+ *
+ * 标 @Composable 只为了能读 stringResource（唯一调用点在 ImportTargetRow 的组合里）。
+ * 根目录文案在函数开头无条件取好再判空：composable 调用放在提前 return 之前，
+ * 组合的分组结构最稳定。
+ */
+@Composable
 private fun importTargetLabel(targetFolderId: String?, folders: List<Folder>): String {
-    if (targetFolderId == null) return "根目录"
+    val rootLabel = stringResource(R.string.move_to_root)
+    val importLibraryName = stringResource(R.string.import_library)
+    if (targetFolderId == null) return rootLabel
     val byId = folders.associateBy { it.id }
-    if (targetFolderId !in byId) return FolderRepository.IMPORT_LIBRARY_FOLDER_NAME
+    // 找不到只有一种情况：导入库还没惰性创建出来，所以它不在 folders 里
+    if (targetFolderId !in byId) return importLibraryName
     val names = ArrayDeque<String>()
     var cur: String? = targetFolderId
     var guard = 0
     while (cur != null && ++guard <= 64) {
         val folder = byId[cur] ?: break
-        names.addFirst(folder.name)
+        names.addFirst(folder.displayName(importLibraryName))
         cur = folder.parentId
     }
     return names.joinToString(" / ")
@@ -1176,9 +1294,21 @@ private fun ImportTargetPickerDialog(
     onSelect: (String?) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val options = remember(folders) {
+    // 文案先在组合期取好，再喂给 remember：remember 的 block 不是 @Composable，
+    // 里面调不了 stringResource。两条文案同时进 key，切换系统语言后列表会重建。
+    val rootLabel = stringResource(R.string.move_to_root)
+    // 导入库这一行的名字取本地化文案，不取 IMPORT_LIBRARY_FOLDER_NAME：那个常量是写进 Room 的
+    // 中文字面量，英文语区的用户会在这里看到「导入库（默认）」。这一行不依赖 folders 列表
+    // （导入库是惰性创建的，可能还不存在），所以走不了 Folder.displayName()。
+    val importLibraryLabel = stringResource(
+        R.string.filelist_import_target_default,
+        stringResource(R.string.import_library)
+    )
+    val options = remember(folders, rootLabel, importLibraryLabel) {
         val result = mutableListOf<ImportTargetOption>()
         fun addChildren(parentId: String?, level: Int) {
+            // 导入库自己被这条 filter 排除，它的行在下面单独拼；所以这里的 folder.name
+            // 不可能是那个中文常量，不需要过 displayName()。
             folders.filter { it.parentId == parentId && it.id != FolderRepository.IMPORT_LIBRARY_FOLDER_ID }
                 .sortedBy { it.order }
                 .forEach { folder ->
@@ -1188,11 +1318,11 @@ private fun ImportTargetPickerDialog(
         }
         result += ImportTargetOption(
             FolderRepository.IMPORT_LIBRARY_FOLDER_ID,
-            "${FolderRepository.IMPORT_LIBRARY_FOLDER_NAME}（默认）",
+            importLibraryLabel,
             0
         )
         addChildren(FolderRepository.IMPORT_LIBRARY_FOLDER_ID, 1)
-        result += ImportTargetOption(null, "根目录", 0)
+        result += ImportTargetOption(null, rootLabel, 0)
         addChildren(null, 1)
         result
     }
@@ -1207,14 +1337,14 @@ private fun ImportTargetPickerDialog(
             .wrapContentHeight(),
         title = { Text(stringResource(R.string.import_target_pick)) },
         text = {
-            LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+            LazyColumn(modifier = Modifier.heightIn(max = FileListMetrics.ImportPickerMaxHeight)) {
                 items(options.size) { index ->
                     val option = options[index]
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onSelect(option.folderId) }
-                            .padding(start = (option.level * 16).dp),
+                            .padding(start = AppSpacing.Screen * option.level),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
@@ -1224,10 +1354,10 @@ private fun ImportTargetPickerDialog(
                         Icon(
                             Icons.Default.Folder,
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.primary
+                            modifier = Modifier.size(AppIconSize.Small),
+                            tint = extendedColors.primaryText
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(AppSpacing.Default))
                         Text(
                             option.label,
                             style = MaterialTheme.typography.bodyMedium,
