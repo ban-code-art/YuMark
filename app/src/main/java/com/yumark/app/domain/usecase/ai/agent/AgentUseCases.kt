@@ -240,8 +240,18 @@ class SendAgentMessageUseCase @Inject constructor(
                 // 一轮一份：上一轮截断过不代表这一轮也截断。
                 var truncated = false
 
+                // 上下文窗口管理：把历史+工具消息裁进 token 预算（扣除系统提示与响应余量）。
+                // 按回合组整体丢弃，assistant 工具调用与 tool 结果的配对永不拆散——
+                // 不裁的话长会话/长任务必然撞爆模型上下文（API 400），整轮 Agent 失败。
+                val requestMessages = AgentContextTrimmer.trim(
+                    messages = workingMessages,
+                    budgetTokens = AgentContextTrimmer.DEFAULT_BUDGET_TOKENS,
+                    reservedTokens = AgentContextTrimmer.estimateTokens(systemPrompt) +
+                        config.maxTokens,
+                    minKeepMessages = MIN_KEEP_MESSAGES_IN_CONTEXT
+                )
                 adapter.sendChatStream(
-                    workingMessages,
+                    requestMessages,
                     AiRequestConfig(
                         model = config.modelName,
                         temperature = config.temperature,
@@ -649,6 +659,9 @@ class ExecuteAgentActionUseCase @Inject constructor(
 }
 
 private const val MAX_TURNS = 10
+
+/** Agent 单轮请求的上下文保护区：最近的工具链必须完整落在其中（见 AgentContextTrimmer）。 */
+private const val MIN_KEEP_MESSAGES_IN_CONTEXT = 12
 
 /** 编辑场景把当前文档全文塞进系统提示的字符上限；超过则退回大纲 + read_document。 */
 private const val FULL_DOC_CONTEXT_BUDGET = 6000

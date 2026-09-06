@@ -162,7 +162,7 @@ private fun MarkdownRenderedText(
             <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 body {
-                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
                     font-size: 14px;
                     line-height: 1.5;
                     color: $textColorHex;
@@ -179,7 +179,7 @@ private fun MarkdownRenderedText(
                 h3 { font-size: 1.2em; }
                 h4, h5, h6 { font-size: 1.1em; }
                 code {
-                    font-family: 'Courier New', monospace;
+                    font-family: 'Courier New', 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', monospace;
                     background: ${if (isDarkMode) "#2E2E2C" else "#F0F0F0"};
                     color: ${if (isDarkMode) "#E0DED6" else "#333333"};
                     padding: 1px 4px;

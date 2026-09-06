@@ -48,7 +48,7 @@
    字体栈显式列出中文字族，否则只能听凭系统兜底挑一个。 */
 body{
   margin:0;padding:16px;background:var(--ym-bg);color:var(--ym-fg);
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans CJK SC","PingFang SC","Microsoft YaHei",sans-serif;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans CJK SC","PingFang SC","Microsoft YaHei","Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji",sans-serif;
   font-size:16px;line-height:1.75;word-wrap:break-word;-webkit-text-size-adjust:100%;
 }
 /* 不要加 min-height:100vh。导出 PDF 走的是同一个模板：离屏视口高 2000px，而一张 A4 页面
@@ -86,7 +86,7 @@ th{background-color:var(--ym-th-bg);font-weight:600;}
    所以这里按 prism 自己的选择器原样再写一遍：特异性相等时后出现的胜出，本 style 排在它之后。
    text-shadow 一并清掉，那道白色投影是 prism 浅色主题的装饰，深底上看着发虚。 */
 pre,pre[class*=language-]{background:var(--ym-code-bg);margin:1em 0;padding:12px 16px;border-radius:6px;overflow-x:auto;line-height:1.6;font-size:.9em;-webkit-overflow-scrolling:touch;}
-code,code[class*=language-],pre[class*=language-]{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Courier New',monospace;color:var(--ym-code-fg);text-shadow:none;}
+code,code[class*=language-],pre[class*=language-]{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Courier New','Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji',monospace;color:var(--ym-code-fg);text-shadow:none;}
 code{background-color:var(--ym-code-bg);font-size:.9em;padding:2px 6px;border-radius:3px;}
 :not(pre)>code[class*=language-]{background:var(--ym-code-bg);padding:2px 6px;border-radius:3px;}
 /* 代码块里的 code 要清掉行内那套：不清就是内外两层背景加 6px 内边距叠着，首行缩进对不齐。 */

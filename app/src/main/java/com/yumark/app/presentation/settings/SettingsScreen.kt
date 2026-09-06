@@ -2123,7 +2123,7 @@ private fun ChangelogMarkdownView(
             <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 body {
-                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
                     font-size: 14px;
                     line-height: 1.6;
                     color: $textColorHex;
@@ -2140,7 +2140,7 @@ private fun ChangelogMarkdownView(
                 li { margin: 0.2em 0; }
                 strong { font-weight: 600; }
                 code {
-                    font-family: 'Courier New', monospace;
+                    font-family: 'Courier New', 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', monospace;
                     background: $codeBgHex;
                     color: $codeFgHex;
                     padding: 1px 4px;
