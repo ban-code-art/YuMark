@@ -35,7 +35,7 @@ class TrashScreenUiTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
     private fun trashed(name: String) = TrashedDocument(
-        id = "doc-1",
+        id = name,   // LazyColumn 的 key 取 id：必须逐条唯一（此前写死同一个 id 会让列表崩溃）
         name = name,
         deletedAt = Instant.fromEpochMilliseconds(1_700_000_000_000),
         updatedAt = Instant.fromEpochMilliseconds(1_700_000_000_000),
