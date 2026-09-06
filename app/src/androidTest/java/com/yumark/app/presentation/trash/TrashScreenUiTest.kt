@@ -78,7 +78,7 @@ class TrashScreenUiTest {
         rule.onNodeWithTag(TrashTags.PURGE).performClick()
 
         assertThat(restored).isTrue()
-        assertThat(purged?.id).isEqualTo("doc-1")
+        assertThat(purged?.id).isEqualTo("笔记")   // trashed() 助手以名字作 id（列表 key 逐条唯一）
         assertThat(purged?.name).isEqualTo("笔记")
     }
 
