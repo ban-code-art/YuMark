@@ -14,8 +14,9 @@ local.properties
 .DS_Store
 captures/
 
-# Claude Code 工作区
+# AI 工具工作区（会话记忆/诊断产物，与项目无关）
 .claude/
+.workbuddy-ai/
 
 # 本地诊断产物（截图 / UI dump，不入库）
 .diag/
