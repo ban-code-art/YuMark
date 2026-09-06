@@ -13,13 +13,27 @@ object DocumentContextTools {
 
     val READ_DOCUMENT = AiTool(
         name = "read_document",
-        description = "读取指定文档的完整内容。用于分析、引用或理解项目中的具体文档。",
+        description = "读取指定文档的内容。用于分析、引用或理解项目中的具体文档。" +
+            "大文档建议先用 mode=outline 看结构，再用 offset/length 分页读取目标段落，避免超出上下文。",
         parameters = mapOf(
             "type" to "object",
             "properties" to mapOf(
                 "document_id" to mapOf(
                     "type" to "string",
                     "description" to "文档ID（可通过list_documents获取）"
+                ),
+                "mode" to mapOf(
+                    "type" to "string",
+                    "description" to "读取模式：full=按 offset/length 读取正文（默认）；outline=只读标题结构与开头，快速了解大文档",
+                    "enum" to listOf("full", "outline")
+                ),
+                "offset" to mapOf(
+                    "type" to "integer",
+                    "description" to "mode=full 时，从正文第几个字符开始读取（默认 0）"
+                ),
+                "length" to mapOf(
+                    "type" to "integer",
+                    "description" to "mode=full 时，本次读取的字符数（默认与上限一致）"
                 )
             ),
             "required" to listOf("document_id")
@@ -28,7 +42,7 @@ object DocumentContextTools {
 
     val LIST_DOCUMENTS = AiTool(
         name = "list_documents",
-        description = "列出项目中所有文档的基本信息（ID、名称、路径、文件夹）。用于了解项目结构。",
+        description = "列出项目中所有文档的基本信息（ID、名称、所在文件夹）与文件夹结构。用于了解项目结构。",
         parameters = mapOf(
             "type" to "object",
             "properties" to mapOf(

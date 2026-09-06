@@ -3,19 +3,60 @@ package com.yumark.app.domain.usecase.ai
 import com.yumark.app.data.local.file.FileManager
 import com.yumark.app.domain.model.ToolCall
 import com.yumark.app.domain.repository.DocumentRepository
+import com.yumark.app.domain.repository.FolderRepository
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val DEFAULT_READ_CHARS = 6000
+private const val MAX_FOLDER_DEPTH = 10
+
 /**
- * 执行AI文档工具调用
+ * 文件夹 ID → 「a/b」名称链。悬空引用或超深（防环）回退为原始 ID，不给模型悬空引用。
+ * 独立成纯函数：read_document 的「所在文件夹」与 list_documents 的结构节共用同一口径。
+ */
+private fun folderLabelOf(
+    folderId: String?,
+    byId: Map<String, com.yumark.app.domain.model.Folder>
+): String {
+    // 悬空引用/超深（防环）一律回退原始 ID；根目录与正常链都走同一条收集路径。
+    var cursor: String? = folderId
+    var guard = 0
+    val names = ArrayDeque<String>()
+    var dangling = false
+    while (cursor != null && guard < MAX_FOLDER_DEPTH) {
+        val folder = byId[cursor]
+        if (folder == null) {
+            dangling = true
+            break
+        }
+        names.addFirst(folder.name)
+        cursor = folder.parentId
+        guard++
+    }
+    return when {
+        dangling || cursor != null -> folderId ?: "根目录"
+        names.isEmpty() -> "根目录"
+        else -> names.joinToString("/")
+    }
+}
+
+/**
+ * 执行 AI 文档工具调用：read_document（大纲/分页）、list_documents（含文件夹结构）、
+ * search_in_project（相关度排序）。
+ *
+ * 大文档导航设计：`read_document` 默认只回前 [DEFAULT_READ_CHARS] 字符并附分页指引，
+ * 模型可用 `mode=outline` 廉价地看结构、用 `offset/length` 分页读目标段落——
+ * 否则大文档的尾部对模型永远不可见（旧的静默截断把后半篇吞掉且不告诉模型）。
  */
 @Singleton
 class ExecuteDocumentToolUseCase @Inject constructor(
     private val documentRepository: DocumentRepository,
+    private val folderRepository: FolderRepository,
     private val fileManager: FileManager
 ) {
     suspend operator fun invoke(toolCall: ToolCall): Result<String> = runCatching {
@@ -40,12 +81,34 @@ class ExecuteDocumentToolUseCase @Inject constructor(
         val content = fileManager.loadDocumentContent(doc.id).getOrElse {
             throw IllegalArgumentException("无法读取文档内容: $docId")
         }
+        val header = "【文档名称】${doc.name}\n【所在文件夹】${resolveFolderLabel(doc.folderId)}\n"
 
-        return formatDocumentForTool(doc.name, doc.folderId, content)
+        val mode = args["mode"]?.jsonPrimitive?.contentOrNull ?: "full"
+        if (mode == "outline") {
+            return header +
+                "【大纲（全文共 ${content.length} 字符）】\n" +
+                com.yumark.app.core.util.documentOutline(content) + "\n" +
+                "（需要某段确切原文时，用 mode=full + offset/length 分页读取）"
+        }
+
+        val offset = args["offset"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(0) ?: 0
+        val length = args["length"]?.jsonPrimitive?.intOrNull?.takeIf { it > 0 } ?: DEFAULT_READ_CHARS
+        val safeOffset = offset.coerceAtMost(content.length)
+        val window = content.substring(safeOffset, minOf(content.length, safeOffset + length))
+        val end = safeOffset + window.length
+
+        val paging = if (end < content.length || safeOffset > 0) {
+            "【正文片段：第 ${safeOffset + 1}–$end 字符，共 ${content.length} 字符】\n" +
+                (if (end < content.length) "（后续内容用 offset=$end 继续读取）\n" else "") +
+                (if (safeOffset > 0) "（前文从 offset=0 开始）\n" else "")
+        } else {
+            ""
+        }
+        return header + paging + window
     }
 
     private suspend fun executeListDocuments(args: Map<String, JsonElement>): String {
-        val folderId = args["folder_id"]?.jsonPrimitive?.content
+        val folderId = args["folder_id"]?.jsonPrimitive?.contentOrNull
 
         val docs = if (folderId != null) {
             documentRepository.getDocumentsByFolder(folderId).getOrElse {
@@ -57,11 +120,24 @@ class ExecuteDocumentToolUseCase @Inject constructor(
             }
         }
 
-        return if (docs.isEmpty()) {
-            "项目中暂无文档。"
+        // 文件夹结构与名称解析：只给 UUID 等于让模型对库结构一无所知
+        val folders = folderRepository.getAllFolders().getOrElse { emptyList() }
+        val byId = folders.associateBy { it.id }
+        fun folderPath(id: String?): String = folderLabelOf(id, byId)
+
+        val folderSection = if (folders.isEmpty()) {
+            "文件夹：无\n\n"
         } else {
-            "项目文档列表（共${docs.size}个）：\n" + docs.joinToString("\n") { doc ->
-                "- 【${doc.name}】ID: ${doc.id}, 路径: ${doc.folderId ?: "根目录"}"
+            "文件夹结构：\n" + folders.joinToString("\n") { folder ->
+                "- 【${folder.name}】ID: ${folder.id}, 路径: ${folderPath(folder.id)}"
+            } + "\n\n"
+        }
+
+        return if (docs.isEmpty() && folders.isEmpty()) {
+            "项目中暂无文档和文件夹。"
+        } else {
+            folderSection + "项目文档列表（共${docs.size}个）：\n" + docs.joinToString("\n") { doc ->
+                "- 【${doc.name}】ID: ${doc.id}, 所在文件夹: ${folderPath(doc.folderId)}"
             }
         }
     }
@@ -101,27 +177,12 @@ class ExecuteDocumentToolUseCase @Inject constructor(
             }
         }
     }
-}
 
-/**
- * `read_document` 交给模型的返回体：三行表头 + **原封不动**的正文。
- *
- * 不要改回 `"""…" + "$content…""".trimIndent()` 那种写法。`trimIndent()` 作用在**插值之后**的
- * 整串上，取的是所有非空行的最小公共缩进，于是正文的形状反过来决定模板会被怎么裁：
- * - 正文多行且有任意一行顶格（`# 标题` 开头的文档就是）→ 最小缩进 0，`trimIndent()` 一个字符
- *   都不裁，模板那几行的 12 个空格全部留下，正文**第一行**还额外顶着这 12 个空格。
- *   在 Markdown 里 4 个以上前导空格就是缩进代码块，模型看到的第一行不再是标题。
- * - 正文每行都缩进（整篇是缩进代码块、或深层嵌套列表）→ 最小缩进落在正文自己身上，
- *   `trimIndent()` 把这份公共缩进从**正文**上剥掉，代码块直接不再是代码块。
- *
- * 两种情况都是同一个后果：模型读到的正文与磁盘上的不是同一份。而模型正是照这份正文提
- * `edit_document` 的 `old_string`——原文错一个空格，外科式编辑就永远定位不到，用户看到的是
- * 反复「未命中」。
- */
-internal fun formatDocumentForTool(name: String, folderId: String?, content: String): String =
-    buildString {
-        append("【文档名称】").append(name).append('\n')
-        append("【文档路径】").append(folderId ?: "根目录").append('\n')
-        append("【文档内容】\n")
-        append(content)
+    /** 文件夹 ID → 「a/b」名称链；找不到或超深回退为原始 ID（不给模型悬空引用）。 */
+    private suspend fun resolveFolderLabel(folderId: String?): String {
+        val byId = folderRepository.getAllFolders()
+            .getOrElse { emptyList() }
+            .associateBy { it.id }
+        return folderLabelOf(folderId, byId)
     }
+}
