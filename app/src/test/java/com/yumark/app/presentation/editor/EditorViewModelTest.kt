@@ -18,7 +18,11 @@ import com.yumark.app.domain.usecase.export.ExportDocumentUseCase
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.*
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -61,6 +65,10 @@ class EditorViewModelTest {
         every { getAiConfigUseCase() } returns flowOf(com.yumark.app.domain.model.AiConfig())
         every { folderRepository.observeFolders() } returns flowOf(emptyList())
         every { documentRepository.observeAllDocuments() } returns flowOf(emptyList())
+        // 外部变更观察（init 采集）：默认空流；外部变更用例各自覆写成 MutableStateFlow
+        every { documentRepository.observeDocument(any()) } returns emptyFlow()
+        // 外部冲突检测的默认桩：null = provider 不给 mtime，跳过检测（冲突用例各自覆写）
+        coEvery { workspaceRepository.documentLastModified(any()) } returns null
         // 预览图片基址要拿应用私有根目录（EditorViewModel.appImagesPrefix）。这里给临时目录
         // 而不是靠 relaxed 返回 null：null 会让那行退到 runCatching 的兜底分支，等于测不到
         // 「有根目录时也照样能加载文档」这半边。
@@ -213,6 +221,130 @@ class EditorViewModelTest {
 
         coVerify(exactly = 1) { workspaceRepository.writeDocument(uri, "new content") }
         coVerify(exactly = 0) { saveDocumentUseCase(any()) }
+    }
+
+    @Test
+    fun `外部文件被外部应用修改时先存冲突副本再写入`() = runTest {
+        val uri = "content://test/doc.md"
+        // readDocument：① 加载 ② 冲突检测时重读外部现值
+        coEvery { workspaceRepository.readDocument(uri) } returnsMany listOf(
+            Result.success("打开时的内容"),
+            Result.success("外部应用改的内容"),
+        )
+        every { workspaceRepository.documentName(uri) } returns "doc"
+        // documentLastModified：① 加载基线 100 ② 写盘前重查 200（≠基线 → 冲突）③ 写盘后刷新 300
+        coEvery { workspaceRepository.documentLastModified(uri) } returnsMany listOf(100L, 200L, 300L)
+        coEvery { workspaceRepository.writeDocument(uri, any()) } returns Result.success(Unit)
+        coEvery { documentRepository.createDocument(any(), any()) } returns
+            Result.success(Document.create("copy-1", "doc (冲突 120000)"))
+        coEvery { saveDocumentUseCase(any()) } returns Result.success(Unit)
+
+        val vm = externalVm(uri)
+        advanceUntilIdle()
+        vm.onContentChanged("用户的修改")
+        vm.saveDocument()
+        advanceUntilIdle()
+
+        // 外部现值先备份（两个版本都不丢），用户的版本照常写入
+        coVerify { documentRepository.createDocument(match { it.contains("冲突") }, any()) }
+        coVerify { saveDocumentUseCase(match { it.id == "copy-1" && it.content == "外部应用改的内容" }) }
+        coVerify { workspaceRepository.writeDocument(uri, "用户的修改") }
+    }
+
+    @Test
+    fun `saveAndWait 返回保存结果供返回键门控`() = runTest {
+        val doc = Document.create("doc-1", "笔记").copy(content = "# 标题")
+        coEvery { loadDocumentUseCase("doc-1") } returns Result.success(doc)
+        coEvery { saveDocumentUseCase(any()) } returns Result.failure(IOException("disk full"))
+
+        val vm = internalVm()
+        advanceUntilIdle()
+        vm.onContentChanged("会丢的内容")
+        // 失败：false → 返回键留在编辑器（修掉「保存失败仍无条件导航」的静默丢字路径）
+        assertThat(vm.saveAndWait()).isFalse()
+
+        coEvery { saveDocumentUseCase(any()) } returns Result.success(Unit)
+        vm.onContentChanged("重试后的内容")
+        // 成功：true → 返回键放行
+        assertThat(vm.saveAndWait()).isTrue()
+    }
+
+    @Test
+    fun `写盘挂起期间的输入不会被无条件清脏吞掉`() = runTest {
+        val doc = Document.create("doc-1", "笔记").copy(content = "# 标题")
+        coEvery { loadDocumentUseCase("doc-1") } returns Result.success(doc)
+        coEvery { documentRepository.isTrashed(any()) } returns false
+        // 写盘闸：保存协程停在 await 上，由测试在「挂起期间」敲字后放行
+        val writeGate = CompletableDeferred<Result<Unit>>()
+        coEvery { saveDocumentUseCase(any()) } coAnswers { writeGate.await() }
+
+        val vm = internalVm()
+        advanceUntilIdle()
+        vm.onContentChanged("第一次编辑")
+        val first = launch { vm.saveAndWait() }   // 显式进入 doSave（测试里自动保存未启用）
+        advanceUntilIdle()                        // doSave 取完快照并挂在写盘闸上
+        // 此刻模拟「写盘挂起期间的键入」：内容已进 _document 且置脏
+        vm.onContentChanged("第一次编辑+挂起期间抢救的字")
+        writeGate.complete(Result.success(Unit))
+        first.join()                              // 第一轮保存完成：内容比对判出「有后续编辑」，脏标记必须保留
+
+        // 第二轮保存必须发生——旧实现在这里被无条件清脏吞掉，直到下次输入前都不落盘
+        vm.onContentChanged("第一次编辑+挂起期间抢救的字2")
+        vm.saveDocument()
+        advanceUntilIdle()
+
+        coVerify(atLeast = 2) { saveDocumentUseCase(any()) }
+        coVerify { saveDocumentUseCase(match { it.content == "第一次编辑+挂起期间抢救的字2" }) }
+    }
+
+    // ---- 外部变更感知（同步 vs 编辑器盲写互覆盖的修复）----
+
+    @Test
+    fun `外部修改落库且无未保存修改时自动采纳`() = runTest {
+        val doc = Document.create("doc-1", "笔记").copy(content = "# 标题")
+        coEvery { loadDocumentUseCase("doc-1") } returns Result.success(doc)
+        val externalFlow = MutableStateFlow(doc)
+        every { documentRepository.observeDocument("doc-1") } returns externalFlow
+
+        val vm = internalVm()
+        advanceUntilIdle()
+        val events = mutableListOf<String>()
+        val collector = launch { vm.contentReplaced.collect { events += it } }
+
+        // 另一设备把新内容写进 DB（DownloadOverwrite 落库）
+        externalFlow.value = doc.copy(content = "# 远端修改")
+        advanceUntilIdle()
+
+        // 无未保存修改：自动采纳 + 走 contentReplaced 热替换通道
+        assertThat(vm.document.value?.content).isEqualTo("# 远端修改")
+        assertThat(events).contains("# 远端修改")
+        collector.cancel()
+    }
+
+    @Test
+    fun `有未保存修改时外部版本存为冲突副本且不覆盖输入`() = runTest {
+        val doc = Document.create("doc-1", "笔记").copy(content = "# 标题")
+        coEvery { loadDocumentUseCase("doc-1") } returns Result.success(doc)
+        val externalFlow = MutableStateFlow(doc)
+        every { documentRepository.observeDocument("doc-1") } returns externalFlow
+        coEvery { documentRepository.createDocument(any(), any()) } returns
+            Result.success(Document.create("copy-1", "笔记 (冲突 120000)"))
+        coEvery { saveDocumentUseCase(any()) } returns Result.success(Unit)
+
+        val vm = internalVm()
+        advanceUntilIdle()
+        vm.onContentChanged("# 我的本地编辑")   // 置脏：有未保存修改
+
+        externalFlow.value = doc.copy(content = "# 远端修改")
+        advanceUntilIdle()
+
+        // 远端版本不丢：存成冲突副本（名字沿用同步侧的「(冲突 …)」约定）
+        coVerify {
+            documentRepository.createDocument(match { it.contains("冲突") }, any())  // mockk 的 any() 匹配 null
+        }
+        coVerify { saveDocumentUseCase(match { it.id == "copy-1" && it.content == "# 远端修改" }) }
+        // 用户正在输入的内容原样保留，绝不覆盖
+        assertThat(vm.document.value?.content).isEqualTo("# 我的本地编辑")
     }
 
     @Test

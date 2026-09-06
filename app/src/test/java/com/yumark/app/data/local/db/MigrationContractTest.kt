@@ -139,6 +139,28 @@ class MigrationContractTest {
     }
 
     @Test
+    fun `迁移 13 到 14 给 documents 补上回收站两列`() {
+        val executed = sqlExecutedBy(AppDatabase.MIGRATION_13_14)
+
+        // ALTER TABLE 没有对应的 createSql 可逐字比对，能钉死的是两件事：
+        // 发出的就是这两条语句（不多不少、顺序不乱），以及 Room 为实体新生成的
+        // documents 建表语句确实带着这两列（下一个用例）——两者合起来才能证明
+        // 升级路径与全新安装路径的 schema 最终一致
+        assertThat(executed).containsExactly(
+            "ALTER TABLE `documents` ADD COLUMN `deleted_at` INTEGER",
+            "ALTER TABLE `documents` ADD COLUMN `original_name` TEXT"
+        ).inOrder()
+    }
+
+    @Test
+    fun `schema 14 的 documents 建表语句包含回收站两列`() {
+        val createSql = exportedCreateSql(version = 14, tableName = "documents")
+
+        assertThat(createSql).contains("`deleted_at` INTEGER")
+        assertThat(createSql).contains("`original_name` TEXT")
+    }
+
+    @Test
     fun `ALL_MIGRATIONS 构成从 1 到最新 schema 版本的无缺口链条`() {
         val edges = AppDatabase.ALL_MIGRATIONS
             .map { it.startVersion to it.endVersion }

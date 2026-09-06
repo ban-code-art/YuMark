@@ -60,7 +60,9 @@ data class SettingsPayload(
     /** [CompressionQuality] 的名字：LOW / MEDIUM / HIGH */
     val imageCompressionQuality: String = "",
     val maxImageWidth: Int? = null,
-    val defaultPreviewMode: Boolean? = null
+    val defaultPreviewMode: Boolean? = null,
+    /** 启动自动检查更新（见 [UserSettings.updateCheckEnabled]）；旧文件缺省时保留本机现值 */
+    val updateCheckEnabled: Boolean? = null
 )
 
 /**
@@ -93,7 +95,12 @@ data class AiPayload(
     val ragAvailableModels: List<String>? = null,
     val apiKey: String? = null,
     val webSearchApiKey: String? = null,
-    val ragApiKey: String? = null
+    val ragApiKey: String? = null,
+    /**
+     * 「笔记内容将发送到第三方 AI 端点」的知情确认（见 [AiConfig.consentAcknowledged]）。
+     * 随配置一起导出/导入：确认与端点配置是一体的，换机恢复配置时不必再确认一次。
+     */
+    val consentAcknowledged: Boolean? = null
 )
 
 /** WebDAV 同步配置，对应 [WebDavConfig]。password 仅在导出时勾选「包含密钥」才出现；缺失或空白表示「不改动本机现值」。 */

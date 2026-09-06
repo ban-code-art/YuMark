@@ -99,7 +99,14 @@ fun EditorScreen(
     var showExportSheet by remember { mutableStateOf(false) }
     // 查找/替换栏。预览模式没有可编辑文本，切过去就当它没展开（状态留着，切回来还在）
     var showFindBar by remember { mutableStateOf(false) }
-    val versions by viewModel.versions.collectAsStateWithLifecycle()
+    // 历史版本流按需订阅：仅在历史面板打开时才收集（versions 是 WhileSubscribed 语义，
+    // 面板关闭 5s 后 Room 流停止、50 份全文快照随之释放）。老实现一进编辑器就全量装载，
+    // 1MB 文档不看历史也要常驻 ~50MB 内存。
+    val versions = if (showVersionHistory) {
+        viewModel.versions.collectAsStateWithLifecycle().value
+    } else {
+        emptyList()
+    }
 
     // 文本选择快捷 AI/Agent 功能
     var showQuickAiDialog by remember { mutableStateOf(false) }
@@ -138,25 +145,34 @@ fun EditorScreen(
         showFindBar = false
     }
 
-    // 3. 预览模式或编辑模式下返回键直接退出并保存（防抖避免连退两页）
+    // 3. 预览模式或编辑模式下返回键直接退出并保存（防抖避免连退两页）。
+    // 保存失败时**留在编辑器**：SAF 外部文档的写失败并不罕见（网盘挂载断开、授权回收），
+    // 失败了还导航走，脏内容就静默蒸发——saveError Snackbar 随页面销毁根本没人看到。
+    // 失败留在原地，Snackbar 这次有人看着，用户可以重试返回或自行处理；
+    // isExiting 的复位放在成功路径，失败后返回键重新可用。
     var isExiting by remember { mutableStateOf(false) }
     BackHandler(enabled = !fileDrawerState.isOpen && !findBarVisible) {
         if (!isExiting) {
             isExiting = true
             scope.launch {
-                viewModel.saveAndWait()
-                navController.navigateUp()
+                if (viewModel.saveAndWait()) {
+                    navController.navigateUp()
+                } else {
+                    isExiting = false
+                }
             }
         }
     }
 
-    // 切换到侧栏点选的文档：先保存当前文档，再用新编辑器替换当前页（返回栈不增长）
+    // 切换到侧栏点选的文档：先保存当前文档，再用新编辑器替换当前页（返回栈不增长）。
+    // 保存失败同样不切换：切走等于放弃旧文档的未保存内容，留在原地让用户看到失败原因。
     val openFromSidebar: (String) -> Unit = { route ->
         scope.launch {
             fileDrawerState.close()
-            viewModel.saveAndWait()
-            navController.navigate(route) {
-                popUpTo(Screen.Editor.route) { inclusive = true }
+            if (viewModel.saveAndWait()) {
+                navController.navigate(route) {
+                    popUpTo(Screen.Editor.route) { inclusive = true }
+                }
             }
         }
     }
@@ -646,6 +662,25 @@ fun EditorScreen(
     val imageErrorText = imageError.resolveOrNull()
     SnackbarEffect(imageErrorText, snackbarHostState) { viewModel.clearImageError() }
 
+    // 删除成功后的「可撤销」提示（与文件列表删除同一套交互；撤销窗 Long ≈ 10s）。
+    // 删除的是当前文档时会先退出编辑器，这条 Snackbar 只服务于「删的是列表里其他文档」的场景。
+    val trashUndo by viewModel.trashUndo.collectAsStateWithLifecycle()
+    val undoText = stringResource(R.string.trash_undo_action)
+    val trashUndoMessage = trashUndo?.let { undo ->
+        undo.name?.let { stringResource(R.string.trash_moved_snackbar, it) }
+            ?: stringResource(R.string.trash_moved_generic)
+    }
+    SnackbarEffect(
+        message = trashUndoMessage,
+        actionLabel = undoText,
+        hostState = snackbarHostState,
+        duration = SnackbarDuration.Long,
+        onAction = { viewModel.undoTrashDelete() },
+        // 超时清理不交给 onConsumed：连续删除时旧 effect 的取消回调会吞掉新撤销项
+        // （竞态细节见 FileListViewModel.scheduleUndoExpiry），清理由超时任务按 id 对账完成
+        onConsumed = {}
+    )
+
     // 相册选图。用 PickVisualMedia 而不是 GetContent/OpenDocument：
     // 系统照片选择器不需要任何存储权限（Android 13 以下由 Play 服务回填），
     // 返回的 uri 只带一次性读权限，正好够 ImageRepository 立刻复制进应用私有目录。
@@ -1075,7 +1110,13 @@ fun EditorScreen(
                                         val hot = TextFieldValue(content)
                                         editValue = hot
                                         lastLoadedContent = content
-                                        history.reset(hot)
+                                        // 强制开新边界的 record 而不是 reset：record 会把替换前的
+                                        // 状态压进撤销栈，AI 划词替换 / 版本恢复因此**可撤销**；
+                                        // reset 则把整篇历史清空——改错一个词只能去翻版本历史。
+                                        // 同文档的整篇替换里，旧历史与新内容是同一篇文档的连续时间线，
+                                        // 不存在 reset 注释里「撤出不相干内容」的问题（那是换文档的事，
+                                        // 换文档走的是新建编辑器实例）。
+                                        history.record(hot, forceBoundary = true)
                                     }
                                 }
 
@@ -1644,7 +1685,12 @@ fun EditorScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.deleteDocument(doc.id)
+                        viewModel.deleteDocument(doc.id, doc.name)
+                        // 删除的是正在编辑的这篇：立即退出编辑器，别让用户停在一篇
+                        // 已进回收站的文档里继续输入（保存的是死文档）。
+                        // 乐观导航：moveToTrash 唯一失败路径是「文档本就不存在」，
+                        // 那种情况下退出同样是对的。
+                        if (doc.id == document?.id) navController.navigateUp()
                         documentToDelete = null
                     },
                     colors = ButtonDefaults.textButtonColors(

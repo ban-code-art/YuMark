@@ -14,3 +14,4 @@ sealed class FileListUiState {
         val sortOption: SortOption
     ) : FileListUiState()
 }
+// TrashUndo 已挪到 presentation/common（编辑器的删除入口也用它），这里不再定义。

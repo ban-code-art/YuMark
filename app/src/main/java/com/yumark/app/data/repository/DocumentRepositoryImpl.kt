@@ -5,13 +5,16 @@ import com.yumark.app.core.search.FtsQueryBuilder
 import com.yumark.app.core.search.FtsTextNormalizer
 import com.yumark.app.core.util.FriendlyValidationException
 import com.yumark.app.core.util.UiMessage
+import com.yumark.app.data.ai.rag.RagPipeline
 import com.yumark.app.data.local.db.dao.DocumentDao
 import com.yumark.app.data.local.db.dao.DocumentSearchDao
 import com.yumark.app.data.local.db.dao.ImageDao
+import com.yumark.app.data.local.db.dao.SyncStateDao
 import com.yumark.app.data.local.db.entity.DocumentSearchEntity
 import com.yumark.app.data.local.file.FileManager
 import com.yumark.app.data.mapper.DocumentMapper
 import com.yumark.app.domain.model.Document
+import com.yumark.app.domain.model.TrashedDocument
 import com.yumark.app.domain.repository.DocumentRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -19,6 +22,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.Instant
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,7 +34,11 @@ class DocumentRepositoryImpl @Inject constructor(
     private val fileManager: FileManager,
     private val mapper: DocumentMapper,
     private val searchDao: DocumentSearchDao,
-    private val imageDao: ImageDao
+    private val imageDao: ImageDao,
+    private val syncStateDao: SyncStateDao,
+    // data 层内部依赖（RagPipeline 不依赖本仓库，无环）：移入/彻底删除时把文档从知识索引
+    // 与内存向量表里摘掉，恢复时重新入队索引——删除文档从不清理 RAG 索引是个补上的旧缺口。
+    private val ragPipeline: RagPipeline
 ) : DocumentRepository {
 
     /** 惰性回填只做一次；成功后置位，失败保持 false 以便下次搜索重试 */
@@ -268,13 +276,25 @@ class DocumentRepositoryImpl @Inject constructor(
 
         // 索引里的标题取库里的现值而不是入参：理由同上，入参的名字可能是过期快照。
         // 读不到行（并发删除）时索引也没必要留，交给 deleteDocument 那条路清理。
-        val storedName = documentDao.getById(document.id)?.name
-        if (storedName != null) {
+        // 回收站里的文档**跳过索引**：双窗格下文档从列表侧被移入回收站时，右侧编辑器
+        // 还活着，自动保存每几秒就会跑到这里——不挡的话，moveToTrash 刚清掉的 FTS 行
+        // 会被重新写回（内容还在变），且行里的 name 已被改写成 id，写进去的是伪名条目。
+        // 正文照常落盘：回收站里的文档内容保持新鲜，恢复时拿到的就是用户最后编辑的样子。
+        val stored = documentDao.getById(document.id)
+        if (stored != null && stored.deletedAt == null) {
             indexBestEffort {
-                searchDao.upsert(searchEntry(document.id, storedName, document.content))
+                searchDao.upsert(searchEntry(document.id, stored.name, document.content))
             }
         }
     }
+
+    /** 见 [DocumentRepository.isTrashed] 的说明。读不到行（已彻底删除）按未回收处理。 */
+    override suspend fun isTrashed(id: String): Boolean =
+        runCatching { documentDao.getById(id)?.deletedAt != null }
+            .onFailure { e ->
+                if (e is CancellationException) throw e
+            }
+            .getOrDefault(false)
 
     /**
      * 改名：单字段 UPDATE，正文文件一个字节都不读也不写。
@@ -339,7 +359,11 @@ class DocumentRepositoryImpl @Inject constructor(
         throw FriendlyValidationException(UiMessage.Res(R.string.document_error_not_found))
 
     /**
-     * 删掉一篇文档：库行、全文索引行、图片文件、正文文件。
+     * 彻底删除一篇文档：库行、全文索引行、RAG 索引、图片文件、正文文件。
+     *
+     * 这是回收站路径的**终点站**（回收站页的「彻底删除 / 清空 / 到期清理」），也是同步
+     * 远端删除传播链上的最后一步。删除从这里才开始立墓碑、动磁盘——在此之前用户随时
+     * 可以从回收站把文档整篇拿回来。
      *
      * 三段的顺序就是这个函数的全部要点：
      * - **图片名单必须在删库之前取**。`images` 行挂着 `documents` 的外键（CASCADE），
@@ -358,15 +382,102 @@ class DocumentRepositoryImpl @Inject constructor(
      * 删库那一步走 [DocumentDao.deleteWithTombstone] 而不是裸 `deleteById`：同步过的文档
      * 要在同一个事务里留下墓碑，否则远端那个文件下次同步会被当成「另一台设备新建的」
      * 拉回来，删掉的文档就地复活（详见 [com.yumark.app.data.local.db.entity.SyncTombstoneEntity]）。
+     * RAG 分块行随文档行的外键级联消失，[RagPipeline.removeFromIndex] 负责把内存向量表一并清掉。
      */
-    override suspend fun deleteDocument(id: String): Result<Unit> = runCatching {
+    override suspend fun purgeDocument(id: String): Result<Unit> = runCatching {
         val imageFileNames = imageDao.getByDocument(id).map { it.fileName }
         documentDao.deleteWithTombstone(id, System.currentTimeMillis())
         // 紧跟数据库删除，避免删文件失败时把索引条目留成幽灵命中
         indexBestEffort { searchDao.deleteByDocId(id) }
+        indexBestEffort { ragPipeline.removeFromIndex(id) }
         fileManager.deleteImageFiles(imageFileNames)
         fileManager.deleteDocumentFile(id).getOrThrow()
     }
+
+    /**
+     * 移入回收站：软删除。文档从所有库视图、搜索、同步清单里消失，但库行、正文文件、
+     * 图片、历史版本全部原地保留。
+     *
+     * 与 [purgeDocument] 的三条刻意不同：
+     * - **不立同步墓碑**：远端文件必须原样留到彻底删除那一刻，否则「恢复」无从谈起。
+     *   同步侧靠「软删除文档不进同步清单、`sync_state` 记录仍在」被 [com.yumark.app.data.sync.SyncPlanner]
+     *   登记为孤儿文件——既不会被当成「远端独有」拉回来（复活），也不会被删。
+     * - **不碰任何磁盘文件**：正文与图片都要为恢复保留。
+     * - **清全文索引与 RAG 索引**：回收站里的文档不该被搜到、不该被 knowledge 检索命中；
+     *   两者都是 best-effort 且可自愈（恢复时重建，彻底删除时再清一遍）。
+     */
+    override suspend fun moveToTrash(id: String): Result<Unit> = runCatching {
+        // 先读再删只为「文档不存在」能报对人话（见 [documentNotFound]）；真正的幂等守卫
+        // 在 SQL 里（trashById 带 deleted_at IS NULL 条件，重复移入是空操作）。
+        documentDao.getById(id) ?: documentNotFound()
+        documentDao.trashById(id, System.currentTimeMillis())
+        indexBestEffort { searchDao.deleteByDocId(id) }
+        indexBestEffort { ragPipeline.removeFromIndex(id) }
+    }
+
+    /**
+     * 从回收站恢复。三个动作的顺序都有讲究：
+     * - **名字落座在恢复行之前**：原名可能与这期间新建的活跃文档重名（唯一索引会拒），先在
+     *   `original_name` 上改出空位，[DocumentDao.restoreById] 原样落座。候选名只与**活跃**
+     *   兄弟比——其他回收站文档的名字早已改写成 id，天然不会撞。
+     * - **恢复行之后立刻删 `sync_state`**：移入期间远端可能被另一台设备改掉或删掉，旧基线
+     *   （remoteEtag/localHash）已经描述不了现状。留着它最坏的情况是：远端文件已删 + 本地
+     *   内容自基线未变 → SyncPlanner 判「远端删除、本地未改」→ DeleteLocal，刚恢复的文档
+     *   被同步自己删回回收站。清掉基线后它按「从未同步的新文档」处理，下次同步原样上传。
+     * - **重建两条索引**：移入时两条都摘了，不重建的话恢复的文档在搜索与知识检索里
+     *   从此隐身，且没有任何路径会自愈（保存才触发重建）。
+     */
+    override suspend fun restoreFromTrash(id: String): Result<Unit> = runCatching {
+        val entity = documentDao.getTrashedById(id) ?: documentNotFound()
+        val originalName = entity.originalName ?: entity.name
+        val takenNames = documentDao
+            .getByFolderIncludingRoot(entity.folderId)
+            .mapTo(mutableSetOf()) { it.name }
+        val seatName = freeNameAmong(originalName, takenNames)
+        if (seatName != originalName) documentDao.updateOriginalName(id, seatName)
+        documentDao.restoreById(id)
+        syncStateDao.deleteByDocument(id)
+        indexBestEffort { searchDao.upsert(searchEntry(id, seatName, loadContentOrEmpty(id))) }
+        indexBestEffort {
+            ragPipeline.enqueueIndex(id, seatName, loadContentOrEmpty(id))
+        }
+    }
+
+    override fun observeTrashCount(): Flow<Int> = documentDao.observeTrashCount()
+
+    override suspend fun getTrashedDocuments(): Result<List<TrashedDocument>> = runCatching {
+        documentDao.getTrashed().map { entity ->
+            TrashedDocument(
+                id = entity.id,
+                name = entity.originalName ?: entity.name,
+                deletedAt = Instant.fromEpochMilliseconds(entity.deletedAt ?: 0L),
+                updatedAt = Instant.fromEpochMilliseconds(entity.updatedAt),
+                wordCount = entity.wordCount
+            )
+        }
+    }
+
+    /** 清空回收站：逐篇走 [purgeDocument]。第一篇失败即停，已删的保持已删，重试幂等。 */
+    override suspend fun emptyTrash(): Result<Unit> = runCatching {
+        documentDao.getTrashed().forEach { entity -> purgeDocument(entity.id).getOrThrow() }
+    }
+
+    /** 到期自动清理，返回本次彻底删除的篇数。 */
+    override suspend fun purgeTrashExpired(nowMs: Long, retentionMs: Long): Result<Int> = runCatching {
+        val expiredIds = documentDao.getExpiredTrashIds(nowMs - retentionMs)
+        expiredIds.forEach { id -> purgeDocument(id).getOrThrow() }
+        expiredIds.size
+    }
+
+    /** 在 [taken] 之外为 [base] 挑一个不冲突的名字：`笔记` → `笔记 (2)` → `笔记 (3)` … */
+    private fun freeNameAmong(base: String, taken: Set<String>): String {
+        if (base !in taken) return base
+        var n = 2
+        while (freeCandidate(base, n) in taken) n++
+        return freeCandidate(base, n)
+    }
+
+    private fun freeCandidate(base: String, n: Int) = "$base ($n)"
 
     /**
      * 把文档移到另一个文件夹。

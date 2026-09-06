@@ -288,7 +288,11 @@ class EditorViewModel @Inject constructor(
     // 保护保存的读-改-写竞态
     private val stateMutex = Mutex()
 
-    // 标记文档是否已被用户修改（脏数据标记）
+    // 标记文档是否已被用户修改（脏数据标记）。
+    // @Volatile 必须挂上：onContentChanged 在主线程写、onCleared 的退出保存经 appScope
+    // （Dispatchers.IO）读写——非 volatile 的布尔跨线程不保证可见，「最后一次保存」
+    // 会读到过期值而漏掉未落盘的编辑。清除时机本身是内容比对式的，见 doSave。
+    @Volatile
     private var isDocumentDirty = false
 
     init {
@@ -302,6 +306,101 @@ class EditorViewModel @Inject constructor(
                 if (settings.autoSaveEnabled) startAutoSave(settings.autoSaveInterval)
                 else stopAutoSave()
             }
+        }
+
+        // 外部变更观察（仅内部文档）：同步的 DownloadOverwrite / 冲突副本 / 另一入口的保存
+        // 都会把新内容直接写进 DB。此前编辑器只一次性 loadDocument、从不看仓库——外部内容
+        // 落库后，下一次自动保存会用内存里的旧内容把它顶掉；而 DownloadOverwrite 已经刷新
+        // 了同步基线，这个顶掉在下一轮同步看来是「干净的本地修改」，直接上传——远端那版
+        // 用户从未见过的内容就此静默丢失。处置策略见 [onExternalDocumentChange]。
+        documentId?.let { id ->
+            viewModelScope.launch {
+                documentRepository.observeDocument(id).collect { doc ->
+                    if (doc != null) onExternalDocumentChange(doc)
+                }
+            }
+        }
+    }
+
+    /**
+     * 外部版本落库后的处置，「两个版本都不丢」：
+     * - 编辑器**没有**未保存修改 → 原子采纳外部版本，走 [contentReplaced] 热替换通道刷新界面；
+     * - 编辑器**有**未保存修改 → 用户正在输入的内容绝不覆盖，把远端版本存成冲突副本，
+     *   编辑器照常自动保存本地版本，Snackbar 告知副本位置。
+     */
+    private suspend fun onExternalDocumentChange(external: Document) {
+        val current = _document.value
+        // 自己保存的回声：saveDocument 写库后 observe 必然重发一次内容相同的结果
+        if (current == null || current.content == external.content) return
+        // 原子决策：「检查脏 + 换内容」做成一次 CAS——挂起期间挤进来的键入既不会被打断也不会丢
+        val adopted = _document.updateAndGet { cur ->
+            if (!isDocumentDirty && cur?.content != external.content) external else cur
+        }
+        if (adopted === external) {
+            _uiState.value = EditorUiState.Success(_document.value ?: external)
+            if (_document.value?.content == external.content) {
+                // 无并发键入：干净采纳，热替换编辑框内容
+                isDocumentDirty = false
+                _contentReplaced.emit(external.content)
+            }
+            // 有并发键入：_document 已是「外部版本 + 新键入」的合并结果，
+            // 保持脏标记让自动保存落盘合并后的内容，界面不打断用户
+            return
+        }
+        preserveExternalVersion(external)
+    }
+
+    /**
+     * 外部文件的「外部修改」冲突检测：lastModified 基线不一致 = 外部应用在打开期间
+     * 改过这个文件。处置沿用「两个版本都不丢」：先把外部现值存成冲突副本，再照常
+     * 写入用户的版本（LWW + 备份），Snackbar 告知副本位置。
+     *
+     * 三类跳过（fail-open 回到旧版 LWW 行为）：provider 不给 lastModified、外部现值
+     * 读不到、外部现值与编辑器将写入的内容相同（外部改成了我们手里这版，不算冲突）。
+     */
+    private suspend fun detectExternalWriteConflict(): Boolean {
+        val external = detectExternalVersion() ?: return false
+        preserveExternalVersion(external)
+        return true
+    }
+
+    /**
+     * 取「外部应用改出来的现值」；null = 无冲突。四类 fail-open 跳过都归到这里：
+     * provider 不给 lastModified、加载基线缺失、mtime 未变化、外部现值与将写入的内容相同。
+     */
+    private suspend fun detectExternalVersion(): Document? {
+        val uri = docUri
+        val baseline = externalBaselineMtime
+        if (uri == null || baseline == null) return null
+        val currentMtime = workspaceRepository.documentLastModified(uri)
+        val externalContent = if (currentMtime != null && currentMtime != baseline) {
+            workspaceRepository.readDocument(uri).getOrNull()
+                ?.takeIf { it != _document.value?.content }
+        } else {
+            null
+        }
+        return externalContent?.let { content ->
+            Document.create(
+                id = "external",
+                name = workspaceRepository.documentName(uri)
+            ).copy(content = content)
+        }
+    }
+
+    /** 有未保存修改时把外部版本存成冲突副本（best-effort；失败只记非致命日志，不打扰输入）。 */
+    private suspend fun preserveExternalVersion(external: Document) {
+        try {
+            val stamp = java.text.SimpleDateFormat("HHmmss", java.util.Locale.getDefault())
+                .format(java.util.Date())
+            val copyName = "${external.name} (冲突 $stamp)"
+            documentRepository.createDocument(copyName, external.folderId).onSuccess { copy ->
+                saveDocumentUseCase(copy.copy(content = external.content))
+                _saveError.value = UiMessage.of(R.string.external_change_preserved, copyName)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorHandler.report(e, UserAction.SAVE)
         }
     }
 
@@ -321,6 +420,8 @@ class EditorViewModel @Inject constructor(
                     _document.value = doc
                     _uiState.value = EditorUiState.Success(doc)
                     isDocumentDirty = false
+                    // 外部修改冲突检测的基线（见 doSave 外部分支的写盘前检查）
+                    externalBaselineMtime = workspaceRepository.documentLastModified(docUri)
                     _imageResolver.value = withAppImages(externalImageResolver(docUri))
                     applyDefaultPreview(settings, content)
                 }.onFailure { e ->
@@ -434,63 +535,93 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    /** 供返回键等需要等待保存落盘后再继续的场景（在调用方协程内执行，不会被 VM 销毁取消） */
-    suspend fun saveAndWait() = doSave()
+    /**
+     * 供返回键等需要等待保存落盘后再继续的场景（在调用方协程内执行，不会被 VM 销毁取消）。
+     * 返回 true = 已保存或本就无脏内容；false = 保存失败——调用方（返回键/侧栏切换）
+     * 据此**留在编辑器**，把失败原因通过 saveError Snackbar 交给看着屏幕的用户。
+     */
+    suspend fun saveAndWait(): Boolean = doSave()
 
-    private suspend fun doSave() {
+    /** [saveAndWait] 的结果：true = 已保存或本就无脏内容；false = 保存失败（界面据此决定是否留在编辑器）。 */
+    private suspend fun doSave(): Boolean {
+        var saved = true
         stateMutex.withLock {
-            // 不脏不写盘：避免自动保存每 30s 重写外部原文件
-            if (!isDocumentDirty) return
-            // 字数/字符数在这里重算并写回内存，而不是留给仓库层在自己的副本上算：
-            // 下面落历史快照用的就是这个 doc.wordCount，内存不刷新的话每条历史记录
-            // 显示的字数都属于打开文档那一刻的版本。见 [withFreshCounts]。
-            //
-            // 用 updateAndGet 而不是「读出来 → 改 → 写回」：onContentChanged 是输入热路径，
-            // 它不拿这把锁（拿了就要在每次按键时排队），所以写回必须是原子的 CAS，
-            // 否则一次「保存中恰好又敲了一个字」就会把新字符回退掉。
-            val doc = _document.updateAndGet { it?.withFreshCounts() } ?: return
-            _isSaving.value = true
-            try {
-                val result = if (docUri != null) {
-                    workspaceRepository.writeDocument(docUri, doc.content)
-                } else {
-                    saveDocumentUseCase(doc)
-                }
-                result.onSuccess {
-                    isDocumentDirty = false
-                    // 内部文档保存成功后落历史版本快照（内容变化才记，best-effort，失败不影响保存）
-                    val internalId = documentId
-                    if (docUri == null && internalId != null) {
-                        // 两个后置任务各自独立 try/catch，不合并：前者失败不该连带跳过后者。
-                        // 不用 runCatching——它捕获 Throwable，会把 CancellationException 一起吞掉
-                        // （退出时保存走的是 appScope，进程收尾阶段确实会被取消），
-                        // 取消信号断在这里，调用方就以为任务是正常跑完的。
-                        // 也不再静默：原先只 runCatching 不记日志，快照/索引持续失败装机后无从取证。
-                        try {
-                            documentVersionRepository.snapshotIfChanged(internalId, doc.content, doc.wordCount)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            ErrorHandler.report(e, UserAction.VERSION_SNAPSHOT)
+            if (isDocumentDirty) {
+                // 不脏不写盘：避免自动保存每 30s 重写外部原文件
+                // 字数/字符数在这里重算并写回内存，而不是留给仓库层在自己的副本上算：
+                // 下面落历史快照用的就是这个 doc.wordCount，内存不刷新的话每条历史记录
+                // 显示的字数都属于打开文档那一刻的版本。见 [withFreshCounts]。
+                //
+                // 用 updateAndGet 而不是「读出来 → 改 → 写回」：onContentChanged 是输入热路径，
+                // 它不拿这把锁（拿了就要在每次按键时排队），所以写回必须是原子的 CAS，
+                // 否则一次「保存中恰好又敲了一个字」就会把新字符回退掉。
+                val doc = _document.updateAndGet { it?.withFreshCounts() } ?: return@withLock
+                _isSaving.value = true
+                try {
+                    val result = if (docUri != null) {
+                        // 写盘前冲突检测：外部应用在打开期间改过文件时，
+                        // 先把外部现值存成冲突副本再写入（两个版本都不丢）
+                        detectExternalWriteConflict()
+                        workspaceRepository.writeDocument(docUri, doc.content).onSuccess {
+                            // 基线刷新到本次写入后的 mtime：下次保存的冲突检测从这里起算
+                            externalBaselineMtime = workspaceRepository.documentLastModified(docUri)
                         }
-                        try {
-                            ragPipeline.enqueueIndex(internalId, doc.name, doc.content)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            ErrorHandler.report(e, UserAction.RAG_ENQUEUE)
-                        }
+                    } else {
+                        saveDocumentUseCase(doc)
                     }
-                }.onFailure { e ->
-                    // 保存失败不改变整页状态，编辑内容保留在内存
-                    _saveError.value = ErrorHandler.report(e, UserAction.SAVE)
+                    result.onSuccess {
+                        // 脏标记的清除必须是**内容比对式**的，不能无条件清：
+                        // 取内容快照之后写盘是挂起的，这期间用户敲的字已经进了 _document
+                        // （并置脏）——无条件清等于把这段键入抹掉，此后防抖/轮询/onCleared
+                        // 的脏检查全部跳过，那几个字直到下次输入前都不会落盘（静默丢字）。
+                        // 内存正文仍是刚写盘的那份，才说明「没有未落盘的后续编辑」。
+                        // 敲了又改回原样的极端情形落进清空分支也无损：内容本来就一致。
+                        if (_document.value?.content == doc.content) {
+                            isDocumentDirty = false
+                        }
+                        // 内部文档保存成功后落历史版本快照（内容变化才记，best-effort，失败不影响保存）
+                        val internalId = documentId
+                        if (docUri == null && internalId != null) {
+                            // 两个后置任务各自独立 try/catch，不合并：前者失败不该连带跳过后者。
+                            // 不用 runCatching——它捕获 Throwable，会把 CancellationException 一起吞掉
+                            // （退出时保存走的是 appScope，进程收尾阶段确实会被取消），
+                            // 取消信号断在这里，调用方就以为任务是正常跑完的。
+                            // 也不再静默：原先只 runCatching 不记日志，快照/索引持续失败装机后无从取证。
+                            try {
+                                documentVersionRepository.snapshotIfChanged(internalId, doc.content, doc.wordCount)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                ErrorHandler.report(e, UserAction.VERSION_SNAPSHOT)
+                            }
+                            try {
+                                // 回收站守护：双窗格下文档可能已从列表侧被移入回收站（编辑器不退出），
+                                // 此时不再入队 RAG 索引——moveToTrash 刚把分块摘掉，每轮自动保存
+                                // 又重建回去，等于给一篇已删除的文档反复烧 embedding 调用，
+                                // 且知识检索在本会话内能命中它。
+                                if (!isDocTrashed(internalId)) {
+                                    ragPipeline.enqueueIndex(internalId, doc.name, doc.content)
+                                }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                ErrorHandler.report(e, UserAction.RAG_ENQUEUE)
+                            }
+                        }
+                    }.onFailure { e ->
+                        // 保存失败不改变整页状态，编辑内容保留在内存；脏标记保持 true，
+                        // 下一轮防抖/轮询会重试，返回键路径据此留在编辑器（见 saveAndWait 的门控）。
+                        _saveError.value = ErrorHandler.report(e, UserAction.SAVE)
+                        saved = false
+                    }
+                } finally {
+                    // 必须放 finally：仓库层抛异常（而非返回失败 Result）或协程在写盘中途被取消时，
+                    // 漏掉这一句会让界面上的保存指示灯永久亮着。
+                    _isSaving.value = false
                 }
-            } finally {
-                // 必须放 finally：仓库层抛异常（而非返回失败 Result）或协程在写盘中途被取消时，
-                // 漏掉这一句会让界面上的保存指示灯永久亮着。
-                _isSaving.value = false
             }
         }
+        return saved
     }
 
     fun clearSaveError() {
@@ -815,12 +946,67 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    fun deleteDocument(docId: String) {
+    /** 刚移入回收站的一篇文档（编辑器侧撤销 Snackbar 的目标）；null 表示没有待撤销项。 */
+    private val _trashUndo = MutableStateFlow<com.yumark.app.presentation.common.TrashUndo?>(null)
+    val trashUndo: StateFlow<com.yumark.app.presentation.common.TrashUndo?> = _trashUndo.asStateFlow()
+
+    fun deleteDocument(docId: String, name: String?) {
         viewModelScope.launch {
-            documentRepository.deleteDocument(docId)
+            // 「删除」= 移入回收站（可从回收站恢复）；彻底删除只能回收站页显式发起。
+            // 成功后挂一条可撤销提示——与文件列表删除同一套交互，误删的挽回窗口不因入口不同而消失。
+            documentRepository.moveToTrash(docId)
                 .onFailureReport(UserAction.DELETE_DOCUMENT) { _saveError.value = it }
+                .onSuccess {
+                    _trashUndo.value = com.yumark.app.presentation.common.TrashUndo(docId, name)
+                    scheduleUndoExpiry(docId)
+                }
         }
     }
+
+    /**
+     * 撤销提示的**超时自清**（与文件列表同一模式）：清理不挂在 Snackbar 的 onConsumed 上，
+     * 连续删除时旧 effect 的取消回调会吞掉新撤销项；按 id 对账的超时任务免疫该竞态。
+     */
+    private fun scheduleUndoExpiry(id: String) {
+        undoExpiryJob?.cancel()
+        undoExpiryJob = viewModelScope.launch {
+            delay(com.yumark.app.presentation.common.TrashUndo.EXPIRY_MS)
+            if (_trashUndo.value?.id == id) _trashUndo.value = null
+        }
+    }
+
+    /** 撤销刚发生的移入回收站（Snackbar 的「撤销」按钮）。 */
+    fun undoTrashDelete() {
+        val undo = _trashUndo.value ?: return
+        undoExpiryJob?.cancel()
+        _trashUndo.value = null
+        viewModelScope.launch {
+            documentRepository.restoreFromTrash(undo.id)
+                .onFailureReport(UserAction.RESTORE_DOCUMENT) { _saveError.value = it }
+        }
+    }
+
+    /** 撤销提示的超时清理任务；新删除替换旧撤销时取消重来。 */
+    private var undoExpiryJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * 外部文档的 lastModified 基线：加载时记录，写盘前重查。
+     * 不一致 = 外部应用在打开期间改过文件，写盘前先把外部现值存成冲突副本。
+     * null = 未加载完成或 provider 不提供 lastModified（跳过检测，行为回到 LWW）。
+     */
+    private var externalBaselineMtime: Long? = null
+
+    /**
+     * 回收站守护判断（自动保存喂索引前调用，见调用点注释）。
+     *
+     * 单独成函数除了让 doSave 少一层嵌套：取消异常在这里原样重抛（吞掉它会破坏
+     * 结构化并发，且被误判成「未回收」就会照常入队索引），失败一律按「未回收」
+     * 处理——守护是最佳努力，读不到状态时宁可多入一次队（幂等）也不漏入。
+     */
+    private suspend fun isDocTrashed(id: String): Boolean =
+        runCatching { documentRepository.isTrashed(id) }
+            .onFailure { e -> if (e is CancellationException) throw e }
+            .getOrDefault(false)
 
     /** 把文档移动到目标文件夹(null 为根目录)。 */
     fun moveDocument(docId: String, targetFolderId: String?) {

@@ -47,6 +47,9 @@ exifinterface = "1.3.7"
 ktor = "2.3.7"
 security-crypto = "1.1.0"
 window = "1.5.1"
+# WorkManager：后台定时同步（SyncWorkScheduler / SyncWorker）。
+# 2.10.x 是当前稳定线；项目场景只需要 CoroutineWorker + 周期任务，不追 3.x。
+work = "2.10.1"
 
 [libraries]
 # Kotlin
@@ -68,6 +71,7 @@ androidx-documentfile = { group = "androidx.documentfile", name = "documentfile"
 # 用 androidx 版而不是 android.media.ExifInterface：平台那个只认 JPEG 的一小部分标签，
 # HEIC/AVIF/带 eXIf 块的 PNG 全读不出方向，而 lint 的 ExifInterface 检查也会点名它。
 androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
+androidx-work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 androidx-window = { group = "androidx.window", name = "window", version.ref = "window" }
 
 # Compose

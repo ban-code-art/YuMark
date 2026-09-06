@@ -69,7 +69,9 @@ data class AiConfigUiState(
     // Res 携带 @StringRes id + 实参，到组合期才解析；ErrorHandler 返回的也是 UiMessage
     // （「<动作>失败：<原因>」两段都是资源 id），所以这里不需要再包一层。
     val message: UiMessage? = null,
-    val loaded: Boolean = false
+    val loaded: Boolean = false,
+    /** 「笔记内容将发往第三方端点」的知情确认弹窗是否可见（隐私合规）。 */
+    val showConsentDialog: Boolean = false
 )
 
 @HiltViewModel
@@ -90,6 +92,11 @@ class AiConfigViewModel @Inject constructor(
                 // 首次加载后以本地编辑为准，仅同步未编辑过的字段：这里简单地在未加载时填充
                 if (!_state.value.loaded) {
                     _state.value = _state.value.copy(config = config, loaded = true)
+                    // 已启用但从未做过知情确认（升级上来的老用户 / 导入的配置）：
+                    // 进配置页就补弹一次。同意前不阻止已有功能，但用户必须被明确告知。
+                    if (config.enabled && !config.consentAcknowledged) {
+                        _state.value = _state.value.copy(showConsentDialog = true)
+                    }
                 }
             }
         }
@@ -99,7 +106,30 @@ class AiConfigViewModel @Inject constructor(
         _state.value = _state.value.copy(config = transform(_state.value.config), testResult = null)
     }
 
-    fun onToggleEnabled(v: Boolean) = edit { it.copy(enabled = v) }
+    /**
+     * AI 总开关。开 = true 且从未做过知情确认时，先弹隐私确认框：同意才真正置位，
+     * 拒绝则保持关闭。「关」不经过确认框直接生效。
+     */
+    fun onToggleEnabled(v: Boolean) {
+        if (v && !_state.value.config.consentAcknowledged) {
+            _state.value = _state.value.copy(showConsentDialog = true)
+        } else {
+            edit { it.copy(enabled = v) }
+        }
+    }
+
+    /** 确认框里的「同意」：置位确认标记并启用 AI。 */
+    fun onConsentAgreed() {
+        _state.value = _state.value.copy(
+            showConsentDialog = false,
+            config = _state.value.config.copy(consentAcknowledged = true, enabled = true)
+        )
+    }
+
+    /** 确认框里的「拒绝」：什么都不改（开关保持原状）。 */
+    fun onConsentDeclined() {
+        _state.value = _state.value.copy(showConsentDialog = false)
+    }
     fun onProviderChange(p: AiProvider) = edit { it.copy(provider = p, baseUrl = "") }
     fun onApiKeyChange(v: String) = edit { it.copy(apiKey = v) }
     fun onBaseUrlChange(v: String) = edit { it.copy(baseUrl = v) }
@@ -225,6 +255,24 @@ fun AiConfigScreen(
     // SnackbarEffect——它也正是以这段文案为 key。
     val messageText = state.message.resolveOrNull()
     SnackbarEffect(messageText, snackbar) { viewModel.consumeMessage() }
+
+    if (state.showConsentDialog) {
+        AlertDialog(
+            onDismissRequest = viewModel::onConsentDeclined,
+            title = { Text(stringResource(R.string.ai_consent_title)) },
+            text = { Text(stringResource(R.string.ai_consent_message)) },
+            confirmButton = {
+                TextButton(onClick = viewModel::onConsentAgreed) {
+                    Text(stringResource(R.string.ai_consent_agree))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::onConsentDeclined) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },

@@ -4,10 +4,13 @@ import android.app.Application
 import com.yumark.app.core.coroutines.AppScope
 import com.yumark.app.core.crash.CrashReporter
 import com.yumark.app.core.util.ErrorHandler
+import com.yumark.app.data.sync.SyncWorkScheduler
+import com.yumark.app.domain.repository.SyncRepository
 import com.yumark.app.domain.repository.WorkspaceRepository
 import com.yumark.app.domain.usecase.ai.agent.ReconcileInterruptedAgentRunsUseCase
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -19,6 +22,12 @@ class YuMarkApplication : Application() {
 
     @Inject
     lateinit var workspaceRepository: WorkspaceRepository
+
+    @Inject
+    lateinit var syncRepository: SyncRepository
+
+    @Inject
+    lateinit var imageRepository: com.yumark.app.domain.repository.ImageRepository
 
     @Inject
     lateinit var reconcileInterruptedAgentRuns: ReconcileInterruptedAgentRunsUseCase
@@ -61,6 +70,32 @@ class YuMarkApplication : Application() {
         appScope.launch {
             reconcileInterruptedAgentRuns()
                 .onFailure { ErrorHandler.report(it) }  // 失败只记一笔：清不掉残留不该拦住启动
+        }
+
+        // 后台定时同步的注册/注销：读一次 WebDAV 配置，开了就注册周期任务（KEEP，
+        // 不打断已有排期），关了就注销。任务本身在进程死亡后由 WorkManager 持久化，
+        // 每次启动都到这里对一次表，保证「设置页开关 + 配置导入」改完 enabled 后
+        // 最迟下一次启动生效。
+        appScope.launch {
+            runCatching {
+                val enabled = syncRepository.observeConfig().first().enabled
+                SyncWorkScheduler.updateSchedule(this@YuMarkApplication, enabled)
+            }.onFailure { ErrorHandler.report(it) }
+        }
+
+        // 启动静默增量同步：开启同步的用户打开应用即拉平两端，不用等 6 小时的周期任务，
+        // 也不用在同步设置页手动点。同步本体是哈希比对的增量（未变化的文档零传输），
+        // 静默失败只吞不掉启动流程——任何失败都被 runCatching 收下，不打扰用户。
+        appScope.launch {
+            runCatching { syncRepository.syncNow() }
+        }
+
+        // 孤儿图片清理（images 行的 document 已不存在的残留行 + 文件）：
+        // 起因是「文件已落盘、库行未插入」一类崩溃窗口。此前 cleanOrphanedImages
+        // 是零调用点的死代码；挂在启动期后台跑一次，幂等且廉价（一个 LEFT JOIN）。
+        appScope.launch {
+            runCatching { imageRepository.cleanOrphanedImages() }
+                .onFailure { ErrorHandler.report(it) }
         }
     }
 }

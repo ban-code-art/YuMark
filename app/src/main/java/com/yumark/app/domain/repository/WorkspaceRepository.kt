@@ -5,6 +5,9 @@ import com.yumark.app.domain.model.Workspace
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
+// 函数数超 detekt 默认阈值（11）：工作区是一个内聚的领域边界（打开/恢复/重扫/读写/授权），
+// 硬拆成两个接口只会让注入点变多、调用方感知不到任何区别，故抑制而非拆分。
+@Suppress("TooManyFunctions")
 interface WorkspaceRepository {
     /** 当前工作区，null 表示未打开 */
     val workspace: StateFlow<Workspace?>
@@ -44,6 +47,12 @@ interface WorkspaceRepository {
 
     suspend fun readDocument(docUri: String): Result<String>
     suspend fun writeDocument(docUri: String, content: String): Result<Unit>
+
+    /**
+     * 读取文档的 lastModified（epoch 毫秒）；provider 不提供或读失败返回 null。
+     * 供外部文档保存前的「外部修改冲突检测」用：加载时记基线，写盘前重查。
+     */
+    suspend fun documentLastModified(docUri: String): Long?
 
     /** 外部文档显示名（去扩展名） */
     fun documentName(docUri: String): String

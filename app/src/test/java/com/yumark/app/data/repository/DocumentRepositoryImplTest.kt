@@ -7,6 +7,8 @@ import com.yumark.app.core.util.UiMessage
 import com.yumark.app.data.local.db.dao.DocumentDao
 import com.yumark.app.data.local.db.dao.DocumentSearchDao
 import com.yumark.app.data.local.db.dao.ImageDao
+import com.yumark.app.data.local.db.dao.SyncStateDao
+import com.yumark.app.data.ai.rag.RagPipeline
 import com.yumark.app.data.local.db.entity.DocumentEntity
 import com.yumark.app.data.local.db.entity.DocumentSearchEntity
 import com.yumark.app.data.local.db.entity.ImageEntity
@@ -27,14 +29,21 @@ class DocumentRepositoryImplTest {
     private val mapper = DocumentMapper()
     private val searchDao: DocumentSearchDao = mockk()
     private val imageDao: ImageDao = mockk()
+    private val syncStateDao: SyncStateDao = mockk()
+    private val ragPipeline: RagPipeline = mockk()
 
     @BeforeEach
     fun setup() {
-        repository = DocumentRepositoryImpl(dao, fileManager, mapper, searchDao, imageDao)
+        repository = DocumentRepositoryImpl(dao, fileManager, mapper, searchDao, imageDao, syncStateDao, ragPipeline)
         // 默认：索引已有内容（跳过惰性回填），写索引成功。各测试按需覆盖。
         coEvery { searchDao.count() } returns 1
         coEvery { searchDao.upsert(any()) } just Runs
         coEvery { searchDao.deleteByDocId(any()) } just Runs
+        // 默认：RAG 摘除/入队成功；移入/恢复路径的用例按需覆写
+        coEvery { ragPipeline.removeFromIndex(any()) } just Runs
+        every { ragPipeline.enqueueIndex(any(), any(), any()) } just Runs
+        // 默认：恢复后清掉同步基线是空操作（无记录）
+        coEvery { syncStateDao.deleteByDocument(any()) } just Runs
         // 默认：文档没有配图，图片文件删除是空操作。图片清理相关的用例各自覆盖。
         coEvery { imageDao.getByDocument(any()) } returns emptyList()
         coEvery { fileManager.deleteImageFiles(any()) } returns 0
@@ -246,11 +255,39 @@ class DocumentRepositoryImplTest {
     }
 
     @Test
+    fun `回收站里的文档保存时不再回写全文索引`() = runTest {
+        // 双窗格：文档从列表侧被移入回收站后，右侧编辑器的自动保存仍会照常触发。
+        // moveToTrash 刚清掉的 FTS 行若被重新写回，索引里就多了一条 name 已改写成 id
+        // 的伪名条目（搜索结果侧有 getByIds 过滤兜底，但这是把脏东西挡在源头）。
+        val doc = Document.create("1", "笔记").copy(content = "更新后的正文")
+        coEvery { fileManager.saveDocumentContent(any(), any()) } returns Result.success(Unit)
+        coEvery { dao.updateContentMeta(any(), any(), any(), any()) } just Runs
+        coEvery { dao.getById("1") } returns
+            row("1", "doc-id-1").copy(deletedAt = 1000L, originalName = "笔记")
+
+        val result = repository.saveDocument(doc)
+
+        // 正文与元数据照常落库（恢复时要拿到用户最后编辑的样子），只有索引被跳过
+        assertThat(result.isSuccess).isTrue()
+        coVerify { dao.updateContentMeta("1", any(), any(), any()) }
+        coVerify(exactly = 0) { searchDao.upsert(any()) }
+    }
+
+    @Test
+    fun `isTrashed 按回收站标记判定且行不存在时返回 false`() = runTest {
+        coEvery { dao.getById("1") } returns row("1", "笔记").copy(deletedAt = 1000L)
+        coEvery { dao.getById("2") } returns null
+
+        assertThat(repository.isTrashed("1")).isTrue()
+        assertThat(repository.isTrashed("2")).isFalse()
+    }
+
+    @Test
     fun `删除文档时清掉索引条目`() = runTest {
         coEvery { dao.deleteWithTombstone("1", any()) } just Runs
         coEvery { fileManager.deleteDocumentFile("1") } returns Result.success(Unit)
 
-        val result = repository.deleteDocument("1")
+        val result = repository.purgeDocument("1")
 
         assertThat(result.isSuccess).isTrue()
         // 留着条目就是幽灵命中：搜到一篇点进去发现不存在
@@ -263,7 +300,7 @@ class DocumentRepositoryImplTest {
         coEvery { dao.deleteWithTombstone("1", any()) } just Runs
         coEvery { fileManager.deleteDocumentFile("1") } returns Result.success(Unit)
 
-        val result = repository.deleteDocument("1")
+        val result = repository.purgeDocument("1")
 
         assertThat(result.isSuccess).isTrue()
         coVerify { fileManager.deleteDocumentFile("1") }
@@ -493,7 +530,7 @@ class DocumentRepositoryImplTest {
         coEvery { dao.deleteWithTombstone("1", any()) } just Runs
         coEvery { fileManager.deleteDocumentFile("1") } returns Result.success(Unit)
 
-        val result = repository.deleteDocument("1")
+        val result = repository.purgeDocument("1")
 
         assertThat(result.isSuccess).isTrue()
         // 旧实现只删了 .md：图片全留在 images/ 目录里，谁也再引用不到
@@ -505,7 +542,7 @@ class DocumentRepositoryImplTest {
         coEvery { dao.deleteWithTombstone("1", any()) } just Runs
         coEvery { fileManager.deleteDocumentFile("1") } returns Result.success(Unit)
 
-        repository.deleteDocument("1")
+        repository.purgeDocument("1")
 
         // images 行挂着 documents 的 CASCADE：删库之后再查只剩空表，
         // 磁盘上那些图片就成了连孤儿清理都扫不到的永久垃圾
@@ -520,7 +557,7 @@ class DocumentRepositoryImplTest {
         coEvery { dao.deleteWithTombstone("1", any()) } just Runs
         coEvery { fileManager.deleteDocumentFile("1") } returns Result.success(Unit)
 
-        repository.deleteDocument("1")
+        repository.purgeDocument("1")
 
         // 走裸 deleteById 就不会立碑：同步过的文档删掉后，远端那个文件下次同步会被当成
         // 「另一台设备新建的」拉回来，删掉的文档就地复活
@@ -535,10 +572,94 @@ class DocumentRepositoryImplTest {
         coEvery { fileManager.deleteDocumentFile("1") } returns
             Result.failure(java.io.IOException("busy"))
 
-        val result = repository.deleteDocument("1")
+        val result = repository.purgeDocument("1")
 
         assertThat(result.isFailure).isTrue()
         coVerify { fileManager.deleteImageFiles(listOf("a.png")) }
+    }
+
+    // ---- 回收站：移入 / 恢复 / 到期清理 ----
+
+    @Test
+    fun `移入回收站不立墓碑不删任何文件`() = runTest {
+        coEvery { dao.getById("1") } returns row("1", "笔记")
+        coEvery { dao.trashById("1", any()) } just Runs
+
+        val result = repository.moveToTrash("1")
+
+        assertThat(result.isSuccess).isTrue()
+        coVerify { dao.trashById("1", any()) }
+        // 软删除的全部意义：内容原封不动，远端文件留给彻底删除那一刻
+        coVerify(exactly = 0) { dao.deleteWithTombstone(any(), any()) }
+        coVerify(exactly = 0) { fileManager.deleteDocumentFile(any()) }
+        coVerify(exactly = 0) { fileManager.deleteImageFiles(any()) }
+    }
+
+    @Test
+    fun `移入回收站时清掉全文索引与 RAG 索引`() = runTest {
+        coEvery { dao.getById("1") } returns row("1", "笔记")
+        coEvery { dao.trashById("1", any()) } just Runs
+
+        repository.moveToTrash("1")
+
+        // 回收站里的文档不该再被搜索或 knowledge 检索命中
+        coVerify { searchDao.deleteByDocId("1") }
+        coVerify { ragPipeline.removeFromIndex("1") }
+    }
+
+    @Test
+    fun `移入回收站的文档不存在时按失败处理`() = runTest {
+        val result = repository.moveToTrash("ghost")
+
+        assertThat(result.isFailure).isTrue()
+        coVerify(exactly = 0) { dao.trashById(any(), any()) }
+    }
+
+    @Test
+    fun `恢复时原名被占则改名落座`() = runTest {
+        // 回收站里的行：name 已被改写成 id，original_name 存原名
+        coEvery { dao.getTrashedById("1") } returns
+            row("1", "doc-id-1").copy(deletedAt = 1000L, originalName = "笔记")
+        coEvery { dao.getByFolderIncludingRoot(null) } returns
+            listOf(DocumentEntity("2", "笔记", null, 0L, 0L, false, 0, 0))
+        coEvery { dao.updateOriginalName("1", "笔记 (2)") } just Runs
+        coEvery { dao.restoreById("1") } just Runs
+        coEvery { fileManager.loadDocumentContent("1") } returns Result.success("正文")
+
+        val result = repository.restoreFromTrash("1")
+
+        assertThat(result.isSuccess).isTrue()
+        // 原名被一篇活跃文档占着：唯一索引会拒，必须先改出空位
+        coVerify { dao.updateOriginalName("1", "笔记 (2)") }
+        coVerify { dao.restoreById("1") }
+    }
+
+    @Test
+    fun `恢复时清掉同步基线并重建两条索引`() = runTest {
+        coEvery { dao.getTrashedById("1") } returns
+            row("1", "doc-id-1").copy(deletedAt = 1000L, originalName = "笔记")
+        coEvery { dao.restoreById("1") } just Runs
+        coEvery { fileManager.loadDocumentContent("1") } returns Result.success("正文")
+
+        repository.restoreFromTrash("1")
+
+        // 移入期间远端可能被改/删：留着旧基线最坏会让同步把刚恢复的文档再删回回收站
+        coVerify { syncStateDao.deleteByDocument("1") }
+        coVerify { searchDao.upsert(any()) }
+        coVerify { ragPipeline.enqueueIndex("1", any(), any()) }
+    }
+
+    @Test
+    fun `到期清理只删早于保留期的文档`() = runTest {
+        val retention = 30L * 24 * 60 * 60 * 1000
+        coEvery { dao.getExpiredTrashIds(retention) } returns listOf("1")
+        coEvery { dao.deleteWithTombstone("1", any()) } just Runs
+        coEvery { fileManager.deleteDocumentFile("1") } returns Result.success(Unit)
+
+        val result = repository.purgeTrashExpired(nowMs = 2 * retention, retentionMs = retention)
+
+        assertThat(result.getOrNull()).isEqualTo(1)
+        coVerify { dao.deleteWithTombstone("1", any()) }
     }
 
     // ---- 移动：目标文件夹里不许撞名 ----

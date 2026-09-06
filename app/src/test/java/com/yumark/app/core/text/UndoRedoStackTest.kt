@@ -196,4 +196,28 @@ class UndoRedoStackTest {
 
         assertThat(stack.undoDepth).isEqualTo(1)
     }
+
+    @Test
+    fun `强制边界的 record 让整篇替换可撤销`() {
+        // AI 划词替换 / 版本恢复走 contentReplaced → record(forceBoundary=true)：
+        // 替换前的状态必须留在撤销栈里（reset 会清空整篇历史，替换就不可撤销了）
+        val stack = UndoRedoStack()
+        stack.record(snap("替换前的内容"), nowMs = 1_000)
+        stack.record(snap("AI 改写后的整篇"), nowMs = 2_000, forceBoundary = true)
+
+        assertThat(stack.current.text).isEqualTo("AI 改写后的整篇")
+        val undone = stack.undo()
+        assertThat(undone?.text).isEqualTo("替换前的内容")
+    }
+
+    @Test
+    fun `record 相同文本只更新选区不动历史`() {
+        val stack = UndoRedoStack()
+        stack.reset(snap("内容"))   // 种下当前态，避免初始 EMPTY 被压进撤销栈
+        stack.record(snap("内容").copy(selectionStart = 0), nowMs = 2_000, forceBoundary = true)
+
+        // 恢复到与当前完全相同的一版：不应产生空撤销单元
+        assertThat(stack.undoDepth).isEqualTo(0)
+        assertThat(stack.canRedo).isFalse()
+    }
 }

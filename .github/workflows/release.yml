@@ -1,0 +1,119 @@
+name: Release
+
+# 签名发布流水线：打 v* 标签（或手动触发）时构建**签名** release APK 并发布到 GitHub Releases。
+#
+# 与 android.yml 的分工：android.yml 是每个 PR/push 的质量门禁（测试、lint、R8 编译、
+# schema 守卫），刻意**不产签名包**；本工作流只做发布，签名材料从仓库 Secrets 注入，
+# 任何一步失败都不会产出半成品发布。
+#
+# 首次启用前在 GitHub 仓库 Settings → Secrets and variables → Actions 配置四个 Secret：
+#   KEYSTORE_BASE64     base64 -w0 release.keystore 的输出（仓库里永远不要提交真实 keystore）
+#   KEYSTORE_PASSWORD   keystore 的 store 密码
+#   KEY_ALIAS           签名 key 的别名
+#   KEY_PASSWORD        签名 key 的密码
+#
+# 升级链路提醒：本应用自带"检查更新 + REQUEST_INSTALL_PACKAGES 自更新"，APK 的签名
+# 证书必须与既有用户设备上已安装版本一致（签名校验见 core/update/ApkVerification），
+# 一旦换 keystore，所有已安装用户都无法静默升级——轮换 keystore 是破坏性操作，见 README。
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  # 创建 Release 需要 contents:write；这是本工作流存在的前提，不再收窄
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    - name: Install Android SDK Platform 37
+      uses: android-actions/setup-android@v3
+      with:
+        packages: 'platforms;android-37.0 build-tools;37.0.0'
+
+    # 还原签名材料：keystore 从 base64 解出，keystore.properties 按 app/build.gradle.kts
+    # 读取的字段名写好。文件都放在工作区（已被 .gitignore 覆盖），不落任何缓存目录。
+    - name: Restore signing config from secrets
+      env:
+        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      run: |
+        if [ -z "$KEYSTORE_BASE64" ]; then
+          echo "::error::Secret KEYSTORE_BASE64 未配置：按本文件头部注释配置四个 Secret 后重跑"
+          exit 1
+        fi
+        echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+        cat > keystore.properties <<EOF
+        storeFile=../release.keystore
+        storePassword=$KEYSTORE_PASSWORD
+        keyAlias=$KEY_ALIAS
+        keyPassword=$KEY_PASSWORD
+        EOF
+
+    # 供应链门禁与主 CI 同源：正式包同样跑在带 JS 的 WebView 里，哈希不匹配必须停。
+    - name: Verify vendored JS integrity
+      run: bash download-js-libs.sh verify
+
+    # 发布前把 JVM 单测整段跑一遍：release 包的代码路径与 debug 有差异（R8/资源收缩），
+    # 打 tag 的提交一定已经过了 android.yml 的门禁，这里再跑一次是防「tag 打在旧提交上」。
+    - name: Unit tests
+      run: ./gradlew :app:testDebugUnitTest
+
+    - name: Build signed release APK
+      run: ./gradlew :app:assembleRelease
+
+    # 自更新链路（UpdateChecker）从 GitHub API 的 release asset digest 字段取 SHA-256
+    # 做下载校验——上传前本地先算一遍并把摘要写进发布说明，用户与日志都能对账。
+    - name: Compute SHA-256
+      id: sha
+      run: |
+        APK=app/build/outputs/apk/release/app-release.apk
+        test -f "$APK" || { echo "::error::找不到签名产物 $APK"; exit 1; }
+        DIGEST=$(sha256sum "$APK" | cut -d' ' -f1)
+        echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+        echo "SHA-256: $DIGEST"
+
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-release
+        path: app/build/outputs/apk/release/app-release.apk
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        generate_release_notes: true
+        files: app/build/outputs/apk/release/app-release.apk
+        body: |
+          ## 安装
+          下载下方 APK 附件安装。覆盖安装无需卸载旧版本。
+
+          ## SHA-256
+          ```
+          ${{ steps.sha.outputs.digest }}
+          ```
+
+          应用内"检查更新"会对下载包校验同一摘要与签名证书，与上表不一致时拒绝安装。

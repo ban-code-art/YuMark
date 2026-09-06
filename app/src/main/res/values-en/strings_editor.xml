@@ -112,4 +112,7 @@
     <string name="editor_error_create_subfolder">Failed to create subfolder</string>
     <string name="editor_error_locate_selection">Unable to find that selection in the document. Switch to edit mode, select it again, then retry.</string>
 
+    <!-- Editor detected an external version while local unsaved edits exist: the remote
+         version was preserved as a conflict copy. %1$s = copy name -->
+    <string name="external_change_preserved">Changes from another device detected; the remote version was saved as conflict copy \"%1$s\"</string>
 </resources>

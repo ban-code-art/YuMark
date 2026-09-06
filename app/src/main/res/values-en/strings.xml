@@ -57,7 +57,7 @@
     <!-- 文档操作 -->
     <string name="document_name">Document name</string>
     <string name="delete_document">Delete document</string>
-    <string name="delete_document_confirm">Delete the document \"%1$s\"? This cannot be undone.</string>
+    <string name="delete_document_confirm">Delete the document \"%1$s\"? It will be moved to the trash, where it can be restored for 30 days.</string>
     <string name="rename_document">Rename document</string>
     <string name="favorite">Add to favorites</string>
     <string name="unfavorite">Remove from favorites</string>
@@ -317,4 +317,24 @@
          Toast shown when IncomingUriGuard rejects a VIEW intent from a third-party app.
          A Toast rather than a Snackbar: the Compose tree does not exist yet at this point. -->
     <string name="open_external_rejected">Can\'t open this file: unsupported source</string>
+
+    <!-- ========== Trash (schema 14+) ==========
+        Deletion is two-stage: the UI "delete" moves a document to the trash (restorable);
+        only "delete forever"/"empty trash" in the trash screen or the 30-day expiry
+        actually destroys content and propagates the deletion to the remote. -->
+    <string name="trash_title">Trash</string>
+    <string name="cd_trash_back">Back</string>
+    <string name="trash_empty">Trash is empty</string>
+    <string name="trash_empty_hint">Deleted documents stay here for 30 days and can be restored anytime.</string>
+    <string name="trash_restore">Restore</string>
+    <string name="trash_delete_forever">Delete forever</string>
+    <string name="trash_delete_forever_confirm">Delete \"%1$s\" forever? This cannot be undone; the synced remote copy will be deleted too.</string>
+    <string name="trash_empty_action">Empty trash</string>
+    <string name="trash_empty_confirm">Delete all %1$d documents in the trash forever? This cannot be undone; the synced remote copies will be deleted too.</string>
+    <string name="trash_restored">Restored \"%1$s\"</string>
+    <string name="trash_purged">Deleted forever</string>
+    <string name="trash_deleted_at">Trashed %1$s</string>
+    <string name="trash_moved_snackbar">Moved \"%1$s\" to trash</string>
+    <string name="trash_moved_generic">Moved to trash</string>
+    <string name="trash_undo_action">Undo</string>
 </resources>

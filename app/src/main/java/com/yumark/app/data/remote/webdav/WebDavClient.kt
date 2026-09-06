@@ -92,6 +92,23 @@ class WebDavClient @Inject constructor() {
     }
 
     /**
+     * 列出同步目录下**子目录** [subDir] 的条目；目录不存在(404)视为空。
+     *
+     * 服务媒体同步（`_media/`）：文档同步只认 `.md`，子目录条目天然被它的过滤器忽略，
+     * 两条通道互不干扰。[subDir] 必须是单个路径段（内部常量，不接受用户输入）。
+     */
+    suspend fun listSubDir(config: WebDavConfig, subDir: String): Result<List<RemoteEntry>> = io {
+        retrying(UserAction.LIST_REMOTE_DIR) {
+            val resp = propfindIn(config, subDir, depth = "1")
+            when {
+                resp.status.value == 404 -> emptyList()
+                resp.isMultiStatusOrSuccess() -> WebDavXml.parseMultistatus(resp.bodyAsText())
+                else -> throw failure(UserAction.LIST_REMOTE_DIR, resp.status.value)
+            }
+        }
+    }
+
+    /**
      * 下载文件正文。
      *
      * 正文**硬按 UTF-8 解**而不是 `bodyAsText()`：有服务器给 .md 回 `text/plain; charset=ISO-8859-1`，
@@ -106,6 +123,48 @@ class WebDavClient @Inject constructor() {
             }
             if (resp.status.isSuccess()) decodeMarkdown(resp.readBytes())
             else throw failure(UserAction.DOWNLOAD_REMOTE_FILE, resp.status.value)
+        }
+    }
+
+    /**
+     * 下载同步目录下子目录 [subDir] 里的文件，返回**原始字节**（图片二进制不做任何解码）。
+     * 供媒体同步使用；[subDir] 必须是单个路径段（内部常量）。
+     */
+    suspend fun downloadBytes(config: WebDavConfig, subDir: String, fileName: String): Result<ByteArray> = io {
+        retrying(UserAction.DOWNLOAD_REMOTE_FILE) {
+            val resp = client.get(subFileUrl(config, subDir, fileName)) {
+                basicAuth(config.username, config.password)
+                noRequestTimeout()
+            }
+            if (resp.status.isSuccess()) resp.readBytes()
+            else throw failure(UserAction.DOWNLOAD_REMOTE_FILE, resp.status.value)
+        }
+    }
+
+    /**
+     * 上传字节到子目录 [subDir]（不存在则先逐级创建）。二进制直传、不碰 If-Match：
+     * 媒体文件按内容寻址（本地 images/ 里的文件名是不可变的 uuid.ext），
+     * 同名即同物，条件请求与 ETag 记账对它没有意义。
+     *
+     * [ensureDir] 给批量上传用：每张图都探测一次子目录是 50 张 = 50 次多余的
+     * PROPFIND，批量调用方应先 [ensureSubDir] 一次，再逐张传 [ensureDir] = false。
+     */
+    suspend fun uploadBytes(
+        config: WebDavConfig,
+        subDir: String,
+        fileName: String,
+        bytes: ByteArray,
+        ensureDir: Boolean = true
+    ): Result<Unit> = io {
+        retrying(UserAction.UPLOAD_REMOTE_FILE) {
+            if (ensureDir) ensureSubDir(config, subDir)
+            val resp = client.put(subFileUrl(config, subDir, fileName)) {
+                basicAuth(config.username, config.password)
+                contentType(ContentType.Application.OctetStream)
+                noRequestTimeout()
+                setBody(bytes)
+            }
+            if (!resp.status.isSuccess()) throw failure(UserAction.UPLOAD_REMOTE_FILE, resp.status.value)
         }
     }
 
@@ -297,6 +356,41 @@ class WebDavClient @Inject constructor() {
     /** 文件 URL。文件名是**一个**路径段，用 encodeSegment：段内的 `/`、`+`、`%` 都得转义。 */
     private fun fileUrl(config: WebDavConfig, fileName: String): String =
         dirUrl(config) + WebDavPaths.encodeSegment(fileName)
+
+    /** 子目录 URL（remoteDir/subDir/，subDir 单段）。 */
+    private fun subDirUrl(config: WebDavConfig, subDir: String): String =
+        dirUrl(config) + WebDavPaths.encodeSegment(subDir) + "/"
+
+    /** 子目录内文件的 URL。 */
+    private fun subFileUrl(config: WebDavConfig, subDir: String, fileName: String): String =
+        subDirUrl(config, subDir) + WebDavPaths.encodeSegment(fileName)
+
+    /** 子目录的 PROPFIND。 */
+    private suspend fun propfindIn(config: WebDavConfig, subDir: String, depth: String): HttpResponse =
+        client.request(subDirUrl(config, subDir)) {
+            method = HttpMethod("PROPFIND")
+            basicAuth(config.username, config.password)
+            header("Depth", depth)
+            contentType(ContentType.Application.Xml)
+            setBody(PROPFIND_BODY)
+        }
+
+    /**
+     * 确保子目录存在：先 PROPFIND Depth:0 探测，404 才 MKCOL。
+     * 公开给批量上传方（[MediaSync.pushLocalImages]）：整轮探测一次，
+     * 之后逐张传 [uploadBytes] 的 [ensureDir] = false，省掉每张图的往返。
+     * MKCOL 已存在时会回 405，也在这里一并当成功。
+     */
+    suspend fun ensureSubDir(config: WebDavConfig, subDir: String): Result<Unit> = io {
+        val probe = propfindIn(config, subDir, depth = "0")
+        if (probe.status.value == 404) {
+            mkcol(config, subDirUrl(config, subDir))
+            return@io
+        }
+        if (!probe.isMultiStatusOrSuccess()) {
+            throw failure(UserAction.CREATE_REMOTE_DIR, probe.status.value)
+        }
+    }
 
     /**
      * 统一切到 IO 线程并把异常收进 [Result]。

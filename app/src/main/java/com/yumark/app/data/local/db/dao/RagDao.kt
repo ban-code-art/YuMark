@@ -107,6 +107,20 @@ interface RagDao {
     @Query("SELECT * FROM rag_embedding_jobs WHERE status IN ('pending', 'running') ORDER BY created_at ASC")
     suspend fun getUnfinishedJobs(): List<EmbeddingJobEntity>
 
+    /**
+     * 把这篇文档**尚未收敛**的任务行标成 failed。
+     *
+     * 与上面那条「不要加 deleteJobsByDocument」的告诫不冲突：这里是 UPDATE 不是 DELETE，
+     * 服务的是**文档行还活着**的回收站场景——文档被移入回收站时行还在，任务行不会被外键
+     * 级联带走，不标掉的话后台索引线程会照常把它做完，给一篇用户已经「删除」的文档重建索引。
+     * 彻底删除（文档行没了）时任务行随外键级联消失，这条语句在该路径上是空操作。
+     */
+    @Query(
+        "UPDATE rag_embedding_jobs SET status = 'failed', error = :error, updated_at = :updatedAt " +
+            "WHERE document_id = :documentId AND status IN ('pending', 'running')"
+    )
+    suspend fun failUnfinishedJobs(documentId: String, error: String, updatedAt: Long)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertJob(job: EmbeddingJobEntity)
 

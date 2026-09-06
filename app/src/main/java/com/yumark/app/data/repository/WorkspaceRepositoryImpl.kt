@@ -151,6 +151,19 @@ class WorkspaceRepositoryImpl @Inject constructor(
             it.uri.toString() == uri && it.isReadPermission
         }
 
+    override suspend fun documentLastModified(docUri: String): Long? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.query(
+                    docUri.toUri(),
+                    arrayOf(android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED),
+                    null, null, null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getLong(0).takeIf { it > 0 } else null
+                }
+            }.getOrNull()
+        }
+
     override suspend fun readDocument(docUri: String): Result<String> =
         withContext(Dispatchers.IO) {
             runCatching {

@@ -11,34 +11,40 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface DocumentDao {
+    // 列表类查询一律 `deleted_at IS NULL`：回收站里的文档不出现在任何库视图、搜索与
+    // 同步清单里（同步侧靠这一点让远端文件成为「孤儿」而不是被复活，见 SyncPlanner）。
+    // getById / observeById 刻意**不过滤**：展开态双窗格下文档在列表侧被移入回收站时，
+    // 右侧编辑器还开着，过滤会让 observeDocument 突然发 null、自动保存链路掉线；
+    // 回收站文档没有任何 UI 入口能被再次打开，不过滤没有暴露面。
+
     @Query("SELECT * FROM documents WHERE id = :id")
     suspend fun getById(id: String): DocumentEntity?
 
     @Query("SELECT * FROM documents WHERE id = :id")
     fun observeById(id: String): Flow<DocumentEntity?>
 
-    @Query("SELECT * FROM documents ORDER BY updated_at DESC")
+    @Query("SELECT * FROM documents WHERE deleted_at IS NULL ORDER BY updated_at DESC")
     fun observeAll(): Flow<List<DocumentEntity>>
 
-    @Query("SELECT * FROM documents ORDER BY updated_at DESC")
+    @Query("SELECT * FROM documents WHERE deleted_at IS NULL ORDER BY updated_at DESC")
     suspend fun getAll(): List<DocumentEntity>
 
     /**
-     * 同一文件夹下的文档；`folderId` 传 null（根目录）时也查得到。
+     * 同一文件夹下的**活跃**文档；`folderId` 传 null（根目录）时也查得到。
      *
      * 关键在 `IS` 而不是 `=`：SQL 里 `folder_id = NULL` 恒为 NULL，永远匹配不到任何行，
      * 所以「= 版本 + 可空参数」这个组合在根目录上永远返回空表——而根目录恰好是新建文档的默认落点。
      * 曾经并存的 `getByFolder`（用 `=`）已删除：留着它只会让下一个调用方随手挑中错的那个。
      * 对非空 folderId，`IS` 与 `=` 等价且同样能走 `folder_id` 索引，不存在只用一个方法的代价。
      */
-    @Query("SELECT * FROM documents WHERE folder_id IS :folderId ORDER BY updated_at DESC")
+    @Query("SELECT * FROM documents WHERE folder_id IS :folderId AND deleted_at IS NULL ORDER BY updated_at DESC")
     suspend fun getByFolderIncludingRoot(folderId: String?): List<DocumentEntity>
 
     /**
-     * 批量按 id 取元数据（全文搜索命中后回捞用）。
+     * 批量按 id 取**活跃**文档元数据（全文搜索命中后回捞用）。
      * 返回顺序由 SQLite 决定，与传入 ids 的顺序无关，需要保序请在调用侧重排。
      */
-    @Query("SELECT * FROM documents WHERE id IN (:ids)")
+    @Query("SELECT * FROM documents WHERE id IN (:ids) AND deleted_at IS NULL")
     suspend fun getByIds(ids: List<String>): List<DocumentEntity>
 
     /**
@@ -81,7 +87,9 @@ interface DocumentDao {
     suspend fun recordTombstone(id: String, deletedAt: Long)
 
     /**
-     * 删一篇文档并留下墓碑，两件事在同一个事务里。
+     * 删一篇文档并留下墓碑，两件事在同一个事务里。（schema 14 起这是**彻底删除**专用的路径：
+     * UI 的「删除」先走 [trashById] 进回收站，只有回收站里的彻底删除与同步的远端删除传播
+     * 会走到这里。）
      *
      * 为什么必须同一个事务：只删不立碑，下次同步会把远端那个文件当成「另一台设备新建的」
      * 拉回来，删掉的文档就地复活；只立碑不删，下次同步反过来把远端文件删了，
@@ -92,6 +100,58 @@ interface DocumentDao {
         recordTombstone(id, deletedAt)
         deleteById(id)
     }
+
+    // ===== 回收站（schema 14 起）=====
+    //
+    // 软删除的全部写入路径都收在这几条里。要点：
+    // - **不立墓碑、不动 sync_state**。远端文件必须原样留到「彻底删除」那一刻，恢复才有意义；
+    //   同步侧靠「软删除文档不在同步清单里 + sync_state 记录仍在」把它登记为孤儿文件，
+    //   既不会被当成「远端独有」拉回来，也不会被删（见 SyncPlanner.plan）。
+    // - **name 改写成 id、原名挪进 original_name**，给 (folder_id, name) 唯一索引腾出名字槽位，
+    //   回收站里躺着一篇「笔记」时用户仍能新建「笔记」。改回名字是恢复路径的事（[restoreById]）。
+    // - `deleted_at IS NULL` 守卫让重复移入是幂等空操作（列表多选删除与同步路径并发时）。
+
+    @Query(
+        "UPDATE documents SET deleted_at = :deletedAt, original_name = name, name = id " +
+            "WHERE id = :id AND deleted_at IS NULL"
+    )
+    suspend fun trashById(id: String, deletedAt: Long)
+
+    /** 批量版 [trashById]，供文件夹子树整体进回收站用。守卫语义相同。 */
+    @Query(
+        "UPDATE documents SET deleted_at = :deletedAt, original_name = name, name = id " +
+            "WHERE id IN (:ids) AND deleted_at IS NULL"
+    )
+    suspend fun trashByIds(ids: List<String>, deletedAt: Long)
+
+    /**
+     * 只把行恢复成活跃态；改名（原名被占时挑新名字）由仓库在调用本条**之前**改好
+     * [original_name]，本条原样落座。SQLite 的 UPDATE 各赋值项都取**行更新前**的值，
+     * 所以 `name = original_name` 与 `original_name = NULL` 同一条语句里先后无所谓。
+     */
+    @Query(
+        "UPDATE documents SET name = original_name, original_name = NULL, deleted_at = NULL " +
+            "WHERE id = :id AND deleted_at IS NOT NULL"
+    )
+    suspend fun restoreById(id: String)
+
+    /** 恢复前先把 original_name 改成不冲突的名字（由仓库算好传入）。 */
+    @Query("UPDATE documents SET original_name = :name WHERE id = :id")
+    suspend fun updateOriginalName(id: String, name: String)
+
+    @Query("SELECT * FROM documents WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")
+    suspend fun getTrashed(): List<DocumentEntity>
+
+    @Query("SELECT * FROM documents WHERE id = :id")
+    suspend fun getTrashedById(id: String): DocumentEntity?
+
+    /** 早于 [deletedBefore] 移入回收站的文档 id，供到期自动清理逐篇走彻底删除。 */
+    @Query("SELECT id FROM documents WHERE deleted_at IS NOT NULL AND deleted_at < :deletedBefore")
+    suspend fun getExpiredTrashIds(deletedBefore: Long): List<String>
+
+    /** 回收站实时计数（文件列表的入口角标用），回收站为空时恒为 0。 */
+    @Query("SELECT COUNT(*) FROM documents WHERE deleted_at IS NOT NULL")
+    fun observeTrashCount(): Flow<Int>
 
     @Query("UPDATE documents SET folder_id = :folderId, updated_at = :updatedAt WHERE id = :id")
     suspend fun moveToFolder(id: String, folderId: String?, updatedAt: Long)
@@ -172,21 +232,21 @@ interface FolderDao {
     suspend fun deleteById(id: String)
 
     // ===== 级联删除子树 =====
-    // 下面这几条查的是 documents / images / document_search 而不是 folders，看着不该放在
+    // 下面这几条查的是 documents / document_search 而不是 folders，看着不该放在
     // FolderDao 里。但 Room 的 @Transaction 默认方法只能调用**同一个接口**上的方法，
     // 而「删一棵子树」必须整体成功或整体回滚（否则会留下文件夹没了、文档还挂在上面的中间态），
-    // 所以参与这一次事务的语句必须聚在一起。事务的入口是 [deleteSubtree]。
+    // 所以参与这一次事务的语句必须聚在一起。事务的入口是 [trashSubtree]。
 
-    /** 子树内所有文档 id。`IN` 天然排除 folder_id 为 NULL 的根级文档，不会误删根目录。 */
+    /** 子树内所有文档 id（含已在回收站的，[trashDocumentsByIds] 的守卫会把后者跳过）。
+     *  `IN` 天然排除 folder_id 为 NULL 的根级文档，不会误伤根目录。 */
     @Query("SELECT id FROM documents WHERE folder_id IN (:folderIds)")
     suspend fun documentIdsInFolders(folderIds: List<String>): List<String>
 
-    /** 这批文档引用的图片文件名（images 行会被 CASCADE 带走，磁盘文件得靠这个名单去删）。 */
-    @Query("SELECT file_name FROM images WHERE document_id IN (:documentIds)")
-    suspend fun imageFileNamesOf(documentIds: List<String>): List<String>
-
-    @Query("DELETE FROM documents WHERE id IN (:ids)")
-    suspend fun deleteDocumentsByIds(ids: List<String>)
+    @Query(
+        "UPDATE documents SET deleted_at = :deletedAt, original_name = name, name = id " +
+            "WHERE id IN (:ids) AND deleted_at IS NULL"
+    )
+    suspend fun trashDocumentsByIds(ids: List<String>, deletedAt: Long)
 
     /**
      * 清理这批文档的全文索引行。
@@ -198,45 +258,29 @@ interface FolderDao {
     @Query("DELETE FROM document_search WHERE doc_id IN (:ids)")
     suspend fun deleteSearchIndexOf(ids: List<String>)
 
-    /** images 行本会被 documents 的 CASCADE 带走；显式删一次，外键被关掉时也不留孤儿行。 */
-    @Query("DELETE FROM images WHERE document_id IN (:ids)")
-    suspend fun deleteImagesOf(ids: List<String>)
-
     @Query("DELETE FROM folders WHERE id IN (:ids)")
     suspend fun deleteFoldersByIds(ids: List<String>)
 
     /**
-     * 给这批即将被删的文档批量立墓碑（同 [DocumentDao.recordTombstone]，只是按 id 列表）。
+     * 在一个事务里把整棵子树送进回收站：文档软删除 → 清全文索引 → 删文件夹结构。
      *
-     * 同样必须在 [deleteDocumentsByIds] 之前跑：`sync_state` 会被文档行的 CASCADE 带走。
-     */
-    @Query(
-        "INSERT OR REPLACE INTO sync_tombstones (document_id, remote_path, deleted_at) " +
-            "SELECT document_id, remote_path, :deletedAt FROM sync_state WHERE document_id IN (:ids)"
-    )
-    suspend fun recordTombstonesFor(ids: List<String>, deletedAt: Long)
-
-    /**
-     * 在一个事务里删掉整棵子树的库记录：立墓碑 → 索引行 → 图片行 → 文档行 → 文件夹行。
-     *
-     * 顺序不能反过来。先删 `folders` 的话，`documents.folder_id` 上的外键是 SET_NULL，
-     * 剩下的文档会瞬间变成根目录文档；这个事务万一后面某条语句失败回滚倒是没事，
-     * 可提交成功的路径上就等于把整棵子树的文档倒进了根目录。
-     *
-     * 墓碑排在最前面同理：它的数据源 `sync_state` 会被文档行的 CASCADE 带走，
-     * 删完再立就查不到远端路径了，删除也就传不到远端——那些文件会在下次同步被当成
-     * 「远端独有」整棵子树地拉回来。
+     * 与 schema 13 及之前的 `deleteSubtree`（硬删 + 立墓碑 + 删图片行）相比，这里的每一步
+     * 都服务于「子树可恢复」：
+     * - 文档走软删除（[trashDocumentsByIds]），**不立墓碑、不删 images 行、不删正文文件**——
+     *   恢复要能拿回全部内容；图片文件与磁盘清理由回收站的「彻底删除」负责。
+     * - 全文索引行必须清：回收站里的文档不该再被搜到；恢复时仓库会按正文重建索引。
+     * - 文件夹结构是硬删（文件夹不进回收站）：先删文档再删文件夹的顺序不能反，反过来
+     *   `documents.folder_id` 上的外键（SET_NULL）会把还没处理的活跃文档冲进根目录；
+     *   软删除的文档被 SET_NULL 倒进根目录反而是期望行为——原文件夹没了，恢复后落在根目录。
      *
      * 分批是为了 SQLite 的绑定变量上限（旧版 Android 上是 999 个）：id 列表按 400 切段，
      * 段与段仍在同一个事务里，所以「整体成功或整体回滚」不受影响。
      */
     @Transaction
-    suspend fun deleteSubtree(folderIds: List<String>, documentIds: List<String>, deletedAt: Long) {
+    suspend fun trashSubtree(folderIds: List<String>, documentIds: List<String>, deletedAt: Long) {
         documentIds.chunked(400).forEach { chunk ->
-            recordTombstonesFor(chunk, deletedAt)
+            trashDocumentsByIds(chunk, deletedAt)
             deleteSearchIndexOf(chunk)
-            deleteImagesOf(chunk)
-            deleteDocumentsByIds(chunk)
         }
         folderIds.chunked(400).forEach { chunk -> deleteFoldersByIds(chunk) }
     }
@@ -272,6 +316,10 @@ interface SyncTombstoneDao {
 interface ImageDao {
     @Query("SELECT * FROM images WHERE id = :id")
     suspend fun getById(id: String): ImageEntity?
+
+    /** 按落盘文件名反查（文件名是应用生成的 uuid.ext，全局唯一）；媒体同步拉取侧用。 */
+    @Query("SELECT * FROM images WHERE file_name = :fileName LIMIT 1")
+    suspend fun getByFileName(fileName: String): ImageEntity?
 
     @Query("SELECT * FROM images WHERE document_id = :documentId")
     suspend fun getByDocument(documentId: String): List<ImageEntity>

@@ -209,6 +209,14 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    /** 启动自动检查更新（隐私合规：这是唯一一处非用户主动发起的网络接触，必须可关）。 */
+    fun updateUpdateCheckEnabled(on: Boolean) {
+        viewModelScope.launch {
+            repo.updateSettings(settings.value.copy(updateCheckEnabled = on))
+                .onFailure { reportAction(it, UserAction.SAVE_SETTINGS) }
+        }
+    }
+
     fun updateThemeId(id: String) {
         viewModelScope.launch {
             repo.updateSettings(settings.value.copy(themeId = id))
@@ -498,6 +506,8 @@ private object SettingsTestTags {
     const val RESET_BUTTON = "settings_reset_button"
     const val CHECK_UPDATE_ROW = "settings_check_update_row"
     const val CHECK_UPDATE_BUTTON = "settings_check_update_button"
+    const val AUTO_UPDATE_SWITCH = "settings_auto_update_switch"
+    const val PRIVACY_ROW = "settings_privacy_row"
 
     // 对话框按钮
     const val EXPORT_SECRETS_CONFIRM = "settings_export_with_secrets"
@@ -670,6 +680,7 @@ fun SettingsScreen(
     val crashExportState by viewModel.crashExportState.collectAsStateWithLifecycle()
     var askClearCrashLogs by remember { mutableStateOf(false) }
     var askResetSettings by remember { mutableStateOf(false) }
+    var showPrivacyPolicy by remember { mutableStateOf(false) }
 
     // ---- 同步删除的正文备份 ----
     val syncTrashCount by viewModel.syncTrashCount.collectAsStateWithLifecycle()
@@ -837,6 +848,19 @@ fun SettingsScreen(
                     onClick = { askResetSettings = false },
                     modifier = Modifier.testTag(SettingsTestTags.RESET_CANCEL)
                 ) { Text(stringResource(R.string.config_dialog_cancel)) }
+            }
+        )
+    }
+
+    if (showPrivacyPolicy) {
+        AlertDialog(
+            onDismissRequest = { showPrivacyPolicy = false },
+            title = { Text(stringResource(R.string.privacy_policy_title)) },
+            text = { Text(stringResource(R.string.privacy_policy_body)) },
+            confirmButton = {
+                TextButton(onClick = { showPrivacyPolicy = false }) {
+                    Text(stringResource(R.string.ok))
+                }
             }
         )
     }
@@ -1443,6 +1467,33 @@ fun SettingsScreen(
                 modifier = Modifier
                     .clickable { viewModel.checkUpdate() }
                     .testTag(SettingsTestTags.CHECK_UPDATE_ROW)
+            )
+
+            // 启动自动检查更新（默认开）。关掉后仅停用启动时的静默检查，
+            // 上面那行的手动检查照常可用。
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_update_auto_check)) },
+                supportingContent = { Text(stringResource(R.string.settings_update_auto_check_desc)) },
+                trailingContent = {
+                    Switch(
+                        checked = settings.updateCheckEnabled,
+                        onCheckedChange = { viewModel.updateUpdateCheckEnabled(it) },
+                        modifier = Modifier.testTag(SettingsTestTags.AUTO_UPDATE_SWITCH)
+                    )
+                },
+                modifier = Modifier.semantics(mergeDescendants = true) {}
+            )
+
+            HorizontalDivider()
+
+            // 隐私政策（摘要）。完整文本在仓库 PRIVACY.md；应用本体零上报、零统计 SDK，
+            // 需要用户知情的三件事（AI 出境、更新检查、崩溃日志留存）都在摘要里。
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.privacy_policy_title)) },
+                supportingContent = { Text(stringResource(R.string.privacy_policy_summary)) },
+                modifier = Modifier
+                    .clickable { showPrivacyPolicy = true }
+                    .testTag(SettingsTestTags.PRIVACY_ROW)
             )
 
             HorizontalDivider()

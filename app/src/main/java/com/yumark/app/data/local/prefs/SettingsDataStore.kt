@@ -31,6 +31,7 @@ class SettingsDataStore @Inject constructor(
         val COMPRESSION_QUALITY = stringPreferencesKey("compression_quality")
         val MAX_IMAGE_WIDTH = intPreferencesKey("max_image_width")
         val DEFAULT_PREVIEW_MODE = booleanPreferencesKey("default_preview_mode")
+        val UPDATE_CHECK_ENABLED = booleanPreferencesKey("update_check_enabled")
         val THEME_ID = stringPreferencesKey("theme_id")
         val DARK_MODE = stringPreferencesKey("dark_mode")
     }
@@ -48,6 +49,7 @@ class SettingsDataStore @Inject constructor(
                 imageCompressionQuality = readQuality(prefs[Keys.COMPRESSION_QUALITY]),
                 maxImageWidth = prefs[Keys.MAX_IMAGE_WIDTH] ?: 1920,
                 defaultPreviewMode = prefs[Keys.DEFAULT_PREVIEW_MODE] ?: true,
+                updateCheckEnabled = prefs[Keys.UPDATE_CHECK_ENABLED] ?: true,
                 themeId = prefs[Keys.THEME_ID] ?: "default",
                 darkMode = prefs[Keys.DARK_MODE] ?: "system"
             )
@@ -64,6 +66,7 @@ class SettingsDataStore @Inject constructor(
             prefs[Keys.COMPRESSION_QUALITY] = settings.imageCompressionQuality.name
             prefs[Keys.MAX_IMAGE_WIDTH] = settings.maxImageWidth
             prefs[Keys.DEFAULT_PREVIEW_MODE] = settings.defaultPreviewMode
+            prefs[Keys.UPDATE_CHECK_ENABLED] = settings.updateCheckEnabled
             prefs[Keys.THEME_ID] = settings.themeId
             prefs[Keys.DARK_MODE] = settings.darkMode
         }

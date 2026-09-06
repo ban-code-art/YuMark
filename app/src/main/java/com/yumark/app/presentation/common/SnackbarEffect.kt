@@ -2,6 +2,7 @@ package com.yumark.app.presentation.common
 
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
@@ -29,12 +30,37 @@ fun SnackbarEffect(
     duration: SnackbarDuration = SnackbarDuration.Short,
     onConsumed: () -> Unit
 ) {
+    SnackbarEffect(message, actionLabel = null, hostState = hostState, duration = duration, onAction = {}, onConsumed = onConsumed)
+}
+
+/**
+ * 带动作按钮的变体（如删除后的「撤销」）。
+ *
+ * [actionLabel] 非空时 Snackbar 显示动作按钮：用户点下 → 回调 [onAction] → 走 [onConsumed] 清状态；
+ * 超时滑走 → 只清状态。动作与消费的顺序差别就在这里：**onAction 先于 onConsumed**，
+ * 让消费方能在状态仍可见的时候决定清什么。
+ */
+@Composable
+fun SnackbarEffect(
+    message: String?,
+    actionLabel: String?,
+    hostState: SnackbarHostState,
+    duration: SnackbarDuration = SnackbarDuration.Short,
+    onAction: () -> Unit,
+    onConsumed: () -> Unit
+) {
     // 效果的生命周期比一次组合长，捕获到的 lambda 可能已经过期；这里始终调最新的那个。
     val consume = rememberUpdatedState(onConsumed)
-    LaunchedEffect(message) {
+    val act = rememberUpdatedState(onAction)
+    LaunchedEffect(message, actionLabel) {
         val text = message ?: return@LaunchedEffect
         try {
-            hostState.showSnackbar(text, duration = duration)
+            val result = hostState.showSnackbar(
+                message = text,
+                actionLabel = actionLabel,
+                duration = duration
+            )
+            if (result == SnackbarResult.ActionPerformed) act.value()
         } finally {
             consume.value()
         }

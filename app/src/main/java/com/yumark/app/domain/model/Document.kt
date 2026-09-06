@@ -45,3 +45,18 @@ fun Document.withFreshCounts(): Document = copy(
     wordCount = WordCount.of(content),
     characterCount = WordCount.charactersOf(content)
 )
+
+/**
+ * 回收站里的一篇文档（元数据视图，不带正文）。
+ *
+ * 与 [Document] 分开建而不是给它挂 `deletedAt` 可空字段：库视图、搜索、同步、Agent 工具
+ * 拿到的 [Document] 永远是活跃文档，类型上就排除了「列表代码还要处处判回收站态」的负担；
+ * 只有回收站页面消费本模型。
+ */
+data class TrashedDocument(
+    val id: String,
+    val name: String,
+    val deletedAt: Instant,
+    val updatedAt: Instant,
+    val wordCount: Int
+)

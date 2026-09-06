@@ -189,6 +189,28 @@ class RagPipeline @Inject constructor(
     }
 
     /**
+     * 把一篇文档从索引里整个摘掉：DB 分块（向量随外键级联）+ 内存 [VectorStore]。
+     *
+     * 回收站的「移入」与「彻底删除」都要调（彻底删除时文档行没了，分块行会随外键级联消失，
+     * 但内存里的向量不会自己消失，不摘的话本轮会话内 knowledge 检索继续命中幽灵分块）；
+     * 文档恢复后由调用方重新 [enqueueIndex] 补回索引。
+     *
+     * 挂 [indexMutex] 与 [indexDocument] 串行：并发的重建/摘除交错时，后执行者胜，
+     * 与「同一文档不可能有第二个活着的任务」的前提一致。
+     */
+    suspend fun removeFromIndex(documentId: String) {
+        indexMutex.withLock {
+            ragDao.deleteChunksByDocument(documentId)
+            ragDao.failUnfinishedJobs(
+                documentId = documentId,
+                error = "document removed from index",
+                updatedAt = System.currentTimeMillis()
+            )
+            vectorStore.removeDocument(documentId)
+        }
+    }
+
+    /**
      * 内存未装载、**或装载时用的 embedding 模型已经不是当前配置的那个**时，从 DB 全量 hydrate；
      * 并回收上次进程留下的未收敛任务。名字沿用「IfEmpty」，判据见 [hydratedEmbeddingModel]。
      *

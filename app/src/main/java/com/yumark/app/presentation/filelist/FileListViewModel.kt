@@ -10,6 +10,7 @@ import com.yumark.app.core.validation.FileNameValidator
 import com.yumark.app.core.validation.ValidationResult
 import com.yumark.app.data.remote.UpdateChecker
 import com.yumark.app.domain.model.*
+import com.yumark.app.presentation.common.TrashUndo
 import com.yumark.app.domain.repository.DocumentRepository
 import com.yumark.app.domain.repository.FolderRepository
 import com.yumark.app.domain.repository.WorkspaceRepository
@@ -21,6 +22,7 @@ import com.yumark.app.domain.usecase.GetFolderTreeUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -37,7 +39,8 @@ class FileListViewModel @Inject constructor(
     private val manageFoldersUseCase: ManageFoldersUseCase,
     private val getFolderTreeUseCase: GetFolderTreeUseCase,
     private val workspaceRepository: WorkspaceRepository,
-    private val updateChecker: UpdateChecker
+    private val updateChecker: UpdateChecker,
+    private val settingsRepository: com.yumark.app.domain.repository.SettingsRepository
 ) : ViewModel() {
 
     private val _currentFolderId = MutableStateFlow<String?>(null)
@@ -81,6 +84,17 @@ class FileListViewModel @Inject constructor(
     private val _actionError = MutableStateFlow<UiMessage?>(null)
     val actionError: StateFlow<UiMessage?> = _actionError.asStateFlow()
 
+    /** 刚移入回收站的一篇文档（Snackbar 的撤销目标）；null 表示没有待撤销项。 */
+    private val _trashUndo = MutableStateFlow<TrashUndo?>(null)
+    val trashUndo: StateFlow<TrashUndo?> = _trashUndo.asStateFlow()
+
+    /** 撤销提示的超时清理任务；新删除替换旧撤销时取消重来。 */
+    private var undoExpiryJob: kotlinx.coroutines.Job? = null
+
+    /** 回收站实时计数：入口角标提醒「里面有东西」。列表页可见期间保持订阅。 */
+    val trashCount: StateFlow<Int> = documentRepository.observeTrashCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
     /** 启动时自动检查更新的结果 */
     private val _autoUpdateInfo = MutableStateFlow<UpdateInfo?>(null)
     val autoUpdateInfo: StateFlow<UpdateInfo?> = _autoUpdateInfo.asStateFlow()
@@ -90,10 +104,15 @@ class FileListViewModel @Inject constructor(
         checkUpdateOnStartup()
     }
 
-    /** 启动时检查更新（静默，不显示"检查中"或"无更新"状态） */
+    /** 启动时检查更新（静默，不显示"检查中"或"无更新"状态）。
+     *
+     *  受 [UserSettings.updateCheckEnabled] 管着：这是全应用唯一一处「非用户主动发起」的
+     *  网络接触（打到 GitHub Releases API），用户必须能一键关掉（隐私合规）。
+     *  关闭后设置页的手动检查不受影响。 */
     private fun checkUpdateOnStartup() {
         viewModelScope.launch {
             try {
+                if (!settingsRepository.getSettings().updateCheckEnabled) return@launch
                 val updateInfo = updateChecker.checkUpdate()
                 if (updateInfo != null) {
                     _autoUpdateInfo.value = updateInfo
@@ -260,6 +279,42 @@ class FileListViewModel @Inject constructor(
         viewModelScope.launch {
             deleteDocumentUseCase(id)
                 .onFailureReport(UserAction.DELETE_DOCUMENT) { setError(it) }
+                .onSuccess {
+                    // 成功移入回收站后给一条「可撤销」的 Snackbar：删除的最后一道兜底。
+                    // 文档名从当前列表快照里取（那时它必然还在）——取不到就退通用文案，
+                    // 不为一条提示把整次删除判失败。
+                    val name = (_uiState.value as? FileListUiState.Success)
+                        ?.documents?.firstOrNull { it.id == id }?.name
+                    _trashUndo.value = TrashUndo(id, name)
+                    scheduleUndoExpiry(id)
+                }
+        }
+    }
+
+    /**
+     * 撤销提示的**超时自清**：与 Snackbar 的 Long 时长（≈10s）对齐再放宽 1 秒。
+     *
+     * 清理刻意不挂在 Snackbar 的 onConsumed 上——连续删除时，前一条 Snackbar 因
+     * key 变化被取消，其取消回调（finally 里的 consume）会晚于新撤销状态到达，
+     * 无条件清状态就把刚 set 的新撤销项一起吞掉了（撤销条凭空消失）。
+     * 超时自清按 id 对账，天然免疫这个竞态；点「撤销」走 [undoTrashDelete] 也会清。
+     */
+    private fun scheduleUndoExpiry(id: String) {
+        undoExpiryJob?.cancel()
+        undoExpiryJob = viewModelScope.launch {
+            delay(TrashUndo.EXPIRY_MS)
+            if (_trashUndo.value?.id == id) _trashUndo.value = null
+        }
+    }
+
+    /** 撤销刚发生的移入回收站（Snackbar 的「撤销」按钮）。恢复成功列表自动刷新。 */
+    fun undoTrashDelete() {
+        val undo = _trashUndo.value ?: return
+        undoExpiryJob?.cancel()
+        _trashUndo.value = null
+        viewModelScope.launch {
+            documentRepository.restoreFromTrash(undo.id)
+                .onFailureReport(UserAction.RESTORE_DOCUMENT) { setError(it) }
         }
     }
 

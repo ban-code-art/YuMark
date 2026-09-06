@@ -2,6 +2,9 @@ import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
+    // 静态分析：默认规则集 + 基线（见根 build.gradle.kts 的说明），新增违规在 CI 拦截
+    id("io.gitlab.arturbosch.detekt")
+
     alias(libs.plugins.android.application)
     // AGP 9 起 Kotlin 支持内置（built-in Kotlin），不再需要 org.jetbrains.kotlin.android。
     // kapt 与 built-in Kotlin 不兼容（应用即失败），注解处理一律走 KSP。
@@ -20,8 +23,8 @@ android {
         applicationId = "com.yumark.app"
         minSdk = libs.versions.min.sdk.get().toInt()
         targetSdk = libs.versions.target.sdk.get().toInt()
-        versionCode = 21
-        versionName = "0.10"
+        versionCode = 22
+        versionName = "0.11"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -153,6 +156,12 @@ dependencies {
     // DataStore
     implementation(libs.datastore.preferences)
 
+    // WorkManager：后台定时同步（SyncWorkScheduler / SyncWorker）。
+    // Worker 的依赖注入走 EntryPoint（见 SyncWorker），刻意不引 hilt-work：
+    // 那条路要求 Application 实现 Configuration.Provider 并移除默认 initializer，
+    // 为一个每六小时醒一次的 Worker 拆启动链不划算。
+    implementation(libs.androidx.work.runtime)
+
     // Security (encrypted storage for AI API keys)
     implementation(libs.security.crypto)
 
@@ -197,13 +206,12 @@ dependencies {
     // schema 校验逻辑的工具。纯 JVM 测试只能比对建表语句字符串，证明不了
     // SQLite 接受这条语句（FTS4 写错是运行期 vtable constructor failed）。
     androidTestImplementation(libs.room.testing)
-    // Compose UI 测试依赖**刻意没有**在这里声明：目前没有任何 Compose UI 用例，
-    // 而 ui-test-manifest 会往 debug 变体的 manifest 里注入 Activity、ui-test-junit4
-    // 会把 espresso 拉进测试 APK —— 为零个用例引入这些变更不划算。
-    // 依赖坐标已在 gradle/libs.versions.toml 里备好，写第一个 Compose UI 用例时补这三行：
-    //     androidTestImplementation(platform(libs.compose.bom))
-    //     androidTestImplementation(libs.compose.ui.test.junit4)
-    //     debugImplementation(libs.compose.ui.test.manifest)
+    // Compose UI 测试（v0.11 起启用，首批用例覆盖回收站页的纯组合函数层）。
+    // ui-test-manifest 只进 debugImplementation：它靠 manifest 合并往被测应用注入一个
+    // 空 Activity；ui-test-junit4 会把 espresso 拉进测试 APK。
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
 }
 
 // Room schema 导出：kapt 时代走 defaultConfig.javaCompileOptions.annotationProcessorOptions，
@@ -216,4 +224,13 @@ room {
 
 ksp {
     arg("room.incremental", "true")
+}
+
+detekt {
+    // config 为空 = 官方默认规则集。刻意不 here-doc 一份自定义配置：
+    // 默认集的误报少、文档全，谁不服某条规则去官方文档找开关，比维护一份私改配置可持续。
+    buildUponDefaultConfig = true
+    // 存量问题全部在基线里（生成方式见根 build.gradle.kts 注释），新增违规才会失败
+    baseline = file("$rootDir/config/detekt-baseline.xml")
+    parallel = true
 }

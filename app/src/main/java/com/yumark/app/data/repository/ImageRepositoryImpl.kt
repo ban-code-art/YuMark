@@ -69,12 +69,24 @@ class ImageRepositoryImpl @Inject constructor(
             val sourceDisplayWidth =
                 if (exif.swapsDimensions) boundsOptions.outHeight else boundsOptions.outWidth
 
-            val sampleSize = if (targetMaxWidth != null && sourceDisplayWidth > targetMaxWidth) {
-                // inSampleSize 向下取整为 2 的幂；按宽度比例粗略计算即可，后续再精确缩放
-                var sample = 1
-                while (sourceDisplayWidth / sample / 2 >= targetMaxWidth) sample *= 2
-                sample
-            } else 1
+            // 绝对分辨率护栏：压缩关闭时 targetMaxWidth 为 null，20MP+ 的图会按原尺寸
+            // 全量解码（ARGB_8888 下 20MP ≈ 80MB，更大的直接 OOM）——「保留原始观感」
+            // 不等于「允许解码把进程打死」。4096 边界内单张位图 ≤ ~45MB，是下限保护；
+            // 护栏只影响解码步长，压缩关闭时后续的精确缩放/原样复制逻辑不受影响。
+            val sampleSize = when {
+                targetMaxWidth != null && sourceDisplayWidth > targetMaxWidth -> {
+                    // inSampleSize 向下取整为 2 的幂；按宽度比例粗略计算即可，后续再精确缩放
+                    var sample = 1
+                    while (sourceDisplayWidth / sample / 2 >= targetMaxWidth) sample *= 2
+                    sample
+                }
+                sourceDisplayWidth > ABSOLUTE_MAX_DECODE_WIDTH -> {
+                    var sample = 1
+                    while (sourceDisplayWidth / sample / 2 >= ABSOLUTE_MAX_DECODE_WIDTH) sample *= 2
+                    sample
+                }
+                else -> 1
+            }
 
             val decodeInputStream = context.contentResolver.openInputStream(uri)
                 ?: return@withContext Result.failure(Exception("Cannot open image"))
@@ -278,6 +290,9 @@ internal enum class ImageEncoding(
  * `IMAGE/PNG`，不归一化的话 png 源图会被当成认不出的类型重编码成 jpg（不算错，但白丢一次
  * 无损与透明通道）。
  */
+/** 解码侧的绝对分辨率上限（最长边）。压缩关闭时的 OOM 护栏，理由见 saveImage 内注释。 */
+private const val ABSOLUTE_MAX_DECODE_WIDTH = 4096
+
 internal fun imageEncodingForMime(mime: String?): ImageEncoding = when (mime?.lowercase()) {
     "image/png" -> ImageEncoding.PNG
     "image/jpeg" -> ImageEncoding.JPEG

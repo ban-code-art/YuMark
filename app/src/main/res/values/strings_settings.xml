@@ -56,8 +56,18 @@
     <!-- %1$s = BuildConfig.VERSION_NAME -->
     <string name="settings_current_version">当前版本: %1$s</string>
     <string name="settings_update_none">已是最新版本</string>
+    <string name="settings_update_auto_check">启动时自动检查更新</string>
+    <string name="settings_update_auto_check_desc">仅向 GitHub 请求版本信息，不含任何笔记数据；关闭后仍可手动检查</string>
     <string name="settings_about">关于</string>
     <string name="settings_about_desc">YuMark - Markdown 编辑器</string>
+
+    <!-- ========== 隐私政策（设置页入口 + AI 知情确认） ========== -->
+    <string name="privacy_policy_title">隐私政策</string>
+    <string name="privacy_policy_summary">本应用不收集、不上传任何用户数据</string>
+    <string name="privacy_policy_body">YuMark 是本地优先的笔记应用：\n\n· 你的笔记、图片与配置只保存在你的设备上，本应用不内置任何统计、分析或崩溃上报 SDK，不收集也不上传任何用户数据。\n\n· 崩溃日志仅保存在本机私有目录（最多 20 条），可随时在设置页查看、导出或清除，导出前会自动抹除疑似密钥的内容。\n\n· 只有两种情况数据会离开你的设备，且都由你主动发起或明确授权：\n  1. WebDAV 同步——笔记内容发送到你自己配置的服务器；\n  2. AI 功能——相关笔记内容发送给你配置的第三方 AI 服务端点用于生成回复或检索（首次启用时会单独确认）。\n\n· 应用启动时会向 GitHub 查询新版本（可在设置中关闭），该请求不含任何个人数据或笔记内容。\n\n完整文本见项目仓库的 PRIVACY.md。</string>
+    <string name="ai_consent_title">启用 AI 功能</string>
+    <string name="ai_consent_message">开启后，你的笔记内容（整篇或相关片段）将随你的请求发送到你配置的第三方 AI 服务端点，用于生成回复或建立知识索引。数据是否被该服务存储或用于训练，取决于其服务条款，与本应用无关。\n\n请确认你信任所配置的服务提供方。详见设置中的「隐私政策」。</string>
+    <string name="ai_consent_agree">同意并启用</string>
     <!-- config_import_applied（已应用：%1$s）里几个分段名的连接符。中文用顿号、英文要
          逗号加空格，所以连接符本身也得随语区变，不能写死在代码里。 -->
     <string name="settings_list_separator">、</string>

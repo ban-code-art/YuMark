@@ -133,4 +133,7 @@
     <string name="editor_error_create_subfolder">创建子文件夹失败</string>
     <string name="editor_error_locate_selection">无法在文档中定位该选区，请切换到编辑模式后选中并重试</string>
 
+    <!-- 编辑器检测到外部版本落库且本地有未保存修改时：远端版本已存为冲突副本的提示。
+         %1$s = 冲突副本名 -->
+    <string name="external_change_preserved">检测到其他设备的修改，远端版本已保存为冲突副本"%1$s"</string>
 </resources>

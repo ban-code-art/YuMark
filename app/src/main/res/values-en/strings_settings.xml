@@ -43,8 +43,18 @@
     <!-- %1$s = BuildConfig.VERSION_NAME -->
     <string name="settings_current_version">Current version: %1$s</string>
     <string name="settings_update_none">Up to date</string>
+    <string name="settings_update_auto_check">Check for updates on launch</string>
+    <string name="settings_update_auto_check_desc">Only asks GitHub for version info; no note data is sent. Manual checks stay available.</string>
     <string name="settings_about">About</string>
     <string name="settings_about_desc">YuMark - Markdown editor</string>
+
+    <!-- ========== Privacy policy (settings entry + AI consent) ========== -->
+    <string name="privacy_policy_title">Privacy policy</string>
+    <string name="privacy_policy_summary">This app collects and uploads no user data</string>
+    <string name="privacy_policy_body">YuMark is a local-first note app:\n\n· Your notes, images and configuration stay on your device. The app bundles no analytics or crash-reporting SDK and collects/uploads no user data.\n\n· Crash logs are kept only in the app\'s private storage (max 20 entries); you can view, export or clear them anytime in Settings. Suspected secrets are redacted before export.\n\n· Data leaves your device only in two cases, both initiated or explicitly authorized by you:\n  1. WebDAV sync — notes are sent to a server you configure yourself;\n  2. AI features — relevant note content is sent to the third-party AI endpoint you configure, for replies or knowledge indexing (confirmed separately on first enable).\n\n· On launch the app may query GitHub for a new version (can be disabled in Settings); that request carries no personal data or note content.\n\nSee PRIVACY.md in the project repository for the full text.</string>
+    <string name="ai_consent_title">Enable AI features</string>
+    <string name="ai_consent_message">Once enabled, your note content (whole documents or relevant fragments) will be sent, together with your request, to the third-party AI endpoint you configured — for generating replies or building the knowledge index. Whether that service stores the data or uses it for training is governed by its own terms, not by this app.\n\nPlease make sure you trust the configured provider. See \"Privacy policy\" in Settings.</string>
+    <string name="ai_consent_agree">Agree &amp; enable</string>
     <!-- Separator between the section names listed by config_import_applied. The value is a
          comma plus a space; the double quotes are aapt2's way of keeping the trailing space
          (a plain one gets trimmed) and are stripped from the resource itself. -->

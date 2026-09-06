@@ -39,7 +39,22 @@ data class DocumentEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
     @ColumnInfo(name = "is_favorite") val isFavorite: Boolean,
     @ColumnInfo(name = "word_count") val wordCount: Int,
-    @ColumnInfo(name = "character_count") val characterCount: Int
+    @ColumnInfo(name = "character_count") val characterCount: Int,
+    // ===== 回收站（schema 14 起新增，两列都可空 = 在库中的默认值）=====
+    //
+    // 非空表示这篇文档在回收站里，值即移入时刻。删除分两段走：移入回收站（软删除，可恢复）
+    // 与彻底删除（硬删除，走原来的 deleteWithTombstone + 文件清理）。**移入回收站不立同步墓碑、
+    // 不动 sync_state**——远端文件在彻底删除之前必须原样保留，否则"恢复"就无从谈起；
+    // 同步侧靠「软删除文档不进同步清单、sync_state 记录仍在」被 SyncPlanner 登记为孤儿文件
+    // （既不复活也不删除），见 SyncPlanner.plan 的「本轮不在同步范围内的文档」分支。
+    @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
+    //
+    // 移入回收站时 `name` 会被改写成文档 id（`trashById`），原名字挪到这里。为什么改名：
+    // `(folder_id, name)` 唯一索引不认识"已删除"——回收站里躺着一篇「笔记」，用户就再也
+    // 建不出新的「笔记」（INSERT 撞唯一索引）。改写成 id 后名字槽位即刻腾出，唯一索引对
+    // 活跃文档的保护原封不动；恢复时从本列取回原名，若与现存活跃文档重名则先改出空位再落座。
+    // 列可为 null 仅为了让历史构造点少改动；非回收站文档两列恒为 null。
+    @ColumnInfo(name = "original_name") val originalName: String? = null
 )
 
 @Entity(

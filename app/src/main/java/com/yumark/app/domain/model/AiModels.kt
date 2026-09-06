@@ -83,7 +83,13 @@ data class AiConfig(
      * 从 embedding 端点 `/models` 拉回来的候选列表，只做输入提示。
      * 与 [availableModels] 分开存：两个端点可以是完全不同的服务，模型集合没有交集也正常。
      */
-    val ragAvailableModels: List<String> = emptyList()
+    val ragAvailableModels: List<String> = emptyList(),
+    /**
+     * 「笔记内容将发送到第三方 AI 端点」的知情确认（隐私合规）。开启 AI 开关时弹出一次，
+     * 用户同意后置位。false 不阻止已启用的配置发起请求（那会把升级上来的老用户挡在门外），
+     * 但 AI 设置页会在这种状态下再次弹出提示；置位随配置备份走，换机不必重新确认。
+     */
+    val consentAcknowledged: Boolean = false
 )
 
 /**

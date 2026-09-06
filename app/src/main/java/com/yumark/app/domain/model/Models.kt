@@ -18,6 +18,12 @@ data class UserSettings(
     val imageCompressionQuality: CompressionQuality = CompressionQuality.MEDIUM,
     val maxImageWidth: Int = 1920,
     val defaultPreviewMode: Boolean = true,
+    /**
+     * 启动时自动检查更新（请求 GitHub Releases API）。默认开，用户可关：
+     * 这是本应用唯一一处「非用户主动发起」的网络接触，必须给开关（隐私合规）。
+     * 关闭后设置页的手动「检查更新」仍然可用。
+     */
+    val updateCheckEnabled: Boolean = true,
     /** 当前主题 id，取值见 `AppThemes.all`；认不出的值由 `AppThemes.byId` 回退默认主题。 */
     val themeId: String = "default",
     val darkMode: String = "system"  // system | light | dark

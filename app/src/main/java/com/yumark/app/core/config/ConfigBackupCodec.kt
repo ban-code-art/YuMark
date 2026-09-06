@@ -86,7 +86,8 @@ object ConfigBackupCodec {
                 autoCompressImages = settings.autoCompressImages,
                 imageCompressionQuality = settings.imageCompressionQuality.name,
                 maxImageWidth = settings.maxImageWidth,
-                defaultPreviewMode = settings.defaultPreviewMode
+                defaultPreviewMode = settings.defaultPreviewMode,
+                updateCheckEnabled = settings.updateCheckEnabled
             ),
             ai = AiPayload(
                 enabled = ai.enabled,
@@ -104,6 +105,7 @@ object ConfigBackupCodec {
                 ragUseMainEndpoint = ai.ragUseMainEndpoint,
                 ragBaseUrl = ai.ragBaseUrl,
                 ragAvailableModels = ai.ragAvailableModels,
+                consentAcknowledged = ai.consentAcknowledged,
                 apiKey = ai.apiKey.takeIf { includeSecrets },
                 webSearchApiKey = ai.webSearchApiKey.takeIf { includeSecrets },
                 ragApiKey = ai.ragApiKey.takeIf { includeSecrets }
@@ -186,7 +188,8 @@ object ConfigBackupCodec {
             maxImageWidth = clampInt(
                 payload.maxImageWidth, MAX_IMAGE_WIDTH, current.maxImageWidth, "图片最大宽度", warnings
             ),
-            defaultPreviewMode = payload.defaultPreviewMode ?: current.defaultPreviewMode
+            defaultPreviewMode = payload.defaultPreviewMode ?: current.defaultPreviewMode,
+            updateCheckEnabled = payload.updateCheckEnabled ?: current.updateCheckEnabled
         )
     }
 
@@ -217,6 +220,7 @@ object ConfigBackupCodec {
             ragUseMainEndpoint = payload.ragUseMainEndpoint ?: current.ragUseMainEndpoint,
             ragBaseUrl = payload.ragBaseUrl.ifBlank { current.ragBaseUrl },
             ragAvailableModels = payload.ragAvailableModels ?: current.ragAvailableModels,
+            consentAcknowledged = payload.consentAcknowledged ?: current.consentAcknowledged,
             apiKey = secretOrKeep(payload.apiKey, current.apiKey),
             webSearchApiKey = secretOrKeep(payload.webSearchApiKey, current.webSearchApiKey),
             ragApiKey = secretOrKeep(payload.ragApiKey, current.ragApiKey)

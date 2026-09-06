@@ -17,6 +17,7 @@ import com.yumark.app.presentation.editor.EditorScreen
 import com.yumark.app.presentation.filelist.FileListScreen
 import com.yumark.app.presentation.settings.SettingsScreen
 import com.yumark.app.presentation.sync.SyncSettingsScreen
+import com.yumark.app.presentation.trash.TrashScreen
 
 @Composable
 fun YuMarkNavGraph(
@@ -74,6 +75,9 @@ fun YuMarkNavGraph(
         }
         composable(Screen.Sync.route) {
             SyncSettingsScreen(navController = navController)
+        }
+        composable(Screen.Trash.route) {
+            TrashScreen(navController = navController)
         }
     }
 }

@@ -10,6 +10,10 @@
 -keep class dagger.hilt.** { *; }
 -keep class javax.inject.** { *; }
 
+# WorkManager：后台同步 Worker 按**类名反射**实例化（PeriodicWorkRequestBuilder<SyncWorker>），
+# R8 改名或删掉无参构造就会运行期 ClassNotFoundException。
+-keep class com.yumark.app.data.sync.SyncWorker { *; }
+
 # WebView JavaScript interface
 # WebView JS 桥：保留所有 @JavascriptInterface 方法（含 EditorScreen 内的匿名对象）
 -keepclassmembers class * {

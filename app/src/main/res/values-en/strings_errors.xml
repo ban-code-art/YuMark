@@ -51,6 +51,8 @@
     <string name="action_create_document">Create document</string>
     <string name="action_rename_document">Rename document</string>
     <string name="action_delete_document">Delete document</string>
+    <string name="action_restore_document">Restore document</string>
+    <string name="action_trash_load">Load trash</string>
     <string name="action_move_document">Move document</string>
     <string name="action_create_folder">Create folder</string>
     <string name="action_create_subfolder">Create subfolder</string>

@@ -1,6 +1,7 @@
 package com.yumark.app.domain.usecase
 
 import com.yumark.app.domain.model.Document
+import com.yumark.app.domain.model.TrashedDocument
 import com.yumark.app.domain.model.withFreshCounts
 import com.yumark.app.domain.repository.DocumentRepository
 import com.yumark.app.domain.repository.FolderRepository
@@ -40,10 +41,53 @@ class CreateDocumentUseCase @Inject constructor(
     }
 }
 
+/** 「删除文档」= 移入回收站（schema 14 起）。彻底删除只能从回收站页显式发起。 */
 class DeleteDocumentUseCase @Inject constructor(
     private val repo: DocumentRepository
 ) {
-    suspend operator fun invoke(id: String): Result<Unit> = repo.deleteDocument(id)
+    suspend operator fun invoke(id: String): Result<Unit> = repo.moveToTrash(id)
+}
+
+class RestoreFromTrashUseCase @Inject constructor(
+    private val repo: DocumentRepository
+) {
+    suspend operator fun invoke(id: String): Result<Unit> = repo.restoreFromTrash(id)
+}
+
+class PurgeDocumentUseCase @Inject constructor(
+    private val repo: DocumentRepository
+) {
+    suspend operator fun invoke(id: String): Result<Unit> = repo.purgeDocument(id)
+}
+
+class EmptyTrashUseCase @Inject constructor(
+    private val repo: DocumentRepository
+) {
+    suspend operator fun invoke(): Result<Unit> = repo.emptyTrash()
+}
+
+class LoadTrashedDocumentsUseCase @Inject constructor(
+    private val repo: DocumentRepository
+) {
+    suspend operator fun invoke(): Result<List<TrashedDocument>> = repo.getTrashedDocuments()
+}
+
+/**
+ * 回收站到期自动清理（默认保留 30 天，见 [TRASH_RETENTION_MS]）。
+ *
+ * 只由「回收站页打开」与「文件列表加载」两条路径顺手触发：查的是同一张表上一个
+ * 带时间下界的 SELECT，多数时候返回空，不值得为它引入后台任务调度。
+ */
+class PurgeExpiredTrashUseCase @Inject constructor(
+    private val repo: DocumentRepository
+) {
+    suspend operator fun invoke(nowMs: Long = System.currentTimeMillis()): Result<Int> =
+        repo.purgeTrashExpired(nowMs, TRASH_RETENTION_MS)
+
+    companion object {
+        /** 回收站保留期：移入 30 天后自动彻底删除。 */
+        const val TRASH_RETENTION_MS: Long = 30L * 24 * 60 * 60 * 1000
+    }
 }
 
 class LoadSettingsUseCase @Inject constructor(

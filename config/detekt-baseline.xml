@@ -1,0 +1,1085 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:AgentChatSheet.kt$AgentChatViewModel$task.status == AgentTaskStatus.PLANNING || task.status == AgentTaskStatus.EXECUTING || task.status == AgentTaskStatus.REPLANNING || interruptedByFlow</ID>
+    <ID>ComplexCondition:AgentUseCases.kt$SendAgentMessageUseCase$t.id == id &amp;&amp; (t.status == AgentTaskStatus.EXECUTING || t.status == AgentTaskStatus.PLANNING || t.status == AgentTaskStatus.REPLANNING)</ID>
+    <ID>ComplexCondition:ExportImagePaths.kt$c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' || c in "-_.!~*'()"</ID>
+    <ID>ComplexCondition:MarkdownChunker.kt$MarkdownChunker.FenceScanner$fence != null &amp;&amp; fence.marker == open &amp;&amp; fence.length &gt;= openLength &amp;&amp; fence.info.isBlank()</ID>
+    <ID>ComplexCondition:OpenAiAdapter.kt$OpenAiAdapter$!sawDone &amp;&amp; !sawFinishReason &amp;&amp; (full.isNotBlank() || !toolAcc.isEmpty())</ID>
+    <ID>ComplexCondition:OpenAiAdapter.kt$OpenAiAdapter$blocked &amp;&amp; full.isBlank() &amp;&amp; toolAcc.isEmpty() &amp;&amp; reasoning.isBlank()</ID>
+    <ID>ConstructorParameterNaming:UpdateInfo.kt$GitHubAsset$val browser_download_url: String</ID>
+    <ID>ConstructorParameterNaming:UpdateInfo.kt$GitHubRelease$val published_at: String</ID>
+    <ID>ConstructorParameterNaming:UpdateInfo.kt$GitHubRelease$val tag_name: String</ID>
+    <ID>CyclomaticComplexMethod:AgentChatSheet.kt$@Composable fun AgentContent( conversationId: String, documentId: String?, documentName: String?, documentContent: String?, onBack: () -&gt; Unit, onNavigateToDocument: (String) -&gt; Unit, onDocumentUpdated: () -&gt; Unit = {}, modifier: Modifier = Modifier, viewModel: AgentChatViewModel = hiltViewModel() )</ID>
+    <ID>CyclomaticComplexMethod:AgentChatSheet.kt$AgentChatViewModel$fun stop()</ID>
+    <ID>CyclomaticComplexMethod:AgentUseCases.kt$SendAgentMessageUseCase$operator fun invoke( conversationId: String, userMessage: String, currentDocumentId: String?, currentDocumentName: String?, currentDocumentContent: String?, attachments: List&lt;MessageAttachment&gt; = emptyList() ): Flow&lt;AgentMessageState&gt;</ID>
+    <ID>CyclomaticComplexMethod:AiConfigScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun AiConfigScreen( navController: NavController, viewModel: AiConfigViewModel = hiltViewModel() )</ID>
+    <ID>CyclomaticComplexMethod:AiQuickDialog.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun AiQuickDialog( selectedText: String, initialMode: QuickAiMode = QuickAiMode.AI_QUERY, onDismiss: () -&gt; Unit, onApplyEdit: (oldText: String, newText: String) -&gt; Unit, allowEditSelectedText: Boolean = false, documentName: String? = null, documentContent: String? = null, viewModel: AiQuickViewModel = hiltViewModel() )</ID>
+    <ID>CyclomaticComplexMethod:AiQuickDialog.kt$AiQuickViewModel$fun send()</ID>
+    <ID>CyclomaticComplexMethod:ClaudeAdapter.kt$ClaudeAdapter$override fun sendChatStream( messages: List&lt;ChatMessage&gt;, config: AiRequestConfig, tools: List&lt;AiTool&gt; ): Flow&lt;StreamEvent&gt;</ID>
+    <ID>CyclomaticComplexMethod:DiffView.kt$@Composable private fun DiffLineRow(line: DiffLine, accepted: List&lt;Boolean&gt;)</ID>
+    <ID>CyclomaticComplexMethod:DocxExporter.kt$DocxExporter$private fun renderInlines(parent: Node, sb: StringBuilder, fmt: Fmt, media: MediaBundle)</ID>
+    <ID>CyclomaticComplexMethod:DocxExporter.kt$internal fun escapeXml(text: String): String</ID>
+    <ID>CyclomaticComplexMethod:EditorScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun EditorScreen( navController: NavController, viewModel: EditorViewModel = hiltViewModel() )</ID>
+    <ID>CyclomaticComplexMethod:ErrorHandler.kt$ErrorHandler$fun classify(throwable: Throwable): AppError</ID>
+    <ID>CyclomaticComplexMethod:FileListScreen.kt$@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class) @Composable fun FileListScreen( navController: NavController, viewModel: FileListViewModel = hiltViewModel() )</ID>
+    <ID>CyclomaticComplexMethod:FindReplaceBar.kt$@Composable fun FindReplaceBar( value: TextFieldValue, onSelect: (TextRange) -&gt; Unit, onReplace: (TextFieldValue) -&gt; Unit, onMessage: (String) -&gt; Unit, onClose: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
+    <ID>CyclomaticComplexMethod:GeminiAdapter.kt$GeminiAdapter$override fun sendChatStream( messages: List&lt;ChatMessage&gt;, config: AiRequestConfig, tools: List&lt;AiTool&gt; ): Flow&lt;StreamEvent&gt;</ID>
+    <ID>CyclomaticComplexMethod:ImageBinaryInfo.kt$private fun sniffJpeg(b: ByteArray): ImageBinaryInfo?</ID>
+    <ID>CyclomaticComplexMethod:ImageRepositoryImpl.kt$ImageRepositoryImpl$override suspend fun saveImage( documentId: String, uri: Uri, compress: Boolean ): Result&lt;Image&gt;</ID>
+    <ID>CyclomaticComplexMethod:InlineImageMime.kt$private fun sniffSvgMime(b: ByteArray): String?</ID>
+    <ID>CyclomaticComplexMethod:IntentDetector.kt$IntentDetector$private fun scoreCapability( capability: Capability, text: String, // 已 trim+lowercase，用于关键词子串匹配 rawQuery: String, // 原文，用于正则（正则自带 IGNORE_CASE） context: AppContext ): IntentScore</ID>
+    <ID>CyclomaticComplexMethod:MarkdownChunker.kt$MarkdownChunker$private fun splitBlocks(section: Section): List&lt;TextBlock&gt;</ID>
+    <ID>CyclomaticComplexMethod:MarkdownChunker.kt$MarkdownChunker$private fun splitOversizedCodeBlock(block: TextBlock, limit: Int): List&lt;TextBlock&gt;</ID>
+    <ID>CyclomaticComplexMethod:MarkdownChunker.kt$MarkdownChunker$private fun splitSections(lines: List&lt;String&gt;): List&lt;Section&gt;</ID>
+    <ID>CyclomaticComplexMethod:MessageBubble.kt$@Composable private fun MarkdownRenderedText( markdown: String, isStreaming: Boolean, backgroundColor: androidx.compose.ui.graphics.Color, textColor: androidx.compose.ui.graphics.Color )</ID>
+    <ID>CyclomaticComplexMethod:OpenAiAdapter.kt$OpenAiAdapter$override fun sendChatStream( messages: List&lt;ChatMessage&gt;, config: AiRequestConfig, tools: List&lt;AiTool&gt; ): Flow&lt;StreamEvent&gt;</ID>
+    <ID>CyclomaticComplexMethod:SettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun SettingsScreen( navController: NavController, viewModel: SettingsViewModel = hiltViewModel() )</ID>
+    <ID>CyclomaticComplexMethod:SidebarFileTree.kt$@Composable fun SidebarFileTree( tree: List&lt;FolderTreeNode&gt;, currentDocumentId: String?, expandedFolders: Set&lt;String&gt;, onDocumentClick: (String) -&gt; Unit, onFolderExpand: (String) -&gt; Unit, onFolderCollapse: (String) -&gt; Unit, actions: SidebarActions?, scrollToCurrentDocument: Boolean = false, /** * 批量确保若干文件夹处于展开状态（用于自动展开深处当前文档的祖先链）。 * 必须是「并集」语义（已展开的保持展开），不能是 toggle。 * 默认空实现：调用方未提供时不展开祖先，仅尝试滚动（兼容旧行为）。 */ onEnsureFoldersExpanded: (List&lt;String&gt;) -&gt; Unit = {}, modifier: Modifier = Modifier )</ID>
+    <ID>CyclomaticComplexMethod:StreamRetry.kt$internal suspend fun &lt;T&gt; withRetryAndEmissionGuard( flowEmit: suspend (StreamEvent) -&gt; Unit, fallback: (suspend (emit: suspend (StreamEvent) -&gt; Unit) -&gt; T)? = null, block: suspend (emit: suspend (StreamEvent) -&gt; Unit) -&gt; T ): T?</ID>
+    <ID>CyclomaticComplexMethod:StreamRetry.kt$private fun errorNameToStatus(name: String): Int?</ID>
+    <ID>CyclomaticComplexMethod:SyncPlanner.kt$SyncPlanner$fun plan( locals: List&lt;LocalDocInfo&gt;, remotes: List&lt;RemoteFileInfo&gt;, records: List&lt;SyncRecordInfo&gt;, tombstones: List&lt;TombstoneInfo&gt; = emptyList() ): List&lt;SyncAction&gt;</ID>
+    <ID>CyclomaticComplexMethod:SyncRepositoryImpl.kt$SyncRepositoryImpl$private suspend fun syncNowLocked(): SyncOutcome</ID>
+    <ID>CyclomaticComplexMethod:WebViewDocumentRenderer.kt$WebViewDocumentRenderer$private suspend fun awaitRendered( markdown: String, layoutWidthPx: Int, imageResolver: ExportImageResolver? ): WebView</ID>
+    <ID>CyclomaticComplexMethod:WebViewFailure.kt$WebViewFailure$fun loadMessage(errorCode: Int): UiMessage</ID>
+    <ID>EmptyElseBlock:DocxExporter.kt$DocxExporter$if (c is Text) sb.append(c.literal)</ID>
+    <ID>EmptyFunctionBlock:AiQuickViewModelTest.kt$AiQuickViewModelTest.FakeAdapter${}</ID>
+    <ID>EmptyFunctionBlock:ClaudeAdapter.kt$ClaudeAdapter${}</ID>
+    <ID>EmptyFunctionBlock:GeminiAdapter.kt$GeminiAdapter${}</ID>
+    <ID>EmptyFunctionBlock:SendAgentMessageUseCaseTest.kt$SendAgentMessageUseCaseTest.FakeAdapter${}</ID>
+    <ID>EmptyFunctionBlock:SendChatMessageUseCaseTest.kt$SendChatMessageUseCaseTest.FakeAdapter${}</ID>
+    <ID>EmptyFunctionBlock:WebViewDocumentRenderer.kt$WebViewDocumentRenderer.&lt;no name provided&gt;${}</ID>
+    <ID>FunctionNaming:AgentActionCard.kt$@Composable fun AgentActionCard( action: AgentAction, baseContent: String? = null, onApproveDiff: (finalContent: String) -&gt; Unit = {}, onApprove: () -&gt; Unit = {}, onReject: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:AgentActionCard.kt$@Composable private fun ActionHeader(type: AgentActionType, status: AgentActionStatus)</ID>
+    <ID>FunctionNaming:AgentActionCard.kt$@Composable private fun EditDiffCard( action: AgentAction, baseContent: String, onApproveDiff: (String) -&gt; Unit, onReject: () -&gt; Unit, modifier: Modifier )</ID>
+    <ID>FunctionNaming:AgentActionCard.kt$@Composable private fun WholeContentCard( action: AgentAction, onApprove: () -&gt; Unit, onReject: () -&gt; Unit, modifier: Modifier )</ID>
+    <ID>FunctionNaming:AgentChatSheet.kt$@Composable fun AgentContent( conversationId: String, documentId: String?, documentName: String?, documentContent: String?, onBack: () -&gt; Unit, onNavigateToDocument: (String) -&gt; Unit, onDocumentUpdated: () -&gt; Unit = {}, modifier: Modifier = Modifier, viewModel: AgentChatViewModel = hiltViewModel() )</ID>
+    <ID>FunctionNaming:AgentChatSheet.kt$@Composable private fun AgentHeader( documentName: String?, isStreaming: Boolean, onBack: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:AgentStatusIndicator.kt$@Composable fun AgentStatusIndicator( status: ConversationStatus, modifier: Modifier = Modifier, size: Dp = AgentStatusMetrics.DefaultSize )</ID>
+    <ID>FunctionNaming:AgentStatusIndicator.kt$@Composable private fun WorkingAnimation(size: Dp, modifier: Modifier = Modifier)</ID>
+    <ID>FunctionNaming:AgentTimeline.kt$@Composable fun AgentTimeline( progress: TaskProgressUiState, collapsed: Boolean, onToggleCollapse: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:AgentTimeline.kt$@Composable private fun NoteRow(tag: String, text: String, accent: Color)</ID>
+    <ID>FunctionNaming:AgentTimeline.kt$@Composable private fun TimelineStepRow( title: String, status: AgentTaskStepStatus, isActive: Boolean, isFirst: Boolean, isLast: Boolean, pulse: Float )</ID>
+    <ID>FunctionNaming:AiAssistantHost.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun AiAssistantHost( currentDocumentId: String?, currentDocumentName: String?, currentDocumentContent: String?, onNavigateToDocument: (String) -&gt; Unit, onDocumentUpdated: () -&gt; Unit = {}, onDismiss: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:AiChatSheet.kt$@Composable fun ChatContent( conversationId: String, onBack: () -&gt; Unit, modifier: Modifier = Modifier, viewModel: AiChatViewModel = hiltViewModel() )</ID>
+    <ID>FunctionNaming:AiConfigScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun AiConfigScreen( navController: NavController, viewModel: AiConfigViewModel = hiltViewModel() )</ID>
+    <ID>FunctionNaming:AiDesign.kt$@Composable fun StatusPill(visual: StatusVisual, modifier: Modifier = Modifier)</ID>
+    <ID>FunctionNaming:AiQuickDialog.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun AiQuickDialog( selectedText: String, initialMode: QuickAiMode = QuickAiMode.AI_QUERY, onDismiss: () -&gt; Unit, onApplyEdit: (oldText: String, newText: String) -&gt; Unit, allowEditSelectedText: Boolean = false, documentName: String? = null, documentContent: String? = null, viewModel: AiQuickViewModel = hiltViewModel() )</ID>
+    <ID>FunctionNaming:AppShell.kt$@Composable fun AppShell( widthSizeClass: WindowWidthSizeClass, hinge: HingeInfo?, externalOpen: ExternalOpenRequest? )</ID>
+    <ID>FunctionNaming:AppShell.kt$@Composable private fun DetailPaneHost(detailNav: NavHostController)</ID>
+    <ID>FunctionNaming:AppShell.kt$@Composable private fun EditorRouteBridge( nav: NavHostController, externalOpen: ExternalOpenRequest?, restoreRoute: String?, onEditorRouteChanged: (String?) -&gt; Unit )</ID>
+    <ID>FunctionNaming:AppShell.kt$@Composable private fun EmptyDetailPane()</ID>
+    <ID>FunctionNaming:AppShell.kt$@Composable private fun HingeDivider(hingeWidth: androidx.compose.ui.unit.Dp)</ID>
+    <ID>FunctionNaming:AppShell.kt$@Composable private fun SinglePaneShell( externalOpen: ExternalOpenRequest?, restoreRoute: String?, onEditorRouteChanged: (String?) -&gt; Unit )</ID>
+    <ID>FunctionNaming:AppShell.kt$@Composable private fun TwoPaneScaffold( externalOpen: ExternalOpenRequest?, hinge: HingeInfo?, restoreRoute: String?, onEditorRouteChanged: (String?) -&gt; Unit )</ID>
+    <ID>FunctionNaming:ConversationListSheet.kt$@Composable fun ConversationListContent( onOpen: (Conversation) -&gt; Unit, @Suppress("UNUSED_PARAMETER") onCreate: (ConversationType) -&gt; Unit, viewModel: ConversationListViewModel = hiltViewModel() )</ID>
+    <ID>FunctionNaming:DiffView.kt$@Composable fun DiffView( result: DiffResult, accepted: List&lt;Boolean&gt;, onToggleHunk: (hunkId: Int) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:DiffView.kt$@Composable private fun DiffLineRow(line: DiffLine, accepted: List&lt;Boolean&gt;)</ID>
+    <ID>FunctionNaming:DiffView.kt$@Composable private fun HunkToggle(index: Int, accepted: Boolean, onToggle: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@Composable private fun EditorSidebarContent( isExternal: Boolean, workspace: com.yumark.app.domain.model.Workspace?, folderTree: List&lt;com.yumark.app.domain.model.FolderTreeNode&gt;?, currentDocumentId: String?, currentDocUri: String?, expandedFolders: Set&lt;String&gt;, onToggleFolder: (String) -&gt; Unit, onEnsureFoldersExpanded: (List&lt;String&gt;) -&gt; Unit, onOpenInternal: (String) -&gt; Unit, onOpenExternal: (String) -&gt; Unit, onCloseDrawer: () -&gt; Unit, fileDrawerState: DrawerState, showImportMenu: Boolean, onShowImportMenu: () -&gt; Unit, onDismissImportMenu: () -&gt; Unit, /** 拉起「导入文件」；实现在 [com.yumark.app.presentation.filelist.rememberImportFlow]，与文件列表页共用一份 */ onImportFile: () -&gt; Unit, /** 拉起「导入文件夹」，同上 */ onImportFolder: () -&gt; Unit, onShowFolderDialog: () -&gt; Unit, onShowCreateDialog: (String) -&gt; Unit, onShowSubfolderDialog: (String) -&gt; Unit, onRenameFolder: (String, String) -&gt; Unit, onDeleteFolder: (String) -&gt; Unit, onRenameDocument: (com.yumark.app.domain.model.Document) -&gt; Unit, onDeleteDocument: (com.yumark.app.domain.model.Document) -&gt; Unit, onMoveDocument: (com.yumark.app.domain.model.Document) -&gt; Unit, onMoveFolder: (String) -&gt; Unit, onMoveDocumentTo: (String, String?) -&gt; Unit, onMoveFolderTo: (String, String?) -&gt; Unit )</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@Composable private fun ImageSourceRow( icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, description: String, onClick: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@Composable private fun PreviewFailureCard( message: UiMessage, onRetry: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:EditorScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun EditorScreen( navController: NavController, viewModel: EditorViewModel = hiltViewModel() )</ID>
+    <ID>FunctionNaming:ExportSheet.kt$@Composable private fun ExportFormatRow( icon: ImageVector, titleRes: Int, descRes: Int, onClick: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:ExportSheet.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ExportSheet( onExport: (ExportFormat) -&gt; Unit, onDismiss: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:FileListScreen.kt$@Composable fun DocumentCard( doc: Document, onClick: () -&gt; Unit, onFavorite: () -&gt; Unit, onRename: () -&gt; Unit, onDelete: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:FileListScreen.kt$@Composable fun SearchResultCard( result: SearchResult, onClick: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:FileListScreen.kt$@Composable internal fun ImportFilesDialog( fileCount: Int, folders: List&lt;Folder&gt;, onConfirm: (String?) -&gt; Unit, onDismiss: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:FileListScreen.kt$@Composable internal fun ImportSelectionDialog( candidates: List&lt;ImportCandidate&gt;, folders: List&lt;Folder&gt;, onConfirm: (List&lt;ImportCandidate&gt;, String?) -&gt; Unit, onDismiss: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:FileListScreen.kt$@Composable private fun ImportTargetPickerDialog( folders: List&lt;Folder&gt;, current: String?, onSelect: (String?) -&gt; Unit, onDismiss: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:FileListScreen.kt$@Composable private fun ImportTargetRow( targetFolderId: String?, folders: List&lt;Folder&gt;, onChange: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:FileListScreen.kt$@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class) @Composable fun FileListScreen( navController: NavController, viewModel: FileListViewModel = hiltViewModel() )</ID>
+    <ID>FunctionNaming:FindReplaceBar.kt$@Composable fun FindReplaceBar( value: TextFieldValue, onSelect: (TextRange) -&gt; Unit, onReplace: (TextFieldValue) -&gt; Unit, onMessage: (String) -&gt; Unit, onClose: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:FindReplaceBar.kt$@Composable private fun OptionChip( label: String, selected: Boolean, onSelectedChange: (Boolean) -&gt; Unit )</ID>
+    <ID>FunctionNaming:FolderConfirmDialog.kt$@Composable fun FolderConfirmDialog( uri: Uri, @StringRes titleRes: Int, @StringRes messageRes: Int, onConfirm: () -&gt; Unit, onDismiss: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:ImportFolderBrowserDialog.kt$@Composable fun ImportFolderBrowserDialog( treeUri: Uri, onConfirm: (relativePath: List&lt;String&gt;) -&gt; Unit, onDismiss: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:MarkdownToolbar.kt$@Composable fun MarkdownToolbar( onAction: (MarkdownAction) -&gt; Unit, modifier: Modifier = Modifier, canUndo: Boolean = false, canRedo: Boolean = false, onUndo: () -&gt; Unit = {}, onRedo: () -&gt; Unit = {}, onToggleFindReplace: () -&gt; Unit = {}, findReplaceActive: Boolean = false )</ID>
+    <ID>FunctionNaming:MarkdownToolbar.kt$@Composable private fun ToolbarButton( icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -&gt; Unit, enabled: Boolean = true, highlighted: Boolean = false )</ID>
+    <ID>FunctionNaming:MessageBubble.kt$@Composable fun MessageBubble( message: Message, modifier: Modifier = Modifier, extraContent: @Composable (() -&gt; Unit)? = null )</ID>
+    <ID>FunctionNaming:MessageBubble.kt$@Composable private fun MarkdownRenderedText( markdown: String, isStreaming: Boolean, backgroundColor: androidx.compose.ui.graphics.Color, textColor: androidx.compose.ui.graphics.Color )</ID>
+    <ID>FunctionNaming:MoveToFolderDialog.kt$@Composable fun MoveToFolderDialog( title: String, folders: List&lt;Folder&gt;, disabledFolderIds: Set&lt;String&gt; = emptySet(), rootEnabled: Boolean = true, onDismiss: () -&gt; Unit, onPick: (targetFolderId: String?) -&gt; Unit )</ID>
+    <ID>FunctionNaming:MoveToFolderDialog.kt$@Composable private fun MoveTargetRow( label: String, depth: Int, enabled: Boolean, icon: ImageVector, onClick: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:OutlinePanel.kt$@Composable fun OutlinePanel( outline: List&lt;OutlineItem&gt;, onItemClick: (OutlineItem) -&gt; Unit, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable fun DownloadDialog( updateInfo: UpdateInfo, onDismiss: () -&gt; Unit, context: Context )</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable fun UpdateDialog( updateInfo: UpdateInfo, onDismiss: () -&gt; Unit, onUpdate: (UpdateInfo) -&gt; Unit )</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun ChangelogMarkdownView( markdown: String, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun ConfigTransferDialog( state: ConfigTransferState, onDismiss: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun CrashExportResultDialog( state: CrashExportState, onDismiss: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun ExportResultDialog( state: CrashExportState, onDismiss: () -&gt; Unit, doneMessage: @Composable (Int) -&gt; String )</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun ImportSummaryBody(summary: ConfigImportSummary)</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun ListItem( headlineContent: @Composable () -&gt; Unit, supportingContent: @Composable () -&gt; Unit = {}, trailingContent: @Composable () -&gt; Unit = {}, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun SyncTrashExportResultDialog( state: CrashExportState, onDismiss: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun SettingsScreen( navController: NavController, viewModel: SettingsViewModel = hiltViewModel() )</ID>
+    <ID>FunctionNaming:SidebarFileTree.kt$@Composable fun DocumentRow( document: Document, level: Int, isSelected: Boolean, onClick: () -&gt; Unit, onRename: (() -&gt; Unit)? = null, onDelete: (() -&gt; Unit)? = null, onMove: (() -&gt; Unit)? = null, drag: DragController? = null )</ID>
+    <ID>FunctionNaming:SidebarFileTree.kt$@Composable fun FolderRow( folder: Folder, level: Int, isExpanded: Boolean, hasChildren: Boolean, onToggleExpand: () -&gt; Unit, actions: SidebarActions?, drag: DragController? = null, subtreeIdsOf: (String) -&gt; Set&lt;String&gt; = { emptySet() } )</ID>
+    <ID>FunctionNaming:SidebarFileTree.kt$@Composable fun FolderTreeItem( node: FolderTreeNode, currentDocumentId: String?, isExpanded: Boolean, expandedFolders: Set&lt;String&gt;, onDocumentClick: (String) -&gt; Unit, onFolderExpand: (String) -&gt; Unit, onFolderCollapse: (String) -&gt; Unit, actions: SidebarActions?, drag: DragController? = null, subtreeIdsOf: (String) -&gt; Set&lt;String&gt; = { emptySet() } )</ID>
+    <ID>FunctionNaming:SidebarFileTree.kt$@Composable fun SidebarFileTree( tree: List&lt;FolderTreeNode&gt;, currentDocumentId: String?, expandedFolders: Set&lt;String&gt;, onDocumentClick: (String) -&gt; Unit, onFolderExpand: (String) -&gt; Unit, onFolderCollapse: (String) -&gt; Unit, actions: SidebarActions?, scrollToCurrentDocument: Boolean = false, /** * 批量确保若干文件夹处于展开状态（用于自动展开深处当前文档的祖先链）。 * 必须是「并集」语义（已展开的保持展开），不能是 toggle。 * 默认空实现：调用方未提供时不展开祖先，仅尝试滚动（兼容旧行为）。 */ onEnsureFoldersExpanded: (List&lt;String&gt;) -&gt; Unit = {}, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:SnackbarEffect.kt$@Composable fun SnackbarEffect( message: String?, actionLabel: String?, hostState: SnackbarHostState, duration: SnackbarDuration = SnackbarDuration.Short, onAction: () -&gt; Unit, onConsumed: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:SnackbarEffect.kt$@Composable fun SnackbarEffect( message: String?, hostState: SnackbarHostState, duration: SnackbarDuration = SnackbarDuration.Short, onConsumed: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:StreamingIndicator.kt$@Composable fun StreamingIndicator(modifier: Modifier = Modifier)</ID>
+    <ID>FunctionNaming:SyncSettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun SyncSettingsScreen( navController: NavController, viewModel: SyncSettingsViewModel = hiltViewModel() )</ID>
+    <ID>FunctionNaming:Theme.kt$@Composable fun YuMarkTheme( themeId: String = AppThemes.DEFAULT_ID, darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -&gt; Unit )</ID>
+    <ID>FunctionNaming:ToolActivityRow.kt$@Composable fun ToolActivityRow( step: AgentStep, active: Boolean = false, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:TrashScreen.kt$@Composable internal fun TrashEmptyContent()</ID>
+    <ID>FunctionNaming:TrashScreen.kt$@Composable internal fun TrashItemRow( item: TrashedDocument, onRestore: () -&gt; Unit, onPurge: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:TrashScreen.kt$@Composable internal fun TrashList( items: List&lt;TrashedDocument&gt;, onRestore: (String) -&gt; Unit, onPurge: (TrashedDocument) -&gt; Unit )</ID>
+    <ID>FunctionNaming:TrashScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun TrashScreen( navController: NavController, viewModel: TrashViewModel = hiltViewModel() )</ID>
+    <ID>FunctionNaming:VersionHistorySheet.kt$@Composable private fun ReadOnlyDiff(oldContent: String, newContent: String)</ID>
+    <ID>FunctionNaming:VersionHistorySheet.kt$@Composable private fun VersionRow( version: DocumentVersion, currentContent: String, onRestore: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:VersionHistorySheet.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun VersionHistorySheet( versions: List&lt;DocumentVersion&gt;, currentContent: String, onRestore: (DocumentVersion) -&gt; Unit, onDismiss: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:WorkspaceFileTree.kt$@Composable fun WorkspaceFileTree( root: WorkspaceNode, expandedFolders: Set&lt;String&gt;, onDocumentClick: (WorkspaceDoc) -&gt; Unit, onFolderToggle: (String) -&gt; Unit, modifier: Modifier = Modifier )</ID>
+    <ID>FunctionNaming:WorkspaceFileTree.kt$@Composable private fun WorkspaceDocRow( doc: WorkspaceDoc, level: Int, onClick: () -&gt; Unit )</ID>
+    <ID>FunctionNaming:WorkspaceFileTree.kt$@Composable private fun WorkspaceFolderItem( node: WorkspaceNode, level: Int, expandedFolders: Set&lt;String&gt;, onDocumentClick: (WorkspaceDoc) -&gt; Unit, onFolderToggle: (String) -&gt; Unit )</ID>
+    <ID>FunctionNaming:YuMarkNavGraph.kt$@Composable fun YuMarkNavGraph( navController: NavHostController = rememberNavController(), startDestination: String = Screen.FileList.route, externalOpen: ExternalOpenRequest? = null )</ID>
+    <ID>InstanceOfCheckForException:WebDavClient.kt$WebDavClient$e is RetryableHttpFailure</ID>
+    <ID>InvalidRange:MatchRangeTest.kt$MatchRangeTest$1..0</ID>
+    <ID>LongMethod:AgentActionCard.kt$@Composable private fun EditDiffCard( action: AgentAction, baseContent: String, onApproveDiff: (String) -&gt; Unit, onReject: () -&gt; Unit, modifier: Modifier )</ID>
+    <ID>LongMethod:AgentActionCard.kt$@Composable private fun WholeContentCard( action: AgentAction, onApprove: () -&gt; Unit, onReject: () -&gt; Unit, modifier: Modifier )</ID>
+    <ID>LongMethod:AgentChatSheet.kt$@Composable fun AgentContent( conversationId: String, documentId: String?, documentName: String?, documentContent: String?, onBack: () -&gt; Unit, onNavigateToDocument: (String) -&gt; Unit, onDocumentUpdated: () -&gt; Unit = {}, modifier: Modifier = Modifier, viewModel: AgentChatViewModel = hiltViewModel() )</ID>
+    <ID>LongMethod:AgentTimeline.kt$@Composable fun AgentTimeline( progress: TaskProgressUiState, collapsed: Boolean, onToggleCollapse: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
+    <ID>LongMethod:AgentUseCases.kt$SendAgentMessageUseCase$operator fun invoke( conversationId: String, userMessage: String, currentDocumentId: String?, currentDocumentName: String?, currentDocumentContent: String?, attachments: List&lt;MessageAttachment&gt; = emptyList() ): Flow&lt;AgentMessageState&gt;</ID>
+    <ID>LongMethod:AgentUseCases.kt$internal fun buildAgentSystemPrompt( documentName: String?, documentContent: String?, tools: List&lt;AiTool&gt; ): String</ID>
+    <ID>LongMethod:AiChatSheet.kt$@Composable fun ChatContent( conversationId: String, onBack: () -&gt; Unit, modifier: Modifier = Modifier, viewModel: AiChatViewModel = hiltViewModel() )</ID>
+    <ID>LongMethod:AiConfigScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun AiConfigScreen( navController: NavController, viewModel: AiConfigViewModel = hiltViewModel() )</ID>
+    <ID>LongMethod:AiQuickDialog.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun AiQuickDialog( selectedText: String, initialMode: QuickAiMode = QuickAiMode.AI_QUERY, onDismiss: () -&gt; Unit, onApplyEdit: (oldText: String, newText: String) -&gt; Unit, allowEditSelectedText: Boolean = false, documentName: String? = null, documentContent: String? = null, viewModel: AiQuickViewModel = hiltViewModel() )</ID>
+    <ID>LongMethod:AiQuickDialog.kt$AiQuickViewModel$fun send()</ID>
+    <ID>LongMethod:ApkDownloader.kt$ApkDownloader$fun download( url: String, version: String, expectedSha256: String? = null, sidecarUrl: String? = null ): Flow&lt;DownloadState&gt;</ID>
+    <ID>LongMethod:ClaudeAdapter.kt$ClaudeAdapter$override fun sendChatStream( messages: List&lt;ChatMessage&gt;, config: AiRequestConfig, tools: List&lt;AiTool&gt; ): Flow&lt;StreamEvent&gt;</ID>
+    <ID>LongMethod:ConversationListSheet.kt$@Composable fun ConversationListContent( onOpen: (Conversation) -&gt; Unit, @Suppress("UNUSED_PARAMETER") onCreate: (ConversationType) -&gt; Unit, viewModel: ConversationListViewModel = hiltViewModel() )</ID>
+    <ID>LongMethod:EditorScreen.kt$@Composable private fun EditorSidebarContent( isExternal: Boolean, workspace: com.yumark.app.domain.model.Workspace?, folderTree: List&lt;com.yumark.app.domain.model.FolderTreeNode&gt;?, currentDocumentId: String?, currentDocUri: String?, expandedFolders: Set&lt;String&gt;, onToggleFolder: (String) -&gt; Unit, onEnsureFoldersExpanded: (List&lt;String&gt;) -&gt; Unit, onOpenInternal: (String) -&gt; Unit, onOpenExternal: (String) -&gt; Unit, onCloseDrawer: () -&gt; Unit, fileDrawerState: DrawerState, showImportMenu: Boolean, onShowImportMenu: () -&gt; Unit, onDismissImportMenu: () -&gt; Unit, /** 拉起「导入文件」；实现在 [com.yumark.app.presentation.filelist.rememberImportFlow]，与文件列表页共用一份 */ onImportFile: () -&gt; Unit, /** 拉起「导入文件夹」，同上 */ onImportFolder: () -&gt; Unit, onShowFolderDialog: () -&gt; Unit, onShowCreateDialog: (String) -&gt; Unit, onShowSubfolderDialog: (String) -&gt; Unit, onRenameFolder: (String, String) -&gt; Unit, onDeleteFolder: (String) -&gt; Unit, onRenameDocument: (com.yumark.app.domain.model.Document) -&gt; Unit, onDeleteDocument: (com.yumark.app.domain.model.Document) -&gt; Unit, onMoveDocument: (com.yumark.app.domain.model.Document) -&gt; Unit, onMoveFolder: (String) -&gt; Unit, onMoveDocumentTo: (String, String?) -&gt; Unit, onMoveFolderTo: (String, String?) -&gt; Unit )</ID>
+    <ID>LongMethod:EditorScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun EditorScreen( navController: NavController, viewModel: EditorViewModel = hiltViewModel() )</ID>
+    <ID>LongMethod:FileListScreen.kt$@Composable fun DocumentCard( doc: Document, onClick: () -&gt; Unit, onFavorite: () -&gt; Unit, onRename: () -&gt; Unit, onDelete: () -&gt; Unit )</ID>
+    <ID>LongMethod:FileListScreen.kt$@Composable internal fun ImportSelectionDialog( candidates: List&lt;ImportCandidate&gt;, folders: List&lt;Folder&gt;, onConfirm: (List&lt;ImportCandidate&gt;, String?) -&gt; Unit, onDismiss: () -&gt; Unit )</ID>
+    <ID>LongMethod:FileListScreen.kt$@Composable private fun ImportTargetPickerDialog( folders: List&lt;Folder&gt;, current: String?, onSelect: (String?) -&gt; Unit, onDismiss: () -&gt; Unit )</ID>
+    <ID>LongMethod:FileListScreen.kt$@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class) @Composable fun FileListScreen( navController: NavController, viewModel: FileListViewModel = hiltViewModel() )</ID>
+    <ID>LongMethod:FindReplaceBar.kt$@Composable fun FindReplaceBar( value: TextFieldValue, onSelect: (TextRange) -&gt; Unit, onReplace: (TextFieldValue) -&gt; Unit, onMessage: (String) -&gt; Unit, onClose: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
+    <ID>LongMethod:GeminiAdapter.kt$GeminiAdapter$override fun sendChatStream( messages: List&lt;ChatMessage&gt;, config: AiRequestConfig, tools: List&lt;AiTool&gt; ): Flow&lt;StreamEvent&gt;</ID>
+    <ID>LongMethod:HtmlExporter.kt$HtmlExporter$private fun buildHtml(doc: Document, imageResolver: ExportImageResolver?): String</ID>
+    <ID>LongMethod:ImageRepositoryImpl.kt$ImageRepositoryImpl$override suspend fun saveImage( documentId: String, uri: Uri, compress: Boolean ): Result&lt;Image&gt;</ID>
+    <ID>LongMethod:ImportFlow.kt$@Composable fun rememberImportFlow( folders: List&lt;Folder&gt;, snackbarHostState: SnackbarHostState, viewModel: ImportViewModel = hiltViewModel() ): ImportFlowHandle</ID>
+    <ID>LongMethod:ImportFolderBrowserDialog.kt$@Composable fun ImportFolderBrowserDialog( treeUri: Uri, onConfirm: (relativePath: List&lt;String&gt;) -&gt; Unit, onDismiss: () -&gt; Unit )</ID>
+    <ID>LongMethod:MarkdownToolbar.kt$@Composable fun MarkdownToolbar( onAction: (MarkdownAction) -&gt; Unit, modifier: Modifier = Modifier, canUndo: Boolean = false, canRedo: Boolean = false, onUndo: () -&gt; Unit = {}, onRedo: () -&gt; Unit = {}, onToggleFindReplace: () -&gt; Unit = {}, findReplaceActive: Boolean = false )</ID>
+    <ID>LongMethod:MessageBubble.kt$@Composable private fun MarkdownRenderedText( markdown: String, isStreaming: Boolean, backgroundColor: androidx.compose.ui.graphics.Color, textColor: androidx.compose.ui.graphics.Color )</ID>
+    <ID>LongMethod:OpenAiAdapter.kt$OpenAiAdapter$suspend fun streamOnce(emit: suspend (StreamEvent) -&gt; Unit, includeTools: Boolean): Boolean</ID>
+    <ID>LongMethod:RagPipeline.kt$RagPipeline$internal suspend fun indexDocument(documentId: String, documentName: String, content: String)</ID>
+    <ID>LongMethod:SendChatMessageUseCase.kt$SendChatMessageUseCase$operator fun invoke( conversationId: String, userMessage: String ): Flow&lt;ChatMessageState&gt;</ID>
+    <ID>LongMethod:SettingsScreen.kt$@Composable fun DownloadDialog( updateInfo: UpdateInfo, onDismiss: () -&gt; Unit, context: Context )</ID>
+    <ID>LongMethod:SettingsScreen.kt$@Composable fun UpdateDialog( updateInfo: UpdateInfo, onDismiss: () -&gt; Unit, onUpdate: (UpdateInfo) -&gt; Unit )</ID>
+    <ID>LongMethod:SettingsScreen.kt$@Composable private fun ChangelogMarkdownView( markdown: String, modifier: Modifier = Modifier )</ID>
+    <ID>LongMethod:SettingsScreen.kt$@Composable private fun ConfigTransferDialog( state: ConfigTransferState, onDismiss: () -&gt; Unit )</ID>
+    <ID>LongMethod:SettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun SettingsScreen( navController: NavController, viewModel: SettingsViewModel = hiltViewModel() )</ID>
+    <ID>LongMethod:SidebarFileTree.kt$@Composable fun DocumentRow( document: Document, level: Int, isSelected: Boolean, onClick: () -&gt; Unit, onRename: (() -&gt; Unit)? = null, onDelete: (() -&gt; Unit)? = null, onMove: (() -&gt; Unit)? = null, drag: DragController? = null )</ID>
+    <ID>LongMethod:SidebarFileTree.kt$@Composable fun FolderRow( folder: Folder, level: Int, isExpanded: Boolean, hasChildren: Boolean, onToggleExpand: () -&gt; Unit, actions: SidebarActions?, drag: DragController? = null, subtreeIdsOf: (String) -&gt; Set&lt;String&gt; = { emptySet() } )</ID>
+    <ID>LongMethod:SidebarFileTree.kt$@Composable fun SidebarFileTree( tree: List&lt;FolderTreeNode&gt;, currentDocumentId: String?, expandedFolders: Set&lt;String&gt;, onDocumentClick: (String) -&gt; Unit, onFolderExpand: (String) -&gt; Unit, onFolderCollapse: (String) -&gt; Unit, actions: SidebarActions?, scrollToCurrentDocument: Boolean = false, /** * 批量确保若干文件夹处于展开状态（用于自动展开深处当前文档的祖先链）。 * 必须是「并集」语义（已展开的保持展开），不能是 toggle。 * 默认空实现：调用方未提供时不展开祖先，仅尝试滚动（兼容旧行为）。 */ onEnsureFoldersExpanded: (List&lt;String&gt;) -&gt; Unit = {}, modifier: Modifier = Modifier )</ID>
+    <ID>LongMethod:SyncPlanner.kt$SyncPlanner$fun plan( locals: List&lt;LocalDocInfo&gt;, remotes: List&lt;RemoteFileInfo&gt;, records: List&lt;SyncRecordInfo&gt;, tombstones: List&lt;TombstoneInfo&gt; = emptyList() ): List&lt;SyncAction&gt;</ID>
+    <ID>LongMethod:SyncRepositoryImpl.kt$SyncRepositoryImpl$private suspend fun syncNowLocked(): SyncOutcome</ID>
+    <ID>LongMethod:SyncSettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun SyncSettingsScreen( navController: NavController, viewModel: SyncSettingsViewModel = hiltViewModel() )</ID>
+    <ID>LongMethod:ToolActivityRow.kt$@Composable fun ToolActivityRow( step: AgentStep, active: Boolean = false, modifier: Modifier = Modifier )</ID>
+    <ID>LongMethod:TrashScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun TrashScreen( navController: NavController, viewModel: TrashViewModel = hiltViewModel() )</ID>
+    <ID>LongParameterList:AgentActionCard.kt$( action: AgentAction, baseContent: String? = null, onApproveDiff: (finalContent: String) -&gt; Unit = {}, onApprove: () -&gt; Unit = {}, onReject: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
+    <ID>LongParameterList:AgentChatSheet.kt$( conversationId: String, documentId: String?, documentName: String?, documentContent: String?, onBack: () -&gt; Unit, onNavigateToDocument: (String) -&gt; Unit, onDocumentUpdated: () -&gt; Unit = {}, modifier: Modifier = Modifier, viewModel: AgentChatViewModel = hiltViewModel() )</ID>
+    <ID>LongParameterList:AgentChatSheet.kt$AgentChatViewModel$( getConversation: GetConversationUseCase, private val sendAgentMessage: SendAgentMessageUseCase, private val executeAgentAction: ExecuteAgentActionUseCase, private val loadDocumentUseCase: LoadDocumentUseCase, private val conversationRepository: ConversationRepository, private val agentTaskRepository: AgentTaskRepository, private val imageProcessor: com.yumark.app.core.image.ImageProcessor, private val agentUiPrefs: com.yumark.app.data.local.prefs.AgentUiPrefsDataStore )</ID>
+    <ID>LongParameterList:AgentTaskDao.kt$AgentTaskDao$( liveStatuses: List&lt;String&gt;, blocked: String, running: String, pending: String, now: Long, reason: String )</ID>
+    <ID>LongParameterList:AgentTimeline.kt$( title: String, status: AgentTaskStepStatus, isActive: Boolean, isFirst: Boolean, isLast: Boolean, pulse: Float )</ID>
+    <ID>LongParameterList:AgentUseCases.kt$SendAgentMessageUseCase$( conversationId: String, userMessage: String, currentDocumentId: String?, currentDocumentName: String?, currentDocumentContent: String?, attachments: List&lt;MessageAttachment&gt; = emptyList() )</ID>
+    <ID>LongParameterList:AgentUseCases.kt$SendAgentMessageUseCase$( private val conversationRepository: ConversationRepository, private val configRepository: AiConfigRepository, private val adapterFactory: AiAdapterFactory, private val imageProcessor: com.yumark.app.core.image.ImageProcessor, private val agentTaskRepository: AgentTaskRepository, private val executeDocumentTool: ExecuteDocumentToolUseCase, private val buildWriteProposal: BuildWriteProposalUseCase, private val webSearchService: com.yumark.app.data.ai.web.WebSearchService, private val memoryService: com.yumark.app.data.ai.memory.MemoryService, private val ragPipeline: com.yumark.app.data.ai.rag.RagPipeline )</ID>
+    <ID>LongParameterList:AiAssistantHost.kt$( currentDocumentId: String?, currentDocumentName: String?, currentDocumentContent: String?, onNavigateToDocument: (String) -&gt; Unit, onDocumentUpdated: () -&gt; Unit = {}, onDismiss: () -&gt; Unit )</ID>
+    <ID>LongParameterList:AiQuickDialog.kt$( selectedText: String, initialMode: QuickAiMode = QuickAiMode.AI_QUERY, onDismiss: () -&gt; Unit, onApplyEdit: (oldText: String, newText: String) -&gt; Unit, allowEditSelectedText: Boolean = false, documentName: String? = null, documentContent: String? = null, viewModel: AiQuickViewModel = hiltViewModel() )</ID>
+    <ID>LongParameterList:ApkVerification.kt$ApkVerification$( expectedPackage: String, actualPackage: String?, installedSigners: List&lt;String&gt;, downloadedSigners: List&lt;String&gt;, expectedSha256: String?, actualSha256: String )</ID>
+    <ID>LongParameterList:ConfigBackupCodec.kt$ConfigBackupCodec$( settings: UserSettings, ai: AiConfig, sync: WebDavConfig, includeSecrets: Boolean, appVersion: String, exportedAt: Long )</ID>
+    <ID>LongParameterList:ConfigBackupCodec.kt$ConfigBackupCodec$( value: Float?, min: Float, max: Float, fallback: Float, label: String, warnings: MutableList&lt;String&gt; )</ID>
+    <ID>LongParameterList:DocumentRepositoryImpl.kt$DocumentRepositoryImpl$( private val documentDao: DocumentDao, private val fileManager: FileManager, private val mapper: DocumentMapper, private val searchDao: DocumentSearchDao, private val imageDao: ImageDao, private val syncStateDao: SyncStateDao, // data 层内部依赖（RagPipeline 不依赖本仓库，无环）：移入/彻底删除时把文档从知识索引 // 与内存向量表里摘掉，恢复时重新入队索引——删除文档从不清理 RAG 索引是个补上的旧缺口。 private val ragPipeline: RagPipeline )</ID>
+    <ID>LongParameterList:DocxExporter.kt$DocxExporter$( sb: StringBuilder, base: Fmt, inlineParent: Node, indent: Int, media: MediaBundle, prefix: String? = null )</ID>
+    <ID>LongParameterList:EditorScreen.kt$( isExternal: Boolean, workspace: com.yumark.app.domain.model.Workspace?, folderTree: List&lt;com.yumark.app.domain.model.FolderTreeNode&gt;?, currentDocumentId: String?, currentDocUri: String?, expandedFolders: Set&lt;String&gt;, onToggleFolder: (String) -&gt; Unit, onEnsureFoldersExpanded: (List&lt;String&gt;) -&gt; Unit, onOpenInternal: (String) -&gt; Unit, onOpenExternal: (String) -&gt; Unit, onCloseDrawer: () -&gt; Unit, fileDrawerState: DrawerState, showImportMenu: Boolean, onShowImportMenu: () -&gt; Unit, onDismissImportMenu: () -&gt; Unit, /** 拉起「导入文件」；实现在 [com.yumark.app.presentation.filelist.rememberImportFlow]，与文件列表页共用一份 */ onImportFile: () -&gt; Unit, /** 拉起「导入文件夹」，同上 */ onImportFolder: () -&gt; Unit, onShowFolderDialog: () -&gt; Unit, onShowCreateDialog: (String) -&gt; Unit, onShowSubfolderDialog: (String) -&gt; Unit, onRenameFolder: (String, String) -&gt; Unit, onDeleteFolder: (String) -&gt; Unit, onRenameDocument: (com.yumark.app.domain.model.Document) -&gt; Unit, onDeleteDocument: (com.yumark.app.domain.model.Document) -&gt; Unit, onMoveDocument: (com.yumark.app.domain.model.Document) -&gt; Unit, onMoveFolder: (String) -&gt; Unit, onMoveDocumentTo: (String, String?) -&gt; Unit, onMoveFolderTo: (String, String?) -&gt; Unit )</ID>
+    <ID>LongParameterList:EditorViewModel.kt$EditorViewModel$( private val loadDocumentUseCase: LoadDocumentUseCase, private val saveDocumentUseCase: SaveDocumentUseCase, private val loadSettingsUseCase: LoadSettingsUseCase, private val workspaceRepository: WorkspaceRepository, private val exportDocumentUseCase: ExportDocumentUseCase, private val fileManager: FileManager, private val folderRepository: FolderRepository, private val getFolderTreeUseCase: GetFolderTreeUseCase, private val documentRepository: DocumentRepository, private val processImage: ProcessImageUseCase, private val documentVersionRepository: com.yumark.app.domain.repository.DocumentVersionRepository, private val ragPipeline: com.yumark.app.data.ai.rag.RagPipeline, getAiConfig: GetAiConfigUseCase, savedStateHandle: SavedStateHandle, // 退出时保存要用的应用级作用域：onCleared 触发时 viewModelScope 已被取消， // 用它启动的协程会立刻死掉，脏内容一个字节都写不出去（见 onCleared）。 // 带默认值只为让 JVM 单元测试能直接 new 出 VM 而不必造一个作用域； // 生产路径一律由 Hilt 注入，见 di/AppScopeModule。 @AppScope private val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO) )</ID>
+    <ID>LongParameterList:FileListViewModel.kt$FileListViewModel$( private val documentRepository: DocumentRepository, private val folderRepository: FolderRepository, private val createDocumentUseCase: CreateDocumentUseCase, private val deleteDocumentUseCase: DeleteDocumentUseCase, private val searchUseCase: SearchDocumentsUseCase, private val manageFoldersUseCase: ManageFoldersUseCase, private val getFolderTreeUseCase: GetFolderTreeUseCase, private val workspaceRepository: WorkspaceRepository, private val updateChecker: UpdateChecker, private val settingsRepository: com.yumark.app.domain.repository.SettingsRepository )</ID>
+    <ID>LongParameterList:FindReplaceBar.kt$( value: TextFieldValue, onSelect: (TextRange) -&gt; Unit, onReplace: (TextFieldValue) -&gt; Unit, onMessage: (String) -&gt; Unit, onClose: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
+    <ID>LongParameterList:MarkdownChunker.kt$MarkdownChunker$( chunks: MutableList&lt;Chunk&gt;, seenKeys: MutableSet&lt;String&gt;, documentId: String, section: Section, blocks: List&lt;TextBlock&gt;, chunkIndex: Int )</ID>
+    <ID>LongParameterList:MarkdownToolbar.kt$( onAction: (MarkdownAction) -&gt; Unit, modifier: Modifier = Modifier, canUndo: Boolean = false, canRedo: Boolean = false, onUndo: () -&gt; Unit = {}, onRedo: () -&gt; Unit = {}, onToggleFindReplace: () -&gt; Unit = {}, findReplaceActive: Boolean = false )</ID>
+    <ID>LongParameterList:MoveToFolderDialog.kt$( title: String, folders: List&lt;Folder&gt;, disabledFolderIds: Set&lt;String&gt; = emptySet(), rootEnabled: Boolean = true, onDismiss: () -&gt; Unit, onPick: (targetFolderId: String?) -&gt; Unit )</ID>
+    <ID>LongParameterList:SettingsScreen.kt$SettingsViewModel$( private val repo: SettingsRepository, private val workspaceRepository: WorkspaceRepository, private val updateChecker: UpdateChecker, private val exportConfig: ExportConfigUseCase, private val importConfig: ImportConfigUseCase, private val crashReporter: CrashReporter, private val exportCrashLog: ExportCrashLogUseCase, private val fileManager: com.yumark.app.data.local.file.FileManager, @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context, getAiConfig: GetAiConfigUseCase )</ID>
+    <ID>LongParameterList:SidebarFileTree.kt$( document: Document, level: Int, isSelected: Boolean, onClick: () -&gt; Unit, onRename: (() -&gt; Unit)? = null, onDelete: (() -&gt; Unit)? = null, onMove: (() -&gt; Unit)? = null, drag: DragController? = null )</ID>
+    <ID>LongParameterList:SidebarFileTree.kt$( folder: Folder, level: Int, isExpanded: Boolean, hasChildren: Boolean, onToggleExpand: () -&gt; Unit, actions: SidebarActions?, drag: DragController? = null, subtreeIdsOf: (String) -&gt; Set&lt;String&gt; = { emptySet() } )</ID>
+    <ID>LongParameterList:SidebarFileTree.kt$( node: FolderTreeNode, currentDocumentId: String?, isExpanded: Boolean, expandedFolders: Set&lt;String&gt;, onDocumentClick: (String) -&gt; Unit, onFolderExpand: (String) -&gt; Unit, onFolderCollapse: (String) -&gt; Unit, actions: SidebarActions?, drag: DragController? = null, subtreeIdsOf: (String) -&gt; Set&lt;String&gt; = { emptySet() } )</ID>
+    <ID>LongParameterList:SidebarFileTree.kt$( tree: List&lt;FolderTreeNode&gt;, currentDocumentId: String?, expandedFolders: Set&lt;String&gt;, onDocumentClick: (String) -&gt; Unit, onFolderExpand: (String) -&gt; Unit, onFolderCollapse: (String) -&gt; Unit, actions: SidebarActions?, scrollToCurrentDocument: Boolean = false, /** * 批量确保若干文件夹处于展开状态（用于自动展开深处当前文档的祖先链）。 * 必须是「并集」语义（已展开的保持展开），不能是 toggle。 * 默认空实现：调用方未提供时不展开祖先，仅尝试滚动（兼容旧行为）。 */ onEnsureFoldersExpanded: (List&lt;String&gt;) -&gt; Unit = {}, modifier: Modifier = Modifier )</ID>
+    <ID>LongParameterList:SidebarFileTree.kt$DragController$(id: String, isFolder: Boolean, label: String, parent: String?, invalidSet: Set&lt;String&gt;, startRootY: Float)</ID>
+    <ID>LongParameterList:SnackbarEffect.kt$( message: String?, actionLabel: String?, hostState: SnackbarHostState, duration: SnackbarDuration = SnackbarDuration.Short, onAction: () -&gt; Unit, onConsumed: () -&gt; Unit )</ID>
+    <ID>LongParameterList:SyncRepositoryImpl.kt$SyncRepositoryImpl$( @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context, private val configStore: SyncConfigDataStore, private val syncStateDao: SyncStateDao, private val syncTombstoneDao: SyncTombstoneDao, private val webDavClient: WebDavClient, private val documentRepository: DocumentRepository, private val saveDocument: SaveDocumentUseCase, private val fileManager: FileManager, private val mediaSync: com.yumark.app.data.sync.MediaSync )</ID>
+    <ID>LongParameterList:SyncRepositoryImpl.kt$SyncRepositoryImpl$( config: WebDavConfig, action: SyncAction, docById: Map&lt;String, Document&gt;, ifMatchEtags: Map&lt;String, String?&gt;, listExposesEtags: Boolean, now: Long, pendingBaseline: MutableSet&lt;String&gt; )</ID>
+    <ID>LoopWithTooManyJumpStatements:AiQuickDialog.kt$AiQuickViewModel$for</ID>
+    <ID>LoopWithTooManyJumpStatements:ClaudeAdapter.kt$ClaudeAdapter$while</ID>
+    <ID>LoopWithTooManyJumpStatements:CrashLogFormatter.kt$CrashLogFormatter$while</ID>
+    <ID>LoopWithTooManyJumpStatements:EditorViewModel.kt$EditorViewModel$while</ID>
+    <ID>LoopWithTooManyJumpStatements:ExportRetention.kt$ExportRetention$for</ID>
+    <ID>LoopWithTooManyJumpStatements:FileManager.kt$FileManager$for</ID>
+    <ID>LoopWithTooManyJumpStatements:FindReplace.kt$FindReplace$for</ID>
+    <ID>LoopWithTooManyJumpStatements:GeminiAdapter.kt$GeminiAdapter$while</ID>
+    <ID>LoopWithTooManyJumpStatements:ImportFolderUseCase.kt$ImportFolderUseCase$for</ID>
+    <ID>LoopWithTooManyJumpStatements:MarkdownChunker.kt$MarkdownChunker$for</ID>
+    <ID>LoopWithTooManyJumpStatements:MediaSync.kt$MediaSync$for</ID>
+    <ID>LoopWithTooManyJumpStatements:OpenAiAdapter.kt$OpenAiAdapter$while</ID>
+    <ID>LoopWithTooManyJumpStatements:StreamRetry.kt$while</ID>
+    <ID>LoopWithTooManyJumpStatements:SyncPlanner.kt$SyncPlanner$for</ID>
+    <ID>LoopWithTooManyJumpStatements:SyncRepositoryImpl.kt$SyncRepositoryImpl$for</ID>
+    <ID>LoopWithTooManyJumpStatements:VectorStore.kt$VectorStore$for</ID>
+    <ID>LoopWithTooManyJumpStatements:WebDavXml.kt$WebDavXml$for</ID>
+    <ID>LoopWithTooManyJumpStatements:WebSearchService.kt$WebSearchService$for</ID>
+    <ID>LoopWithTooManyJumpStatements:WorkspaceScanner.kt$WorkspaceScanner$for</ID>
+    <ID>MagicNumber:AgentChatSheet.kt$220</ID>
+    <ID>MagicNumber:AgentChatSheet.kt$3</ID>
+    <ID>MagicNumber:AgentChatSheet.kt$4</ID>
+    <ID>MagicNumber:AgentChatSheet.kt$AgentChatViewModel$3</ID>
+    <ID>MagicNumber:AgentStatusIndicator.kt$0.01f</ID>
+    <ID>MagicNumber:AgentStatusIndicator.kt$0.3f</ID>
+    <ID>MagicNumber:AgentStatusIndicator.kt$0.4f</ID>
+    <ID>MagicNumber:AgentStatusIndicator.kt$0.6f</ID>
+    <ID>MagicNumber:AgentStatusIndicator.kt$0.7f</ID>
+    <ID>MagicNumber:AgentTimeline.kt$1400</ID>
+    <ID>MagicNumber:AgentUseCases.kt$50</ID>
+    <ID>MagicNumber:AgentUseCases.kt$ExecuteAgentActionUseCase$50</ID>
+    <ID>MagicNumber:AgentUseCases.kt$SendAgentMessageUseCase$120</ID>
+    <ID>MagicNumber:AgentUseCases.kt$SendAgentMessageUseCase$80</ID>
+    <ID>MagicNumber:AiChatSheet.kt$220</ID>
+    <ID>MagicNumber:AiErrorMapper.kt$AiErrorMapper$30</ID>
+    <ID>MagicNumber:AiErrorMapper.kt$AiErrorMapper$400</ID>
+    <ID>MagicNumber:AiErrorMapper.kt$AiErrorMapper$401</ID>
+    <ID>MagicNumber:AiErrorMapper.kt$AiErrorMapper$403</ID>
+    <ID>MagicNumber:AiErrorMapper.kt$AiErrorMapper$404</ID>
+    <ID>MagicNumber:AiErrorMapper.kt$AiErrorMapper$429</ID>
+    <ID>MagicNumber:AiErrorMapper.kt$AiErrorMapper$500</ID>
+    <ID>MagicNumber:AiErrorMapper.kt$AiErrorMapper$599</ID>
+    <ID>MagicNumber:AiModels.kt$MemoryCategory.INSTRUCTION$3</ID>
+    <ID>MagicNumber:AiModels.kt$MemoryCategory.PROFILE$4</ID>
+    <ID>MagicNumber:AiModels.kt$MemoryCategory.PROJECT$5</ID>
+    <ID>MagicNumber:AiQuickDialog.kt$0.8f</ID>
+    <ID>MagicNumber:AiQuickDialog.kt$220</ID>
+    <ID>MagicNumber:AiQuickDialog.kt$AiQuickViewModel$40</ID>
+    <ID>MagicNumber:ApkDownloader.kt$ApkDownloader$100</ID>
+    <ID>MagicNumber:ApkDownloader.kt$ApkDownloader$100_000</ID>
+    <ID>MagicNumber:ApkDownloader.kt$ApkDownloader$1024</ID>
+    <ID>MagicNumber:ApkDownloader.kt$ApkDownloader$15_000</ID>
+    <ID>MagicNumber:ApkDownloader.kt$ApkDownloader$20_000</ID>
+    <ID>MagicNumber:ApkDownloader.kt$ApkDownloader$64</ID>
+    <ID>MagicNumber:ApkVerification.kt$ApkVerification$0xFF</ID>
+    <ID>MagicNumber:ApkVerification.kt$ApkVerification$1024</ID>
+    <ID>MagicNumber:ApkVerification.kt$ApkVerification$4</ID>
+    <ID>MagicNumber:ApkVerification.kt$ApkVerification$64</ID>
+    <ID>MagicNumber:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$10</ID>
+    <ID>MagicNumber:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$11</ID>
+    <ID>MagicNumber:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$12</ID>
+    <ID>MagicNumber:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$13</ID>
+    <ID>MagicNumber:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$14</ID>
+    <ID>MagicNumber:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$3</ID>
+    <ID>MagicNumber:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$4</ID>
+    <ID>MagicNumber:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$5</ID>
+    <ID>MagicNumber:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$6</ID>
+    <ID>MagicNumber:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$7</ID>
+    <ID>MagicNumber:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$8</ID>
+    <ID>MagicNumber:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$9</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF161616</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF171717</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF1B2733</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF1C1C1A</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF1E1E1C</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF1E1E1E</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF202020</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF23303B</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF252526</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF262624</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF2A2A28</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF2A3540</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF2D2D2D</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF2F2F30</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF2F3A44</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF30302E</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF303030</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF32311F</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF33322C</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF333333</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF37424D</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF3A3A37</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF3A3A3B</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF3B3B3B</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF3B4650</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF3D3929</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF3E3E3A</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF3F3F3C</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF424242</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF44432F</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF454541</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF4A4738</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF4A4936</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF4B5A68</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF4F352A</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF5C1A16</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF5E241B</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF601410</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF60707E</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF666560</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF696969</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF757575</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF7A1C16</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF7A7767</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF7A785B</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF7E2A1C</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF848179</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF848484</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF858585</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF8A4A2F</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF8FA1B3</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF90908E</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFF9E9E9E</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFA3A3A3</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFA3B2C0</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFA8A595</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFB3261E</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFB35A3C</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFB8B5A9</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFBEBB9C</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFCFCFCF</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFD5DEE6</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFD97757</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFD9D6C9</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFD9E2EA</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFDADADA</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFDBD8BA</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFDDDACE</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFDDDDDD</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFE3E8EC</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFE5E2D8</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFE6E4D2</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFE7E3D6</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFE8ECEF</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFE9E9E9</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFEAE8E0</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFECEAE1</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFECECEC</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFEEEEEE</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFEFEFEF</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFF0C9B8</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFF0EEE6</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFF1E0D8</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFF2B8B5</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFF2F0E8</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFF3D9D0</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFF3F3F3</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFF4F4F4</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFF5F4ED</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFF5F5F5</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFF6E2DC</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFF8D7D4</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFFAE3E1</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFFAF9F5</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFFAFAFA</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFFCFCFC</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFFDFCF9</ID>
+    <ID>MagicNumber:AppThemes.kt$AppThemes$0xFFFFFFFF</ID>
+    <ID>MagicNumber:ClaudeAdapter.kt$ClaudeAdapter$500</ID>
+    <ID>MagicNumber:ColorCss.kt$0xFFFFFF</ID>
+    <ID>MagicNumber:ColorCss.kt$16</ID>
+    <ID>MagicNumber:ColorCss.kt$6</ID>
+    <ID>MagicNumber:ConfigBackupCodec.kt$ConfigBackupCodec$0xFEFF</ID>
+    <ID>MagicNumber:ConfigBackupCodec.kt$ConfigBackupCodec$12</ID>
+    <ID>MagicNumber:ConfigBackupCodec.kt$ConfigBackupCodec$1_048_576</ID>
+    <ID>MagicNumber:ConfigBackupCodec.kt$ConfigBackupCodec$24</ID>
+    <ID>MagicNumber:ConfigBackupCodec.kt$ConfigBackupCodec$320</ID>
+    <ID>MagicNumber:ConfigBackupCodec.kt$ConfigBackupCodec$3600</ID>
+    <ID>MagicNumber:ConfigBackupCodec.kt$ConfigBackupCodec$5</ID>
+    <ID>MagicNumber:ConfigBackupCodec.kt$ConfigBackupCodec$8192</ID>
+    <ID>MagicNumber:ConfigBackupUseCases.kt$ImportConfigUseCase$1024</ID>
+    <ID>MagicNumber:ConfigBackupUseCases.kt$ImportConfigUseCase$8</ID>
+    <ID>MagicNumber:ContextBudget.kt$ContextBudget$1000</ID>
+    <ID>MagicNumber:ContextBudget.kt$ContextBudget$2000</ID>
+    <ID>MagicNumber:ContextBudget.kt$ContextBudget$3000</ID>
+    <ID>MagicNumber:ContextBudget.kt$ContextBudget$4</ID>
+    <ID>MagicNumber:ContextBudget.kt$ContextBudget$4000</ID>
+    <ID>MagicNumber:ContextBudget.kt$ContextBudget$5000</ID>
+    <ID>MagicNumber:ContextBudget.kt$ContextBudget$6000</ID>
+    <ID>MagicNumber:ConversationListSheet.kt$1000</ID>
+    <ID>MagicNumber:ConversationListSheet.kt$24</ID>
+    <ID>MagicNumber:ConversationListSheet.kt$60</ID>
+    <ID>MagicNumber:ConversationListSheet.kt$7</ID>
+    <ID>MagicNumber:CrashLogStore.kt$CrashLogStore$1024</ID>
+    <ID>MagicNumber:CrashLogStore.kt$CrashLogStore$256</ID>
+    <ID>MagicNumber:CrashLogStore.kt$CrashLogStore$512L</ID>
+    <ID>MagicNumber:CrashLogStore.kt$CrashLogStore$99</ID>
+    <ID>MagicNumber:Daos.kt$FolderDao$400</ID>
+    <ID>MagicNumber:DocumentContextTools.kt$DocumentContextTools$5</ID>
+    <ID>MagicNumber:DocxExporter.kt$0x20</ID>
+    <ID>MagicNumber:DocxExporter.kt$0xFFFE</ID>
+    <ID>MagicNumber:DocxExporter.kt$0xFFFF</ID>
+    <ID>MagicNumber:DocxExporter.kt$DocxExporter$22</ID>
+    <ID>MagicNumber:DocxExporter.kt$DocxExporter$24</ID>
+    <ID>MagicNumber:DocxExporter.kt$DocxExporter$28</ID>
+    <ID>MagicNumber:DocxExporter.kt$DocxExporter$3</ID>
+    <ID>MagicNumber:DocxExporter.kt$DocxExporter$32</ID>
+    <ID>MagicNumber:DocxExporter.kt$DocxExporter$36</ID>
+    <ID>MagicNumber:DocxExporter.kt$DocxExporter$360</ID>
+    <ID>MagicNumber:DocxExporter.kt$DocxExporter$4</ID>
+    <ID>MagicNumber:DocxExporter.kt$DocxExporter$48</ID>
+    <ID>MagicNumber:DocxExporter.kt$DocxExporter$5</ID>
+    <ID>MagicNumber:DocxExporter.kt$RawHtml$3</ID>
+    <ID>MagicNumber:DocxExporter.kt$RawHtml$4</ID>
+    <ID>MagicNumber:DocxExporter.kt$RawHtml$5</ID>
+    <ID>MagicNumber:EditorScreen.kt$0.5f</ID>
+    <ID>MagicNumber:EditorScreen.kt$120</ID>
+    <ID>MagicNumber:EditorScreen.kt$160</ID>
+    <ID>MagicNumber:EditorScreen.kt$180</ID>
+    <ID>MagicNumber:EditorScreen.kt$20</ID>
+    <ID>MagicNumber:EditorScreen.kt$200</ID>
+    <ID>MagicNumber:EditorScreen.kt$350</ID>
+    <ID>MagicNumber:EditorScreen.kt$40</ID>
+    <ID>MagicNumber:EditorScreen.kt$50</ID>
+    <ID>MagicNumber:EditorScreen.kt$80</ID>
+    <ID>MagicNumber:EditorScreen.kt$&lt;no name provided&gt;$100</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$1000L</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$16</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$5000</ID>
+    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$64</ID>
+    <ID>MagicNumber:EmbeddingAdapter.kt$OpenAiEmbeddingAdapter$500</ID>
+    <ID>MagicNumber:ExecuteDocumentToolUseCase.kt$ExecuteDocumentToolUseCase$10</ID>
+    <ID>MagicNumber:ExecuteDocumentToolUseCase.kt$ExecuteDocumentToolUseCase$5</ID>
+    <ID>MagicNumber:ExifOrientation.kt$180</ID>
+    <ID>MagicNumber:ExifOrientation.kt$270</ID>
+    <ID>MagicNumber:ExifOrientation.kt$3</ID>
+    <ID>MagicNumber:ExifOrientation.kt$4</ID>
+    <ID>MagicNumber:ExifOrientation.kt$5</ID>
+    <ID>MagicNumber:ExifOrientation.kt$6</ID>
+    <ID>MagicNumber:ExifOrientation.kt$7</ID>
+    <ID>MagicNumber:ExifOrientation.kt$8</ID>
+    <ID>MagicNumber:ExifOrientation.kt$90</ID>
+    <ID>MagicNumber:ExifOrientation.kt$ExifTransform$270</ID>
+    <ID>MagicNumber:ExifOrientation.kt$ExifTransform$90</ID>
+    <ID>MagicNumber:ExportImageInline.kt$3</ID>
+    <ID>MagicNumber:ExportImageInline.kt$4</ID>
+    <ID>MagicNumber:ExportImagePaths.kt$16</ID>
+    <ID>MagicNumber:ExportImagePaths.kt$3</ID>
+    <ID>MagicNumber:ExportImagePaths.kt$4</ID>
+    <ID>MagicNumber:ExtendedColors.kt$0.0031308f</ID>
+    <ID>MagicNumber:ExtendedColors.kt$0.03928f</ID>
+    <ID>MagicNumber:ExtendedColors.kt$0.055f</ID>
+    <ID>MagicNumber:ExtendedColors.kt$0.05f</ID>
+    <ID>MagicNumber:ExtendedColors.kt$0.0722f</ID>
+    <ID>MagicNumber:ExtendedColors.kt$0.2126f</ID>
+    <ID>MagicNumber:ExtendedColors.kt$0.7152f</ID>
+    <ID>MagicNumber:ExtendedColors.kt$0xFF2E7D32</ID>
+    <ID>MagicNumber:ExtendedColors.kt$0xFF81C995</ID>
+    <ID>MagicNumber:ExtendedColors.kt$0xFF9A6400</ID>
+    <ID>MagicNumber:ExtendedColors.kt$0xFFF5BE5C</ID>
+    <ID>MagicNumber:ExtendedColors.kt$1.055f</ID>
+    <ID>MagicNumber:ExtendedColors.kt$12.92f</ID>
+    <ID>MagicNumber:ExtendedColors.kt$2.4</ID>
+    <ID>MagicNumber:ExtendedColors.kt$3.2f</ID>
+    <ID>MagicNumber:ExtendedColors.kt$60</ID>
+    <ID>MagicNumber:FileListScreen.kt$0.9f</ID>
+    <ID>MagicNumber:FileListScreen.kt$24</ID>
+    <ID>MagicNumber:FileListScreen.kt$60</ID>
+    <ID>MagicNumber:FileListScreen.kt$64</ID>
+    <ID>MagicNumber:FileListScreen.kt$7</ID>
+    <ID>MagicNumber:FileListViewModel.kt$FileListViewModel$300</ID>
+    <ID>MagicNumber:FileListViewModel.kt$FileListViewModel$5_000</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x1B000</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x1B16F</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x20000</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x2E80</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x2FDF</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x3005</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x3007</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x3040</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x30FF</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x3100</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x312F</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x3130</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x318F</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x31A0</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x31BF</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x31F0</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x31FF</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x3400</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x3FFFF</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x4DBF</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x4E00</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0x9FFF</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0xA000</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0xA4CF</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0xAC00</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0xD7AF</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0xF900</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0xFAFF</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0xFF00</ID>
+    <ID>MagicNumber:FtsTextNormalizer.kt$FtsTextNormalizer$0xFFEF</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0x0A</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0x1A</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0x2A</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0x3FFF</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0x47</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0x4E</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0x50</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xC0</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xC1</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xC2</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xC3</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xC5</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xC6</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xC7</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xC9</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xCA</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xCB</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xCD</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xCE</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xCF</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xD0</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xD7</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xD8</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xD9</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xDA</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$0xFF</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$12</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$14</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$16</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$18</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$20</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$21</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$22</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$24</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$26</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$27</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$28</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$3</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$5</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$6</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$7</ID>
+    <ID>MagicNumber:ImageBinaryInfo.kt$8</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$100</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$1_000_000</ID>
+    <ID>MagicNumber:ImageProcessor.kt$ImageProcessor$85</ID>
+    <ID>MagicNumber:ImageRepositoryImpl.kt$ImageRepositoryImpl$100</ID>
+    <ID>MagicNumber:ImageRepositoryImpl.kt$ImageRepositoryImpl$90</ID>
+    <ID>MagicNumber:ImportFolderBrowserDialog.kt$0.9f</ID>
+    <ID>MagicNumber:ImportFolderUseCase.kt$ImportFolderUseCase$1024</ID>
+    <ID>MagicNumber:ImportFolderUseCase.kt$ImportFolderUseCase$64</ID>
+    <ID>MagicNumber:InlineImageMime.kt$0xFEFF</ID>
+    <ID>MagicNumber:InlineImageMime.kt$0xFF</ID>
+    <ID>MagicNumber:InlineImageMime.kt$16</ID>
+    <ID>MagicNumber:InlineImageMime.kt$3</ID>
+    <ID>MagicNumber:InlineImageMime.kt$4</ID>
+    <ID>MagicNumber:InlineImageMime.kt$8</ID>
+    <ID>MagicNumber:IntentDetector.kt$IntentDetector$3</ID>
+    <ID>MagicNumber:IntentDetector.kt$IntentDetector$4</ID>
+    <ID>MagicNumber:KnowledgeTools.kt$KnowledgeTools$5</ID>
+    <ID>MagicNumber:MarkdownChunker.kt$MarkdownChunker$0.5</ID>
+    <ID>MagicNumber:MarkdownChunker.kt$MarkdownChunker$3</ID>
+    <ID>MagicNumber:MarkdownChunker.kt$MarkdownChunker$4</ID>
+    <ID>MagicNumber:MemoryService.kt$MemoryService$0.2</ID>
+    <ID>MagicNumber:MemoryService.kt$MemoryService$20</ID>
+    <ID>MagicNumber:MemoryService.kt$MemoryService$5</ID>
+    <ID>MagicNumber:MemoryService.kt$MemoryService$80</ID>
+    <ID>MagicNumber:MemoryTools.kt$MemoryTools$20</ID>
+    <ID>MagicNumber:MemoryTools.kt$MemoryTools$5</ID>
+    <ID>MagicNumber:MessageBubble.kt$0.5f</ID>
+    <ID>MagicNumber:Models.kt$CompressionQuality.HIGH$90</ID>
+    <ID>MagicNumber:Models.kt$CompressionQuality.LOW$60</ID>
+    <ID>MagicNumber:Models.kt$CompressionQuality.MEDIUM$80</ID>
+    <ID>MagicNumber:MoveToFolderDialog.kt$100</ID>
+    <ID>MagicNumber:MoveToFolderDialog.kt$10_000</ID>
+    <ID>MagicNumber:QuickEditHeuristics.kt$3</ID>
+    <ID>MagicNumber:QuickEditHeuristics.kt$QuickEditHeuristics$16</ID>
+    <ID>MagicNumber:QuickEditHeuristics.kt$QuickEditHeuristics$2.5f</ID>
+    <ID>MagicNumber:RagContentHash.kt$0x01000193</ID>
+    <ID>MagicNumber:RagContentHash.kt$0xFFFFFFFFL</ID>
+    <ID>MagicNumber:RagContentHash.kt$16</ID>
+    <ID>MagicNumber:RagContentHash.kt$8</ID>
+    <ID>MagicNumber:RagPipeline.kt$RagPipeline$5</ID>
+    <ID>MagicNumber:SearchRanker.kt$SearchRanker$5</ID>
+    <ID>MagicNumber:SettingsScreen.kt$1024</ID>
+    <ID>MagicNumber:SettingsScreen.kt$1024f</ID>
+    <ID>MagicNumber:SettingsScreen.kt$15</ID>
+    <ID>MagicNumber:SettingsScreen.kt$1500</ID>
+    <ID>MagicNumber:SettingsScreen.kt$200</ID>
+    <ID>MagicNumber:SettingsScreen.kt$30</ID>
+    <ID>MagicNumber:SettingsScreen.kt$300</ID>
+    <ID>MagicNumber:SettingsScreen.kt$3840f</ID>
+    <ID>MagicNumber:SettingsScreen.kt$5</ID>
+    <ID>MagicNumber:SettingsScreen.kt$60</ID>
+    <ID>MagicNumber:SettingsScreen.kt$640f</ID>
+    <ID>MagicNumber:SidebarFileTree.kt$0.4f</ID>
+    <ID>MagicNumber:SidebarFileTree.kt$0.95f</ID>
+    <ID>MagicNumber:SidebarFileTree.kt$100</ID>
+    <ID>MagicNumber:SidebarFileTree.kt$16</ID>
+    <ID>MagicNumber:StreamRetry.kt$100</ID>
+    <ID>MagicNumber:StreamRetry.kt$400</ID>
+    <ID>MagicNumber:StreamRetry.kt$401</ID>
+    <ID>MagicNumber:StreamRetry.kt$403</ID>
+    <ID>MagicNumber:StreamRetry.kt$404</ID>
+    <ID>MagicNumber:StreamRetry.kt$409</ID>
+    <ID>MagicNumber:StreamRetry.kt$413</ID>
+    <ID>MagicNumber:StreamRetry.kt$429</ID>
+    <ID>MagicNumber:StreamRetry.kt$499</ID>
+    <ID>MagicNumber:StreamRetry.kt$500</ID>
+    <ID>MagicNumber:StreamRetry.kt$501</ID>
+    <ID>MagicNumber:StreamRetry.kt$503</ID>
+    <ID>MagicNumber:StreamRetry.kt$504</ID>
+    <ID>MagicNumber:StreamRetry.kt$529</ID>
+    <ID>MagicNumber:StreamRetry.kt$599</ID>
+    <ID>MagicNumber:StreamingIndicator.kt$0.32f</ID>
+    <ID>MagicNumber:StreamingIndicator.kt$1200</ID>
+    <ID>MagicNumber:SyncRepositoryImpl.kt$SyncRepositoryImpl$3</ID>
+    <ID>MagicNumber:ToolActivityRow.kt$0.4f</ID>
+    <ID>MagicNumber:UniqueFileNames.kt$UniqueFileNames$0x20</ID>
+    <ID>MagicNumber:UniqueFileNames.kt$UniqueFileNames$0x7F</ID>
+    <ID>MagicNumber:UpdateChecker.kt$100</ID>
+    <ID>MagicNumber:UpdateChecker.kt$10000</ID>
+    <ID>MagicNumber:VectorStore.kt$VectorStore$0.04f</ID>
+    <ID>MagicNumber:VectorStore.kt$VectorStore$0.08f</ID>
+    <ID>MagicNumber:VectorStore.kt$VectorStore$0.28f</ID>
+    <ID>MagicNumber:VectorStore.kt$VectorStore$0.72f</ID>
+    <ID>MagicNumber:VectorStore.kt$VectorStore$1.2f</ID>
+    <ID>MagicNumber:VectorStore.kt$VectorStore$1.4f</ID>
+    <ID>MagicNumber:VectorStore.kt$VectorStore$1.5f</ID>
+    <ID>MagicNumber:VectorStore.kt$VectorStore$1.6f</ID>
+    <ID>MagicNumber:VectorStore.kt$VectorStore$1.8f</ID>
+    <ID>MagicNumber:VectorStore.kt$VectorStore$3</ID>
+    <ID>MagicNumber:WebDavClient.kt$0xFEFF</ID>
+    <ID>MagicNumber:WebDavClient.kt$401</ID>
+    <ID>MagicNumber:WebDavClient.kt$403</ID>
+    <ID>MagicNumber:WebDavClient.kt$408</ID>
+    <ID>MagicNumber:WebDavClient.kt$409</ID>
+    <ID>MagicNumber:WebDavClient.kt$412</ID>
+    <ID>MagicNumber:WebDavClient.kt$413</ID>
+    <ID>MagicNumber:WebDavClient.kt$423</ID>
+    <ID>MagicNumber:WebDavClient.kt$429</ID>
+    <ID>MagicNumber:WebDavClient.kt$500</ID>
+    <ID>MagicNumber:WebDavClient.kt$501</ID>
+    <ID>MagicNumber:WebDavClient.kt$507</ID>
+    <ID>MagicNumber:WebDavClient.kt$599</ID>
+    <ID>MagicNumber:WebDavClient.kt$WebDavClient$207</ID>
+    <ID>MagicNumber:WebDavClient.kt$WebDavClient$404</ID>
+    <ID>MagicNumber:WebDavPaths.kt$WebDavPaths$0x80</ID>
+    <ID>MagicNumber:WebDavPaths.kt$WebDavPaths$0xFF</ID>
+    <ID>MagicNumber:WebDavPaths.kt$WebDavPaths$10</ID>
+    <ID>MagicNumber:WebDavPaths.kt$WebDavPaths$3</ID>
+    <ID>MagicNumber:WebDavPaths.kt$WebDavPaths$4</ID>
+    <ID>MagicNumber:WebDavPaths.kt$WebDavPaths$8</ID>
+    <ID>MagicNumber:WebSearchService.kt$WebSearchService$5</ID>
+    <ID>MagicNumber:WebTools.kt$WebTools$5</ID>
+    <ID>MagicNumber:WebViewDocumentRenderer.kt$WebViewDocumentRenderer$100</ID>
+    <ID>MagicNumber:WebViewFailure.kt$WebViewFailure$400</ID>
+    <ID>MagicNumber:WebViewFailure.kt$WebViewFailure$401</ID>
+    <ID>MagicNumber:WebViewFailure.kt$WebViewFailure$403</ID>
+    <ID>MagicNumber:WebViewFailure.kt$WebViewFailure$404</ID>
+    <ID>MagicNumber:WebViewFailure.kt$WebViewFailure$408</ID>
+    <ID>MagicNumber:WebViewFailure.kt$WebViewFailure$410</ID>
+    <ID>MagicNumber:WebViewFailure.kt$WebViewFailure$429</ID>
+    <ID>MagicNumber:WebViewFailure.kt$WebViewFailure$499</ID>
+    <ID>MagicNumber:WebViewFailure.kt$WebViewFailure$500</ID>
+    <ID>MagicNumber:WebViewFailure.kt$WebViewFailure$504</ID>
+    <ID>MagicNumber:WebViewFailure.kt$WebViewFailure$599</ID>
+    <ID>MagicNumber:WorkspaceRepositoryImpl.kt$ContractTreeEntry$3</ID>
+    <ID>MagicNumber:YuMarkNavGraph.kt$180</ID>
+    <ID>MagicNumber:YuMarkNavGraph.kt$220</ID>
+    <ID>MagicNumber:YuMarkNavGraph.kt$24</ID>
+    <ID>MatchingDeclarationName:AiChatSheet.kt$AiChatViewModel : ViewModel</ID>
+    <ID>MatchingDeclarationName:ConversationListSheet.kt$ConversationListViewModel : ViewModel</ID>
+    <ID>MatchingDeclarationName:DuplicateNameResolver.kt$SiblingNameRow</ID>
+    <ID>MatchingDeclarationName:ExifOrientation.kt$ExifTransform</ID>
+    <ID>MatchingDeclarationName:ExportImageInline.kt$ExportImageResolver</ID>
+    <ID>MatchingDeclarationName:MarkdownSyntax.kt$MarkdownAction</ID>
+    <ID>MatchingDeclarationName:Motion.kt$AppMotion</ID>
+    <ID>MatchingDeclarationName:SearchEntities.kt$DocumentSearchEntity</ID>
+    <ID>MatchingDeclarationName:Shape.kt$AppShapes</ID>
+    <ID>MatchingDeclarationName:ToolCallAccumulator.kt$OpenAiToolCallAccumulator</ID>
+    <ID>MaxLineLength:AgentActionCard.kt$Icon(icon, contentDescription = null, modifier = Modifier.size(AgentActionMetrics.GlyphIcon), tint = cs.onPrimaryContainer)</ID>
+    <ID>MaxLineLength:AgentChatSheet.kt$AgentChatViewModel$(conversation.relatedDocumentId != documentId || conversation.relatedDocumentName != documentName)</ID>
+    <ID>MaxLineLength:AgentChatSheet.kt$AgentChatViewModel$.</ID>
+    <ID>MaxLineLength:AgentChatSheet.kt$AgentChatViewModel$fun</ID>
+    <ID>MaxLineLength:AgentChatSheet.kt$Column</ID>
+    <ID>MaxLineLength:AgentChatSheet.kt$Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(AgentChatMetrics.DocChipIconSize), tint = cs.onSurfaceVariant)</ID>
+    <ID>MaxLineLength:AgentChatSheet.kt$Icon(Icons.Default.SmartToy, contentDescription = null, modifier = Modifier.size(AppIconSize.Medium), tint = cs.onPrimaryContainer)</ID>
+    <ID>MaxLineLength:AgentChatSheet.kt$colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)</ID>
+    <ID>MaxLineLength:AgentChatSheet.kt$modifier = Modifier.fillMaxWidth().padding(start = AppSpacing.Tight, end = AppSpacing.Cozy, top = AppSpacing.Tight, bottom = AppSpacing.Tight)</ID>
+    <ID>MaxLineLength:AgentChatSheet.kt$modifier = Modifier.padding(horizontal = AgentChatMetrics.DocChipPaddingH, vertical = AppSpacing.Tight)</ID>
+    <ID>MaxLineLength:AgentChatSheet.kt$modifier = Modifier.padding(start = AiDesign.ScreenPadding, end = AiDesign.ScreenPadding, bottom = AppSpacing.Snug)</ID>
+    <ID>MaxLineLength:AgentChatViewModelTest.kt$AgentChatViewModelTest$status = if (status == AgentTaskStatus.BLOCKED) AgentTaskStepStatus.BLOCKED else AgentTaskStepStatus.RUNNING</ID>
+    <ID>MaxLineLength:AgentChatViewModelTest.kt$AgentChatViewModelTest$val vm = AgentChatViewModel(getConversation, sendAgentMessage, executeAgentAction, loadDocumentUseCase, conversationRepository, agentTaskRepository, imageProcessor, agentUiPrefs)</ID>
+    <ID>MaxLineLength:AgentTaskRepositoryImplTest.kt$AgentTaskRepositoryImplTest$evidence = listOf(evidenceEntity("evidence-2", createdAt = 5L), evidenceEntity("evidence-1", createdAt = 4L))</ID>
+    <ID>MaxLineLength:AgentTimeline.kt$Column</ID>
+    <ID>MaxLineLength:AgentTimeline.kt$drawCircle(visual.color.copy(alpha = (1f - pulse) * 0.45f), radius = r * (1f + pulse), center = Offset(cx, cy))</ID>
+    <ID>MaxLineLength:AgentTimeline.kt$status == AgentTaskStepStatus.PENDING -&gt; MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)</ID>
+    <ID>MaxLineLength:AgentUseCases.kt$SendAgentMessageUseCase$"save_memory", "search_memory", "list_memories" -&gt; runReadOnlyTool(call) { memoryService.execute(it) }</ID>
+    <ID>MaxLineLength:AgentUseCases.kt$SendAgentMessageUseCase$ChatMessage(role = "tool", content = summary, toolCallId = call.id, toolName = call.name)</ID>
+    <ID>MaxLineLength:AgentUseCases.kt$SendAgentMessageUseCase$assistant.copy(content = chatText, isStreaming = false, agentAction = act, steps = agentSteps.toList())</ID>
+    <ID>MaxLineLength:AgentUseCases.kt$SendAgentMessageUseCase$assistant.copy(content = chatText, isStreaming = false, agentAction = action, steps = agentSteps.toList())</ID>
+    <ID>MaxLineLength:AgentUseCases.kt$steps.any { it.status == AgentTaskStepStatus.BLOCKED || it.status == AgentTaskStepStatus.FAILED } -&gt; AgentTaskStatus.BLOCKED</ID>
+    <ID>MaxLineLength:AgentUseCases.kt$steps.isNotEmpty() &amp;&amp; steps.all { it.status == AgentTaskStepStatus.DONE || it.status == AgentTaskStepStatus.SKIPPED } -&gt; AgentTaskStatus.COMPLETED</ID>
+    <ID>MaxLineLength:AiChatSheet.kt$AiChatViewModel$.</ID>
+    <ID>MaxLineLength:AiChatSheet.kt$modifier = Modifier.fillMaxWidth().padding(start = AppSpacing.Tight, end = AppSpacing.Cozy, top = AppSpacing.Tight, bottom = AppSpacing.Tight)</ID>
+    <ID>MaxLineLength:AiConfigScreen.kt$CircularProgressIndicator(Modifier.size(AiConfigMetrics.ButtonSpinner), strokeWidth = AiConfigMetrics.ButtonSpinnerStroke)</ID>
+    <ID>MaxLineLength:AiConfigScreen.kt$Column</ID>
+    <ID>MaxLineLength:AiConfigScreen.kt$RadioButton(selected = config.webSearchProvider == p, onClick = { viewModel.onWebSearchProviderChange(p) })</ID>
+    <ID>MaxLineLength:AiConfigScreen.kt$Row</ID>
+    <ID>MaxLineLength:AiConfigScreen.kt$visualTransformation = if (ragKeyVisible) VisualTransformation.None else PasswordVisualTransformation()</ID>
+    <ID>MaxLineLength:AiConfigScreen.kt$visualTransformation = if (webKeyVisible) VisualTransformation.None else PasswordVisualTransformation()</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentActionStatus.APPROVED -&gt; StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Check, stringResource(R.string.ai_action_status_approved))</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentActionStatus.EXECUTED -&gt; StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Check, stringResource(R.string.ai_action_status_executed))</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentActionStatus.PENDING -&gt; StatusVisual(cs.secondary, cs.secondaryContainer, Icons.Default.Schedule, stringResource(R.string.ai_action_status_pending))</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentActionStatus.REJECTED -&gt; StatusVisual(cs.error, cs.errorContainer, Icons.Default.Close, stringResource(R.string.ai_action_status_rejected))</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentTaskStatus.BLOCKED -&gt; StatusVisual(cs.secondary, cs.secondaryContainer, Icons.Default.Block, stringResource(R.string.ai_task_status_blocked))</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentTaskStatus.COMPLETED -&gt; StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Check, stringResource(R.string.ai_task_status_completed))</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentTaskStatus.EXECUTING -&gt; StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Sync, stringResource(R.string.ai_task_status_executing))</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentTaskStatus.FAILED -&gt; StatusVisual(cs.error, cs.errorContainer, Icons.Default.ErrorOutline, stringResource(R.string.ai_task_status_failed))</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentTaskStatus.PLANNING -&gt; StatusVisual(cs.secondary, cs.secondaryContainer, Icons.Default.Schedule, stringResource(R.string.ai_task_status_planning))</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentTaskStatus.REPLANNING -&gt; StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Sync, stringResource(R.string.ai_task_status_replanning))</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentTaskStepStatus.BLOCKED -&gt; StatusVisual(cs.secondary, cs.secondaryContainer, Icons.Default.Block, stringResource(R.string.ai_step_status_blocked))</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentTaskStepStatus.DONE -&gt; StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Check, stringResource(R.string.ai_step_status_done))</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentTaskStepStatus.FAILED -&gt; StatusVisual(cs.error, cs.errorContainer, Icons.Default.ErrorOutline, stringResource(R.string.ai_step_status_failed))</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentTaskStepStatus.PENDING -&gt; StatusVisual(cs.onSurfaceVariant, cs.surfaceVariant, Icons.Default.RadioButtonUnchecked, stringResource(R.string.ai_step_status_pending))</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentTaskStepStatus.RUNNING -&gt; StatusVisual(cs.primary, cs.primaryContainer, Icons.Default.Sync, stringResource(R.string.ai_step_status_running))</ID>
+    <ID>MaxLineLength:AiDesign.kt$AgentTaskStepStatus.SKIPPED -&gt; StatusVisual(cs.onSurfaceVariant, cs.surfaceVariant, Icons.Default.SkipNext, stringResource(R.string.ai_step_status_skipped))</ID>
+    <ID>MaxLineLength:AiDesign.kt$Icon(visual.icon, contentDescription = null, modifier = Modifier.size(AiDesign.PillIconSize), tint = visual.color)</ID>
+    <ID>MaxLineLength:AiQuickDialog.kt$AiQuickViewModel$"Done mode=$currentModeSnapshot editAuthorized=$editAuthorized finalTextLen=${finalText.length} "</ID>
+    <ID>MaxLineLength:AiQuickDialog.kt$AiQuickViewModel$"ToolCallComplete mode=$currentModeSnapshot editAuthorized=$editAuthorized calls=${event.calls.map { it.name }} "</ID>
+    <ID>MaxLineLength:AiQuickDialog.kt$AiQuickViewModel$(if (lastIsAssistant) currentHistory.dropLast(1) else currentHistory)</ID>
+    <ID>MaxLineLength:AiQuickDialog.kt$AiQuickViewModel$QuickEditHeuristics.parseApplyEditArgs(call.arguments)?.let { pendingEditNewText = it }</ID>
+    <ID>MaxLineLength:AiQuickDialog.kt$AiQuickViewModel$pendingEditNewText ?: QuickEditHeuristics.resolveEdit(finalText, selectedText, instructionForAi)</ID>
+    <ID>MaxLineLength:AiQuickDialog.kt$modifier = Modifier.fillMaxWidth().padding(horizontal = AppSpacing.Screen, vertical = AppSpacing.Tight)</ID>
+    <ID>MaxLineLength:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$"CREATE INDEX IF NOT EXISTS index_document_versions_document_id_created_at ON document_versions(document_id, created_at)"</ID>
+    <ID>MaxLineLength:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$"CREATE UNIQUE INDEX IF NOT EXISTS index_agent_tasks_conversation_id ON agent_tasks(conversation_id)"</ID>
+    <ID>MaxLineLength:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$db.execSQL("CREATE INDEX IF NOT EXISTS index_agent_task_steps_task_id_step_order ON agent_task_steps(task_id, step_order)")</ID>
+    <ID>MaxLineLength:AppDatabase.kt$AppDatabase.Companion.&lt;no name provided&gt;$db.execSQL("CREATE INDEX IF NOT EXISTS index_rag_embedding_jobs_document_id ON rag_embedding_jobs(document_id)")</ID>
+    <ID>MaxLineLength:ClaudeAdapter.kt$call.copy(arguments = runCatching { Json.parseToJsonElement(call.arguments).toString() }.getOrElse { call.arguments })</ID>
+    <ID>MaxLineLength:ConversationListSheet.kt$Column</ID>
+    <ID>MaxLineLength:DocxExporter.kt$DocxExporter$"&lt;pic:nvPicPr&gt;&lt;pic:cNvPr id=\"0\" name=\"Picture $docPrId\" descr=\"$descr\"/&gt;&lt;pic:cNvPicPr/&gt;&lt;/pic:nvPicPr&gt;"</ID>
+    <ID>MaxLineLength:DocxExporter.kt$DocxExporter.Companion$&lt;w:document xmlns:w=</ID>
+    <ID>MaxLineLength:DocxExporter.kt$DocxExporter.Companion$private const</ID>
+    <ID>MaxLineLength:EditorScreen.kt$"(function(id){ if(window.scrollToHeading) window.scrollToHeading(id); })(\"${item.anchorId.replace("\\", "\\\\").replace("\"", "\\\"")}\")"</ID>
+    <ID>MaxLineLength:EditorScreen.kt$.</ID>
+    <ID>MaxLineLength:EditorScreen.kt$&lt;no name provided&gt;$"$tag: ${CrashLogFormatter.redact(url.orEmpty())} / ${CrashLogFormatter.redact(detail.orEmpty())}"</ID>
+    <ID>MaxLineLength:EditorScreen.kt$CircularProgressIndicator(modifier = Modifier.size(AppIconSize.Large), strokeWidth = EditorMetrics.SaveSpinnerStroke)</ID>
+    <ID>MaxLineLength:EditorScreen.kt$Icon(Icons.AutoMirrored.Filled.FormatListBulleted, stringResource(R.string.outline))</ID>
+    <ID>MaxLineLength:EditorScreen.kt$Row</ID>
+    <ID>MaxLineLength:EditorScreen.kt$Spacer(modifier = Modifier.width(EditorMetrics.StatusBarSpacerWidth))</ID>
+    <ID>MaxLineLength:EditorScreen.kt$color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)</ID>
+    <ID>MaxLineLength:EditorScreen.kt$if (isPreviewMode) stringResource(R.string.edit_mode) else stringResource(R.string.preview_mode)</ID>
+    <ID>MaxLineLength:EditorScreen.kt$val e = maxOf(sel.start, sel.end).coerceIn(0, newValue.text.length)</ID>
+    <ID>MaxLineLength:EditorScreen.kt$val s = minOf(sel.start, sel.end).coerceIn(0, newValue.text.length)</ID>
+    <ID>MaxLineLength:EditorScreen.kt$while</ID>
+    <ID>MaxLineLength:EditorViewModelTest.kt$EditorViewModelTest$getFolderTreeUseCase</ID>
+    <ID>MaxLineLength:EditorViewModelTest.kt$EditorViewModelTest$private val documentVersionRepository: com.yumark.app.domain.repository.DocumentVersionRepository = mockk(relaxed = true)</ID>
+    <ID>MaxLineLength:EditorViewModelTest.kt$EditorViewModelTest$vm.onOutlineReceived("""[{"level":1,"text":"标题","id":"yumark-h-0"},{"level":2,"text":"小节","id":"yumark-h-1"}]""")</ID>
+    <ID>MaxLineLength:ExecuteAgentActionUseCaseTest.kt$ExecuteAgentActionUseCaseTest$coVerify { conversationRepository.updateMessage(match { it.agentAction?.status == AgentActionStatus.EXECUTED }) }</ID>
+    <ID>MaxLineLength:ExportSheet.kt$Row</ID>
+    <ID>MaxLineLength:FileListScreen.kt$Column</ID>
+    <ID>MaxLineLength:FileListScreen.kt$Text(stringResource(R.string.empty_documents), style = MaterialTheme.typography.headlineSmall)</ID>
+    <ID>MaxLineLength:FileListScreen.kt$Text(stringResource(R.string.empty_documents_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)</ID>
+    <ID>MaxLineLength:FileListScreen.kt$Text(stringResource(R.string.empty_search_results), style = MaterialTheme.typography.headlineSmall)</ID>
+    <ID>MaxLineLength:FileListScreen.kt$TextButton</ID>
+    <ID>MaxLineLength:FileListScreen.kt$dismissButton = { TextButton(onClick = { documentToRename = null }) { Text(stringResource(R.string.cancel)) } }</ID>
+    <ID>MaxLineLength:FileListScreen.kt$dismissButton = { TextButton(onClick = { folderToRename = null }) { Text(stringResource(R.string.cancel)) } }</ID>
+    <ID>MaxLineLength:FileListScreen.kt$dismissButton = { TextButton(onClick = { showCreateDialog = false }) { Text(stringResource(R.string.cancel)) } }</ID>
+    <ID>MaxLineLength:FileListScreen.kt$dismissButton = { TextButton(onClick = { showFolderDialog = false }) { Text(stringResource(R.string.cancel)) } }</ID>
+    <ID>MaxLineLength:FileListScreen.kt$dismissButton = { TextButton(onClick = { showSubfolderDialog = null }) { Text(stringResource(R.string.cancel)) } }</ID>
+    <ID>MaxLineLength:FileListScreen.kt$modifier = Modifier.padding(horizontal = AppSpacing.Screen, vertical = AppSpacing.Default)</ID>
+    <ID>MaxLineLength:GeminiAdapter.kt$put("args", runCatching { Json.parseToJsonElement(call.arguments) }.getOrElse { buildJsonObject {} })</ID>
+    <ID>MaxLineLength:ImageBinaryInfoTest.kt$ImageBinaryInfoTest$val bytes = jpegSofBytes(1920, 1080, jpegSegmentBytes(0xE0, 14), jpegSegmentBytes(0xDB, 65), jpegSegmentBytes(0xC4, 20))</ID>
+    <ID>MaxLineLength:IntentDetector.kt$IntentDetector$Regex("""(?:[\w一-鿿 ._-]+\.(?:md|markdown|mdx|txt)).*(?:总结|解释|分析|概述|归纳|说了什么|讲了什么|提到|内容)""", RegexOption.IGNORE_CASE)</ID>
+    <ID>MaxLineLength:IntentDetector.kt$IntentDetector$Regex("""(修改|改写|润色|优化|重写|覆写|重构|调整|更新|替换|改成|改为|加粗|斜体|删掉|删除|插入|补充|撤销|恢复|还原|改回|取消)[\s\S]*(文本|内容|文件|文档|段落|句子|选中|选择|tag|标签|上下文|这段|上面|前面|刚才)""")</ID>
+    <ID>MaxLineLength:IntentDetector.kt$IntentDetector$Regex("""(文本|内容|文件|文档|段落|句子|选中|选择|tag|标签|上下文|这段|上面|前面|刚才)[\s\S]*(修改|改写|润色|优化|重写|覆写|重构|调整|更新|替换|改成|改为|加粗|斜体|删掉|删除|插入|补充|撤销|恢复|还原|改回|取消)""")</ID>
+    <ID>MaxLineLength:MarkdownChunker.kt$MarkdownChunker$if (content.isEmpty() || !isMeaningfulWithHeading(content, section.titlePath, section.heading)) return chunkIndex</ID>
+    <ID>MaxLineLength:MediaSync.kt$MediaSync$private suspend</ID>
+    <ID>MaxLineLength:MediaSyncTest.kt$MediaSyncTest$private val config = WebDavConfig(enabled = true, baseUrl = "https://dav.example", username = "u", password = "p", remoteDir = "yumark")</ID>
+    <ID>MaxLineLength:MemoryDao.kt$MemoryDao$@Query("UPDATE memories SET content = :content, category = :category, status = 'active', updated_at = :updatedAt WHERE id = :id")</ID>
+    <ID>MaxLineLength:MemoryService.kt$MemoryService$.</ID>
+    <ID>MaxLineLength:MoveToFolderDialog.kt$.</ID>
+    <ID>MaxLineLength:ProviderToolMessageFormattingTest.kt$ProviderToolMessageFormattingTest$ChatMessage(role = "assistant", content = null, toolCalls = listOf(ToolCall("c1", "read_document", "{}")))</ID>
+    <ID>MaxLineLength:ProviderToolMessageFormattingTest.kt$ProviderToolMessageFormattingTest$ChatMessage(role = "assistant", content = null, toolCalls = listOf(ToolCall("c2", "read_document", "{}")))</ID>
+    <ID>MaxLineLength:RagDao.kt$RagDao$@Query("SELECT * FROM rag_embedding_jobs WHERE document_id = :documentId ORDER BY created_at DESC, updated_at DESC, id DESC LIMIT 1")</ID>
+    <ID>MaxLineLength:RagPipeline.kt$RagPipeline$titlePath = runCatching { json.decodeFromString(ListSerializer(String.serializer()), titlePath) }.getOrDefault(emptyList())</ID>
+    <ID>MaxLineLength:RagPipeline.kt$RagPipeline$val results = vectorStore.hybridSearch(query, queryEmbedding, topK, SIMILARITY_THRESHOLD, preferCurrentDocId = null)</ID>
+    <ID>MaxLineLength:SendAgentMessageUseCaseTest.kt$SendAgentMessageUseCaseTest$coVerify { agentTaskRepository.updateTask(match { it.status == AgentTaskStatus.COMPLETED &amp;&amp; it.currentStepId == null }) }</ID>
+    <ID>MaxLineLength:SendAgentMessageUseCaseTest.kt$SendAgentMessageUseCaseTest$listOf(StreamEvent.ToolCallComplete(listOf(ToolCall("c1", "read_document", """{"document_id":"x"}"""))), StreamEvent.Done(""))</ID>
+    <ID>MaxLineLength:SendAgentMessageUseCaseTest.kt$SendAgentMessageUseCaseTest$val prompt = buildAgentSystemPrompt(documentName = "笔记", documentContent = "# 标题\n正文", tools = DocumentContextTools.getAllTools())</ID>
+    <ID>MaxLineLength:SendAgentMessageUseCaseTest.kt$SendAgentMessageUseCaseTest$val prompt = buildAgentSystemPrompt(documentName = null, documentContent = null, tools = DocumentContextTools.getAllTools())</ID>
+    <ID>MaxLineLength:SidebarFileTree.kt$DragController$fun</ID>
+    <ID>MaxLineLength:SnackbarEffect.kt$SnackbarEffect(message, actionLabel = null, hostState = hostState, duration = duration, onAction = {}, onConsumed = onConsumed)</ID>
+    <ID>MaxLineLength:StopReason.kt$*</ID>
+    <ID>MaxLineLength:SyncPlanner.kt$SyncPlanner.SyncAction.Skip$data</ID>
+    <ID>MaxLineLength:SyncRepositoryImplTest.kt$SyncRepositoryImplTest$map["d1"] = SyncStateEntity("d1", "Note.md", remoteEtag = "e0", localHash = sha256("local old"), lastSyncedAt = 1)</ID>
+    <ID>MaxLineLength:SyncRepositoryImplTest.kt$SyncRepositoryImplTest$private</ID>
+    <ID>MaxLineLength:SyncRepositoryImplTest.kt$SyncRepositoryImplTest$return SyncRepositoryImpl(appContext, configStore, dao, tombs, web, docRepo, SaveDocumentUseCase(docRepo), fileManager, mediaSync)</ID>
+    <ID>MaxLineLength:SyncSettingsScreen.kt$CircularProgressIndicator(Modifier.size(AppIconSize.Small), strokeWidth = SyncMetrics.ProgressStroke)</ID>
+    <ID>MaxLineLength:TrashScreen.kt$TrashViewModel$.</ID>
+    <ID>MaxLineLength:VectorStore.kt$VectorStore$existing.copy(vectorScore = vectorScore, keywordScore = keywordScore, score = score, retrievalMode = mode)</ID>
+    <ID>MaxLineLength:VectorStoreTest.kt$VectorStoreTest$private</ID>
+    <ID>MaxLineLength:VersionHistorySheet.kt$Row</ID>
+    <ID>MaxLineLength:WebDavClient.kt$WebDavClient$suspend</ID>
+    <ID>MaxLineLength:WebSearchService.kt$WebSearchService$WebSearchProvider.CUSTOM -&gt; searchCustom(query, maxResults, config.webSearchApiKey, config.webSearchCustomUrl)</ID>
+    <ID>MaxLineLength:WebSearchService.kt$WebSearchService$private suspend</ID>
+    <ID>MaxLineLength:WebSearchService.kt$WebSearchService$return data["organic"]?.jsonArray?.map { it.jsonObject.toSearchResult("title", "link", "snippet") } ?: emptyList()</ID>
+    <ID>MaxLineLength:WebSearchService.kt$WebSearchService$return data["results"]?.jsonArray?.map { it.jsonObject.toSearchResult("title", "url", "content") } ?: emptyList()</ID>
+    <ID>MaxLineLength:WebViewDocumentRenderer.kt$WebViewDocumentRenderer$if</ID>
+    <ID>MaxLineLength:WebViewDocumentRenderer.kt$WebViewDocumentRenderer$val fontBytes = runCatching { context.assets.open("$fontsDir/$fontName").use { it.readBytes() } }.getOrNull()</ID>
+    <ID>MaxLineLength:WorkspaceFileTree.kt$.</ID>
+    <ID>MayBeConst:SyncTrashStore.kt$SyncTrashStore.Companion$private val SEPARATOR = "----------------------------------------"</ID>
+    <ID>NestedBlockDepth:DocxExporter.kt$DocxExporter$private fun renderList(list: Node, sb: StringBuilder, ordered: Boolean, indent: Int, media: MediaBundle)</ID>
+    <ID>NestedBlockDepth:DocxExporter.kt$DocxExporter$private fun renderTable(table: TableBlock, sb: StringBuilder, media: MediaBundle)</ID>
+    <ID>NestedBlockDepth:DocxExporter.kt$DocxExporter$private fun tableColumnCount(table: TableBlock): Int</ID>
+    <ID>NestedBlockDepth:MarkdownChunker.kt$MarkdownChunker$private fun getOverlapBlocks(blocks: List&lt;TextBlock&gt;, overlap: Int): List&lt;TextBlock&gt;</ID>
+    <ID>NestedBlockDepth:WorkspaceScanner.kt$WorkspaceScanner$private fun scanNode(entry: ScanEntry, depth: Int, state: ScanState): WorkspaceNode</ID>
+    <ID>ReturnCount:AgentStatusCode.kt$AgentStatusCode.Companion$fun decode(stored: String?): UiMessage?</ID>
+    <ID>ReturnCount:AgentUseCases.kt$SendAgentMessageUseCase$suspend fun finalizeTask(status: AgentTaskStatus, summary: String, blockingReason: String? = null)</ID>
+    <ID>ReturnCount:AgentUseCases.kt$internal fun buildDocumentCreationFollowUpMessage( priorMessages: List&lt;Message&gt;, userMessage: String ): String</ID>
+    <ID>ReturnCount:AgentUseCases.kt$internal fun conversationalPreamble(text: String): String</ID>
+    <ID>ReturnCount:AgentUseCases.kt$internal fun extractDocumentBody(text: String): String</ID>
+    <ID>ReturnCount:AgentUseCases.kt$internal fun extractImplicitWriteAction( text: String, userMessage: String, currentDocumentId: String?, currentDocumentName: String?, truncated: Boolean = false ): AgentAction?</ID>
+    <ID>ReturnCount:AgentUseCases.kt$internal fun parseAgentAction(text: String, currentDocumentId: String?): AgentAction?</ID>
+    <ID>ReturnCount:AiErrorMapper.kt$AiErrorMapper$fun mapException(e: Throwable): UiMessage</ID>
+    <ID>ReturnCount:ApkDownloader.kt$ApkDownloader$private fun checkInstallable(file: File): UiMessage?</ID>
+    <ID>ReturnCount:ApkDownloader.kt$ApkDownloader$private fun verifyDownloadedApk(file: File, expectedSha256: String?): ApkVerdict</ID>
+    <ID>ReturnCount:ApkDownloader.kt$ApkDownloader$suspend fun installApk(filePath: String): UiMessage?</ID>
+    <ID>ReturnCount:ApkDownloader.kt$internal fun buildApkCandidateUrls( url: String, mirrors: List&lt;String&gt; = GITHUB_MIRROR_PREFIXES ): List&lt;String&gt;</ID>
+    <ID>ReturnCount:AppShell.kt$private fun editorRouteOf(entry: NavBackStackEntry?): String?</ID>
+    <ID>ReturnCount:AtomicFileReplace.kt$AtomicFileReplace$fun readOrRecover(target: File): String?</ID>
+    <ID>ReturnCount:ClaudeAdapter.kt$ClaudeToolCallAccumulator$fun onBlockDelta(event: JsonObject)</ID>
+    <ID>ReturnCount:ClaudeAdapter.kt$ClaudeToolCallAccumulator$fun onBlockStart(event: JsonObject)</ID>
+    <ID>ReturnCount:ConfigBackupCodec.kt$ConfigBackupCodec$private fun clampFloat( value: Float?, min: Float, max: Float, fallback: Float, label: String, warnings: MutableList&lt;String&gt; ): Float</ID>
+    <ID>ReturnCount:ConfigBackupCodec.kt$ConfigBackupCodec$private fun clampInt( value: Int?, range: IntRange, fallback: Int, label: String, warnings: MutableList&lt;String&gt; ): Int</ID>
+    <ID>ReturnCount:CrashLogStore.kt$CrashLogStore$private fun uniqueFile(fileName: String): File</ID>
+    <ID>ReturnCount:DocumentEditApplier.kt$DocumentEditApplier$private fun tolerantReplace(text: String, op: EditOp): String?</ID>
+    <ID>ReturnCount:DocumentVersionRepositoryImpl.kt$DocumentVersionRepositoryImpl$override suspend fun snapshotIfChanged(documentId: String, content: String, wordCount: Int): Boolean</ID>
+    <ID>ReturnCount:DocxExporter.kt$DocxExporter.MediaBundle$fun resolve(rawUrl: String): MediaItem?</ID>
+    <ID>ReturnCount:EditorScreen.kt$&lt;no name provided&gt;$@Deprecated("Deprecated in Java") override fun shouldOverrideUrlLoading(view: android.webkit.WebView, url: String): Boolean</ID>
+    <ID>ReturnCount:EditorScreen.kt$&lt;no name provided&gt;$override fun shouldOverrideUrlLoading( view: android.webkit.WebView, request: android.webkit.WebResourceRequest ): Boolean</ID>
+    <ID>ReturnCount:EditorScreen.kt$private fun findFolderInTree( tree: List&lt;com.yumark.app.domain.model.FolderTreeNode&gt;, folderId: String ): com.yumark.app.domain.model.FolderTreeNode?</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun replaceSelectedText(oldText: String, newText: String, range: Pair&lt;Int, Int&gt;? = null): Boolean</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private fun replaceWithSyntaxSwallow(content: String, oldText: String, newText: String): String?</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private suspend fun importLibraryImageResolver(doc: Document): ImageResolverConfig?</ID>
+    <ID>ReturnCount:ErrorHandler.kt$ErrorHandler$fun safeDetail(throwable: Throwable, maxChars: Int = MAX_DETAIL_CHARS): String</ID>
+    <ID>ReturnCount:ExifOrientation.kt$internal fun Bitmap.applyExifTransform(t: ExifTransform): Bitmap</ID>
+    <ID>ReturnCount:ExportImageInline.kt$private fun inlineOne(rawSrc: String, loadBytes: (String) -&gt; ByteArray?): String?</ID>
+    <ID>ReturnCount:ExportImagePaths.kt$internal fun decodeUriComponentOrNull(s: String): String?</ID>
+    <ID>ReturnCount:ExportImagePaths.kt$internal fun resolveExportImageSrc(raw: String, resolver: ExportImageResolver?): String?</ID>
+    <ID>ReturnCount:FileListScreen.kt$@Composable private fun importTargetLabel(targetFolderId: String?, folders: List&lt;Folder&gt;): String</ID>
+    <ID>ReturnCount:FileManager.kt$FileManager$private fun isOwnTempName(name: String): Boolean</ID>
+    <ID>ReturnCount:FileNameValidator.kt$FileNameValidator$fun sanitize(name: String): String</ID>
+    <ID>ReturnCount:FindReplace.kt$FindReplace$fun findAll(text: String, query: String, options: FindOptions = FindOptions()): List&lt;MatchRange&gt;</ID>
+    <ID>ReturnCount:FindReplaceBar.kt$fun replaceCurrent()</ID>
+    <ID>ReturnCount:FoldPosture.kt$fun splitForHinge(totalWidthPx: Int, hinge: HingeInfo?): PaneSplit?</ID>
+    <ID>ReturnCount:FolderRepositoryImpl.kt$FolderRepositoryImpl$private suspend fun importMirrorDir(folderId: String): File?</ID>
+    <ID>ReturnCount:FolderRepositoryImpl.kt$FolderRepositoryImpl$private suspend fun isDescendant(folderId: String, ancestorId: String): Boolean</ID>
+    <ID>ReturnCount:FolderRepositoryImpl.kt$FolderRepositoryImpl$private suspend fun relocateImportMirror(oldMirror: File?, folderId: String)</ID>
+    <ID>ReturnCount:FtsQueryBuilder.kt$FtsQueryBuilder$fun build(rawQuery: String): String?</ID>
+    <ID>ReturnCount:ImageBinaryInfo.kt$private fun sniffBmp(b: ByteArray): ImageBinaryInfo?</ID>
+    <ID>ReturnCount:ImageBinaryInfo.kt$private fun sniffGif(b: ByteArray): ImageBinaryInfo?</ID>
+    <ID>ReturnCount:ImageBinaryInfo.kt$private fun sniffJpeg(b: ByteArray): ImageBinaryInfo?</ID>
+    <ID>ReturnCount:ImageBinaryInfo.kt$private fun sniffPng(b: ByteArray): ImageBinaryInfo?</ID>
+    <ID>ReturnCount:ImageBinaryInfo.kt$private fun sniffWebp(b: ByteArray): ImageBinaryInfo?</ID>
+    <ID>ReturnCount:ImageBinaryInfo.kt$private fun startsWith(bytes: ByteArray, magic: ByteArray, at: Int = 0): Boolean</ID>
+    <ID>ReturnCount:ImageProcessor.kt$ImageProcessor$private fun decodeSampled(uri: Uri, maxEdge: Int): Bitmap?</ID>
+    <ID>ReturnCount:InlineImageMime.kt$private fun matches(b: ByteArray, magic: ByteArray, at: Int = 0): Boolean</ID>
+    <ID>ReturnCount:InlineImageMime.kt$private fun sniffIcoMime(b: ByteArray): String?</ID>
+    <ID>ReturnCount:InlineImageMime.kt$private fun sniffSvgMime(b: ByteArray): String?</ID>
+    <ID>ReturnCount:LocalImageBytes.kt$LocalImageBytes$private fun readContainedFile(path: String?): ByteArray?</ID>
+    <ID>ReturnCount:MainActivity.kt$MainActivity$private fun isAcceptableIncomingUri(uri: android.net.Uri): Boolean</ID>
+    <ID>ReturnCount:MarkdownChunker.kt$MarkdownChunker$private fun cleanLine(line: String): String?</ID>
+    <ID>ReturnCount:MarkdownChunker.kt$MarkdownChunker$private fun frontMatterEnd(lines: List&lt;String&gt;): Int</ID>
+    <ID>ReturnCount:MarkdownChunker.kt$MarkdownChunker$private fun isMeaningfulWithHeading(content: String, titlePath: List&lt;String&gt;, heading: String?): Boolean</ID>
+    <ID>ReturnCount:MarkdownChunker.kt$MarkdownChunker$private fun parseFence(line: String): Fence?</ID>
+    <ID>ReturnCount:MarkdownChunker.kt$MarkdownChunker$private fun pushChunk( chunks: MutableList&lt;Chunk&gt;, seenKeys: MutableSet&lt;String&gt;, documentId: String, section: Section, blocks: List&lt;TextBlock&gt;, chunkIndex: Int ): Int</ID>
+    <ID>ReturnCount:MarkdownChunker.kt$MarkdownChunker$private fun setextHeadingLevel(lines: List&lt;String&gt;, index: Int): Int</ID>
+    <ID>ReturnCount:MarkdownChunker.kt$MarkdownChunker$private fun splitOversizedCodeBlock(block: TextBlock, limit: Int): List&lt;TextBlock&gt;</ID>
+    <ID>ReturnCount:MarkdownChunker.kt$MarkdownChunker$private fun tableHeaderOf(text: String): String?</ID>
+    <ID>ReturnCount:MarkdownChunker.kt$MarkdownChunker.FenceScanner$fun accept(line: String): Boolean</ID>
+    <ID>ReturnCount:MarkdownChunker.kt$MarkdownChunker.FenceScanner$private fun parseOpen(line: String): Fence?</ID>
+    <ID>ReturnCount:MediaSync.kt$MediaSync$private suspend fun writeRemoteImage(config: WebDavConfig, web: WebDavClient, imagesDir: File, name: String): Boolean</ID>
+    <ID>ReturnCount:MediaSync.kt$MediaSync$suspend fun pushLocalImages(config: WebDavConfig, web: WebDavClient): PushStats</ID>
+    <ID>ReturnCount:MessageBubble.kt$private fun handleBubbleUrl(context: Context, url: String?): Boolean</ID>
+    <ID>ReturnCount:QuickEditHeuristics.kt$QuickEditHeuristics$fun looksLikeRewrite(reply: String, selected: String): Boolean</ID>
+    <ID>ReturnCount:QuickEditHeuristics.kt$QuickEditHeuristics$fun resolveEdit(text: String, selected: String, userMessage: String): String?</ID>
+    <ID>ReturnCount:RagPipeline.kt$RagPipeline$internal suspend fun indexDocument(documentId: String, documentName: String, content: String)</ID>
+    <ID>ReturnCount:RenderSettle.kt$RenderSettleTracker$fun onProbe(probe: RenderProbe?): SettleDecision</ID>
+    <ID>ReturnCount:RenderSettle.kt$internal fun decodeEvaluateJavascriptString(raw: String?): String?</ID>
+    <ID>ReturnCount:SelectionLocator.kt$SelectionLocator$fun locate(content: String, oldText: String): MatchRange?</ID>
+    <ID>ReturnCount:SelectionLocator.kt$SelectionLocator$fun replace(content: String, oldText: String, newText: String, range: IntRange? = null): String?</ID>
+    <ID>ReturnCount:SelectionLocator.kt$SelectionLocator$private fun locateByTokens(content: String, oldText: String): MatchRange?</ID>
+    <ID>ReturnCount:SettingsScreen.kt$private fun handleChangelogUrl(context: Context, url: String?): Boolean</ID>
+    <ID>ReturnCount:SidebarFileTree.kt$fun containsVisible(node: FolderTreeNode): Boolean</ID>
+    <ID>ReturnCount:SidebarFileTree.kt$fun find(nodes: List&lt;FolderTreeNode&gt;): FolderTreeNode?</ID>
+    <ID>ReturnCount:SidebarFileTree.kt$fun find(nodes: List&lt;FolderTreeNode&gt;, path: List&lt;String&gt;): List&lt;String&gt;?</ID>
+    <ID>ReturnCount:StopReason.kt$internal fun presentableBlockReason(raw: String?): String?</ID>
+    <ID>ReturnCount:StreamRetry.kt$internal fun inlineErrorStatus(obj: JsonObject, defaultStatus: Int = 500): Int?</ID>
+    <ID>ReturnCount:StreamRetry.kt$internal suspend fun &lt;T&gt; withRetryAndEmissionGuard( flowEmit: suspend (StreamEvent) -&gt; Unit, fallback: (suspend (emit: suspend (StreamEvent) -&gt; Unit) -&gt; T)? = null, block: suspend (emit: suspend (StreamEvent) -&gt; Unit) -&gt; T ): T?</ID>
+    <ID>ReturnCount:UpdateChecker.kt$internal fun findSha256SidecarUrl(assets: List&lt;GitHubAsset&gt;, apkName: String): String?</ID>
+    <ID>ReturnCount:UpdateChecker.kt$internal fun isNewerVersion(newVersion: String, currentVersion: String): Boolean</ID>
+    <ID>ReturnCount:UpdateChecker.kt$internal fun parseAssetDigest(digest: String?): String?</ID>
+    <ID>ReturnCount:WorkspaceRepositoryImpl.kt$WorkspaceRepositoryImpl$private suspend fun doRestoreOnLaunch(): UiMessage?</ID>
+    <ID>ReturnCount:WorkspaceScanner.kt$WorkspaceScanner$private fun isCollectible(entry: ScanEntry): Boolean</ID>
+    <ID>SpreadOperator:DatabaseModule.kt$DatabaseModule$(*AppDatabase.ALL_MIGRATIONS)</ID>
+    <ID>SpreadOperator:UiMessageResolve.kt$(message.id, *flattenArgs(message.args))</ID>
+    <ID>SpreadOperator:UiMessageResolve.kt$(message.id, message.count, *args)</ID>
+    <ID>SwallowedException:DocumentRepositoryImpl.kt$DocumentRepositoryImpl$e: Exception</ID>
+    <ID>SwallowedException:EditorScreen.kt$&lt;no name provided&gt;$e: android.content.ActivityNotFoundException</ID>
+    <ID>SwallowedException:SettingsScreen.kt$e: Exception</ID>
+    <ID>ThrowsCount:ApkDownloader.kt$ApkDownloader$private suspend fun fetchToFile(url: String, outFile: File, onProgress: (Int) -&gt; Unit)</ID>
+    <ID>ThrowsCount:ConfigBackupCodec.kt$ConfigBackupCodec$fun decode(text: String): ConfigBackup</ID>
+    <ID>ThrowsCount:DocumentEditApplier.kt$DocumentEditApplier$private fun applyOne(text: String, op: EditOp, index: Int): String</ID>
+    <ID>ThrowsCount:EmbeddingAdapter.kt$OpenAiEmbeddingAdapter.Companion$internal fun parseEmbeddingsResponse(bodyText: String): List&lt;FloatArray&gt;</ID>
+    <ID>ThrowsCount:ExecuteDocumentToolUseCase.kt$ExecuteDocumentToolUseCase$private suspend fun executeReadDocument(args: Map&lt;String, JsonElement&gt;): String</ID>
+    <ID>ThrowsCount:OpenAiAdapter.kt$OpenAiAdapter$suspend fun streamOnce(emit: suspend (StreamEvent) -&gt; Unit, includeTools: Boolean): Boolean</ID>
+    <ID>ThrowsCount:SyncRepositoryImpl.kt$SyncRepositoryImpl$private suspend fun createConflictCopy(baseName: String, now: Long): Document</ID>
+    <ID>ThrowsCount:SyncRepositoryImpl.kt$SyncRepositoryImpl$private suspend fun syncNowLocked(): SyncOutcome</ID>
+    <ID>TooGenericExceptionCaught:AiApiAdapter.kt$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:AiConfigScreen.kt$AiConfigViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:AiQuickDialog.kt$AiQuickViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ApkDownloader.kt$ApkDownloader$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:DocumentRepositoryImpl.kt$DocumentRepositoryImpl$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:EditorScreen.kt$&lt;no name provided&gt;$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:EditorViewModel.kt$EditorViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ExportDocumentUseCase.kt$ExportDocumentUseCase$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:FileListViewModel.kt$FileListViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:FileManager.kt$FileManager$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:FolderRepositoryImpl.kt$FolderRepositoryImpl$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ImageRepositoryImpl.kt$ImageRepositoryImpl$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:RagPipeline.kt$RagPipeline$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:SettingsScreen.kt$SettingsViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:SettingsScreen.kt$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:StreamRetry.kt$e: Throwable</ID>
+    <ID>TooGenericExceptionCaught:SyncSettingsScreen.kt$SyncSettingsViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:UpdateChecker.kt$UpdateChecker$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:WebDavClient.kt$WebDavClient$e: Throwable</ID>
+    <ID>TooGenericExceptionThrown:ImageRepositoryImpl.kt$ImageRepositoryImpl$throw Exception("Image not found: $id")</ID>
+    <ID>TooGenericExceptionThrown:RagPipelineTest.kt$RagPipelineTest$throw RuntimeException("X".repeat(2000))</ID>
+    <ID>TooGenericExceptionThrown:RagPipelineTest.kt$RagPipelineTest$throw RuntimeException("provider rejected key $rawKey for model text-embedding-3-small")</ID>
+    <ID>TooManyFunctions:AgentChatSheet.kt$AgentChatViewModel : ViewModel</ID>
+    <ID>TooManyFunctions:AgentTaskDao.kt$AgentTaskDao</ID>
+    <ID>TooManyFunctions:AgentUseCases.kt$com.yumark.app.domain.usecase.ai.agent.AgentUseCases.kt</ID>
+    <ID>TooManyFunctions:AiConfigScreen.kt$AiConfigViewModel : ViewModel</ID>
+    <ID>TooManyFunctions:AiQuickDialog.kt$AiQuickViewModel : ViewModel</ID>
+    <ID>TooManyFunctions:ApkDownloader.kt$ApkDownloader</ID>
+    <ID>TooManyFunctions:AppDatabase.kt$AppDatabase : RoomDatabase</ID>
+    <ID>TooManyFunctions:Daos.kt$DocumentDao</ID>
+    <ID>TooManyFunctions:Daos.kt$FolderDao</ID>
+    <ID>TooManyFunctions:DatabaseModule.kt$DatabaseModule</ID>
+    <ID>TooManyFunctions:DocumentRepository.kt$DocumentRepository</ID>
+    <ID>TooManyFunctions:DocumentRepositoryImpl.kt$DocumentRepositoryImpl : DocumentRepository</ID>
+    <ID>TooManyFunctions:DocxExporter.kt$DocxExporter</ID>
+    <ID>TooManyFunctions:EditorViewModel.kt$EditorViewModel : ViewModel</ID>
+    <ID>TooManyFunctions:FileListViewModel.kt$FileListViewModel : ViewModel</ID>
+    <ID>TooManyFunctions:FileManager.kt$FileManager</ID>
+    <ID>TooManyFunctions:FolderRepositoryImpl.kt$FolderRepositoryImpl : FolderRepository</ID>
+    <ID>TooManyFunctions:ImageBinaryInfo.kt$com.yumark.app.core.export.ImageBinaryInfo.kt</ID>
+    <ID>TooManyFunctions:MarkdownChunker.kt$MarkdownChunker</ID>
+    <ID>TooManyFunctions:RagDao.kt$RagDao</ID>
+    <ID>TooManyFunctions:RagPipeline.kt$RagPipeline</ID>
+    <ID>TooManyFunctions:SettingsScreen.kt$SettingsViewModel : ViewModel</ID>
+    <ID>TooManyFunctions:SettingsScreen.kt$com.yumark.app.presentation.settings.SettingsScreen.kt</ID>
+    <ID>TooManyFunctions:SyncRepositoryImpl.kt$SyncRepositoryImpl : SyncRepository</ID>
+    <ID>TooManyFunctions:VectorStore.kt$VectorStore</ID>
+    <ID>TooManyFunctions:WebDavClient.kt$WebDavClient</ID>
+    <ID>TooManyFunctions:WebSearchService.kt$WebSearchService</ID>
+    <ID>TooManyFunctions:WebViewDocumentRenderer.kt$WebViewDocumentRenderer</ID>
+    <ID>TooManyFunctions:WorkspaceRepositoryImpl.kt$WorkspaceRepositoryImpl : WorkspaceRepository</ID>
+    <ID>TopLevelPropertyNaming:AiConfigScreen.kt$/** 候选模型芯片最多显示多少个（chat 与 embedding 各一份列表，共用这个上限）。 */ private const val MaxModelChips = 20</ID>
+    <ID>UnusedParameter:ConfigBackupCodec.kt$ConfigBackupCodec$warnings: MutableList&lt;String&gt;</ID>
+    <ID>UnusedParameter:SyncTrashStore.kt$SyncTrashStore$docId: String</ID>
+    <ID>UnusedPrivateProperty:AgentUseCases.kt$SendAgentMessageUseCase$turn</ID>
+    <ID>UnusedPrivateProperty:HtmlExporter.kt$HtmlExporter$@ApplicationContext private val context: Context</ID>
+    <ID>UnusedPrivateProperty:UseCases.kt$ManageFoldersUseCase$private val docRepo: DocumentRepository</ID>
+    <ID>UseCheckOrError:EmbeddingAdapter.kt$OpenAiEmbeddingAdapter.Companion$throw IllegalStateException("Embedding 响应第 ${i + 1} 个元素含非数值分量")</ID>
+    <ID>UseCheckOrError:EmbeddingAdapter.kt$OpenAiEmbeddingAdapter.Companion$throw IllegalStateException("Embedding 响应第 ${i + 1} 个元素缺少 embedding 数组")</ID>
+    <ID>UseCheckOrError:EmbeddingAdapter.kt$OpenAiEmbeddingAdapter.Companion$throw IllegalStateException("Embedding 响应缺少 data 字段")</ID>
+    <ID>UseCheckOrError:FolderRepositoryImpl.kt$FolderRepositoryImpl$throw IllegalStateException("Circular folder reference detected: $parentId")</ID>
+    <ID>UseCheckOrError:FolderRepositoryImpl.kt$FolderRepositoryImpl$throw IllegalStateException("Folder has subfolders")</ID>
+    <ID>UseCheckOrError:FolderRepositoryImpl.kt$FolderRepositoryImpl$throw IllegalStateException("Folder is not empty")</ID>
+    <ID>UseCheckOrError:FolderRepositoryImpl.kt$FolderRepositoryImpl$throw IllegalStateException("Folder tree depth exceeds limit: $MAX_FOLDER_DEPTH")</ID>
+    <ID>UseCheckOrError:RagPipeline.kt$RagPipeline$throw IllegalStateException("未配置 embedding 模型")</ID>
+    <ID>UseCheckOrError:RagPipeline.kt$RagPipeline$throw IllegalStateException("未配置 embedding 端点地址")</ID>
+    <ID>UseCheckOrError:SyncRepositoryImpl.kt$SyncRepositoryImpl$throw lastFailure ?: IllegalStateException("conflict copy name exhausted")</ID>
+    <ID>UseCheckOrError:UseCases.kt$ManageFoldersUseCase$throw IllegalStateException("Circular folder reference detected: $current")</ID>
+    <ID>UseCheckOrError:UseCases.kt$ManageFoldersUseCase$throw IllegalStateException("Folder hierarchy too deep (max: $MAX_FOLDER_DEPTH)")</ID>
+    <ID>VariableNaming:WebViewDocumentRenderer.kt$WebViewDocumentRenderer$private val BASE_RICH_CSS = """ body { max-width: 800px; margin: 0 auto; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; color: #333; background: #fff; } img { max-width: 100%; height: auto; } table { border-collapse: collapse; width: 100%; margin: 12px 0; } th, td { border: 1px solid #dfe2e5; padding: 6px 13px; } th { background: #f6f8fa; } blockquote { border-left: 4px solid #dfe2e5; padding: 0 16px; color: #6a737d; margin: 0 0 16px 0; } """.trimIndent()</ID>
+    <ID>WildcardImport:AgentActionCard.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:AgentActionCard.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:AgentActionCard.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:AgentChatSheet.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:AgentChatSheet.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:AgentChatSheet.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:AgentStatusIndicator.kt$import androidx.compose.animation.core.*</ID>
+    <ID>WildcardImport:AiChatSheet.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:AiChatSheet.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:AiChatSheet.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:AiConfigScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:AiConfigScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:AiConfigScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:AiQuickDialog.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:AiQuickDialog.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:AiQuickDialog.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:ApkDownloader.kt$import io.ktor.client.statement.*</ID>
+    <ID>WildcardImport:ApkDownloader.kt$import io.ktor.http.*</ID>
+    <ID>WildcardImport:ApkDownloader.kt$import io.ktor.utils.io.*</ID>
+    <ID>WildcardImport:ConversationListSheet.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:ConversationListSheet.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:ConversationListSheet.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:Daos.kt$import androidx.room.*</ID>
+    <ID>WildcardImport:DocumentRepositoryImplTest.kt$import io.mockk.*</ID>
+    <ID>WildcardImport:EditorScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:EditorScreen.kt$import androidx.compose.material.icons.filled.*</ID>
+    <ID>WildcardImport:EditorScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:EditorScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:EditorViewModel.kt$import kotlinx.coroutines.flow.*</ID>
+    <ID>WildcardImport:EditorViewModelTest.kt$import io.mockk.*</ID>
+    <ID>WildcardImport:EditorViewModelTest.kt$import kotlinx.coroutines.test.*</ID>
+    <ID>WildcardImport:Entities.kt$import androidx.room.*</ID>
+    <ID>WildcardImport:ExportSheet.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:ExportSheet.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:ExportSheet.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:FileListScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:FileListScreen.kt$import androidx.compose.material.icons.filled.*</ID>
+    <ID>WildcardImport:FileListScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:FileListScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:FileListUiState.kt$import com.yumark.app.domain.model.*</ID>
+    <ID>WildcardImport:FileListViewModel.kt$import com.yumark.app.domain.model.*</ID>
+    <ID>WildcardImport:FileListViewModel.kt$import kotlinx.coroutines.flow.*</ID>
+    <ID>WildcardImport:FileListViewModelTest.kt$import com.yumark.app.domain.usecase.*</ID>
+    <ID>WildcardImport:FileListViewModelTest.kt$import io.mockk.*</ID>
+    <ID>WildcardImport:FileListViewModelTest.kt$import kotlinx.coroutines.test.*</ID>
+    <ID>WildcardImport:FindReplaceBar.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:FindReplaceBar.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:FindReplaceBar.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:MarkdownToolbar.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:MarkdownToolbar.kt$import androidx.compose.material.icons.filled.*</ID>
+    <ID>WildcardImport:MarkdownToolbar.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:MessageBubble.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:MessageBubble.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:MoveToFolderDialog.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:MoveToFolderDialog.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:MoveToFolderDialog.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:OutlinePanel.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:SaveDocumentUseCaseTest.kt$import io.mockk.*</ID>
+    <ID>WildcardImport:SettingsDataStore.kt$import androidx.datastore.preferences.core.*</ID>
+    <ID>WildcardImport:SettingsScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:SettingsScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:SettingsScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:SettingsScreen.kt$import kotlinx.coroutines.flow.*</ID>
+    <ID>WildcardImport:SidebarFileTree.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:SidebarFileTree.kt$import androidx.compose.material.icons.filled.*</ID>
+    <ID>WildcardImport:SidebarFileTree.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:SidebarFileTree.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:SyncSettingsScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:SyncSettingsScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:SyncSettingsScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:TrashScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:TrashScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:TrashScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:UpdateChecker.kt$import io.ktor.client.*</ID>
+    <ID>WildcardImport:UpdateChecker.kt$import io.ktor.client.call.*</ID>
+    <ID>WildcardImport:UpdateChecker.kt$import io.ktor.client.engine.android.*</ID>
+    <ID>WildcardImport:UpdateChecker.kt$import io.ktor.client.plugins.contentnegotiation.*</ID>
+    <ID>WildcardImport:UpdateChecker.kt$import io.ktor.client.request.*</ID>
+    <ID>WildcardImport:UpdateChecker.kt$import io.ktor.serialization.kotlinx.json.*</ID>
+    <ID>WildcardImport:VersionHistorySheet.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:VersionHistorySheet.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:VersionHistorySheet.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:WorkspaceFileTree.kt$import androidx.compose.foundation.layout.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

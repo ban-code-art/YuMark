@@ -52,7 +52,7 @@ import com.yumark.app.data.local.db.entity.SyncTombstoneEntity
         EmbeddingJobEntity::class,
         DocumentSearchEntity::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = true  // 启用 schema 导出，支持数据库迁移
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -427,6 +427,24 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * 版本 13 → 14：`documents` 新增回收站两列（`deleted_at` / `original_name`）。
+         *
+         * 在此之前「删除文档」是一步到位的硬删除：版本史被 CASCADE 带走、远端文件被墓碑
+         * 推着删掉，单设备用户手滑一删，那份内容在任何地方都不再存在。从这一版起删除分成
+         * 两段：UI 的删除先软删除进回收站（可恢复），只有回收站里的彻底删除才走原来的
+         * deleteWithTombstone + 磁盘清理路径。列语义与同步侧的配合方式写在
+         * [DocumentEntity] 上，DAO 写入路径见 [DocumentDao.trashById]。
+         *
+         * ADD COLUMN 带默认 NULL：历史行两列即为 null（活跃态），升级前后数据零变化。
+         */
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `documents` ADD COLUMN `deleted_at` INTEGER")
+                db.execSQL("ALTER TABLE `documents` ADD COLUMN `original_name` TEXT")
+            }
+        }
+
+        /**
          * 把 [table] 里同一 [parentColumn] 下的重名行改名，直到 `(parentColumn, name)` 无重复。
          *
          * 为什么在 Kotlin 里算而不是纯 SQL：「改完之后不能撞上第三个已存在的同名」需要
@@ -485,7 +503,8 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_9_10,
             MIGRATION_10_11,
             MIGRATION_11_12,
-            MIGRATION_12_13
+            MIGRATION_12_13,
+            MIGRATION_13_14
         )
     }
 }

@@ -101,6 +101,11 @@ jobs:
     - name: R8 / release shrinking
       run: ./gradlew :app:minifyReleaseWithR8
 
+    # 静态分析（detekt，默认规则集）：存量问题固化在 config/detekt-baseline.xml，
+    # 这里只拦**新增**违规——新代码不再免检，存量代码不必为过门禁翻改。
+    - name: Detekt static analysis
+      run: ./gradlew :app:detekt
+
     # Room 在 KSP 阶段把每个版本的 schema 导出到 app/schemas/，该目录已纳入 git 跟踪。
     # 改了 @Entity 或 @Database(version) 却没提交重新导出的 json，这里的 diff 就非空。
     #

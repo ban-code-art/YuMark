@@ -5,6 +5,7 @@ import com.yumark.app.R
 import com.yumark.app.core.util.FriendlyValidationException
 import com.yumark.app.core.util.PathSafety
 import com.yumark.app.core.util.UiMessage
+import com.yumark.app.data.ai.rag.RagPipeline
 import com.yumark.app.data.local.db.dao.DocumentDao
 import com.yumark.app.data.local.db.dao.FolderDao
 import com.yumark.app.data.local.file.FileManager
@@ -25,7 +26,9 @@ class FolderRepositoryImpl @Inject constructor(
     private val folderDao: FolderDao,
     private val documentDao: DocumentDao,
     private val fileManager: FileManager,
-    private val mapper: FolderMapper
+    private val mapper: FolderMapper,
+    // data 层内部依赖（无环）：子树进回收站时把文档从 RAG 知识索引里摘掉
+    private val ragPipeline: RagPipeline
 ) : FolderRepository {
 
     override suspend fun getFolderById(id: String): Result<Folder> = runCatching {
@@ -90,27 +93,29 @@ class FolderRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteFolder(id: String, deleteContents: Boolean): Result<Unit> = runCatching {
-        // 删除前先算镜像目录（删完 Room 记录就找不到名称链了）
-        val mirror = importMirrorDir(id)
         if (!deleteContents) {
             // 不删除内容时，检查是否为空。
             // 这两条刻意保留裸 IllegalStateException、不配资源文案：全仓库两个调用点
             // （FileListScreen.kt:716、EditorViewModel.kt:778）都传 deleteContents = true，
             // 这条分支只是接口契约的守卫。真跑到这儿说明有新调用方用错了参数——那是编程错误，
             // 归到 Unknown 去占一格崩溃日志正是想要的行为，而为不可达分支加两个字符串键是纯浪费。
+            // （getByFolderIncludingRoot 只返回活跃文档——躺在回收站里的旧文档不算数，
+            // 它们的恢复落点在删除文件夹后统一是根目录。）
             val documents = documentDao.getByFolderIncludingRoot(id)
             if (documents.isNotEmpty()) throw IllegalStateException("Folder is not empty")
             val subfolders = folderDao.getByParentIncludingRoot(id)
             if (subfolders.isNotEmpty()) throw IllegalStateException("Folder has subfolders")
 
-            // 仅删除空文件夹
+            // 删除前先算镜像目录（删完 Room 记录就找不到名称链了）；空文件夹没有内容，
+            // 镜像目录一并清掉不丢任何东西
+            val mirror = importMirrorDir(id)
             folderDao.deleteById(id)
+            deleteImportMirror(mirror)
         } else {
-            // 级联删除所有内容
+            // 子树整体进回收站（schema 14 起）：文档可恢复，镜像目录与图片文件原样保留，
+            // 彻底删除时再逐篇清理（见 DocumentRepositoryImpl.purgeDocument）
             deleteFolderSubtree(id)
         }
-        // 导入库子树：清理 import_assets 镜像，避免图片孤儿文件占用存储
-        deleteImportMirror(mirror)
     }
 
     /**
@@ -183,16 +188,18 @@ class FolderRepositoryImpl @Inject constructor(
     }
 
     /**
-     * 级联删除 [folderId] 子树：先算出待删集合，再在一个事务里删库，最后删磁盘。
+     * 把 [folderId] 子树整体送进回收站（schema 14 起）：先算出子树集合，再在一个事务里
+     * 软删文档 + 清全文索引 + 删文件夹结构，最后把文档从 RAG 知识索引里摘掉。
      *
-     * 三段的先后就是这个函数的全部要点：
-     * - 集合必须先算完。边查边删的话，父文件夹一没，`documents.folder_id` 上的外键
-     *   （SET_NULL）会把还没处理到的文档冲进根目录，正文文件和索引行就永远回收不了了。
-     * - 库改动收进一个事务（[FolderDao.deleteSubtree]），任一条失败整体回滚，
-     *   不会留下「文件夹没了、文档还挂在上面」的中间态。同步墓碑也在那个事务里立
-     *   （否则这一子树里同步过的文档下次同步会被整棵地拉回来）。
-     * - 磁盘删除放最后，且失败只记日志（见 [deleteFilesOf]）。反过来先删盘，
-     *   失败时就是正文没了、库行还在，用户点进去是空白文档——比留几个垃圾文件坏得多。
+     * 与旧实现（硬删 + 立墓碑 + 删磁盘）相比，刻意**不做**的三件事，全部服务于「可恢复」：
+     * - 不立同步墓碑：远端文件留到回收站里逐篇「彻底删除」时再删（见
+     *   [DocumentRepositoryImpl.purgeDocument]，届时 sync_state 仍在，立碑不受影响）。
+     * - 不删图片行/图片文件/正文文件，也不清 import_assets 镜像：恢复要能拿回全部内容。
+     * - 磁盘文件的清理整体后移到彻底删除——这里不碰任何文件。
+     *
+     * 顺序要点不变：集合必须先算完。边查边删的话，父文件夹一没，`documents.folder_id` 上
+     * 的外键（SET_NULL）会把还没处理到的文档冲进根目录。软删除的文档被 SET_NULL 倒进根目录
+     * 反而是期望行为——原文件夹没了，恢复后落在根目录。
      */
     private suspend fun deleteFolderSubtree(folderId: String) {
         // 一次取全表再在内存里走链：比逐层 getByParent 少很多次往返，也绕开了
@@ -201,31 +208,14 @@ class FolderRepositoryImpl @Inject constructor(
         val folderIds = folderSubtreeIds(folderId, parentById)
         val documentIds = folderIds.chunked(SQL_BIND_CHUNK)
             .flatMap { chunk -> folderDao.documentIdsInFolders(chunk) }
-        // 图片文件名要在删库前拿：images 行会被 documents 的 CASCADE 带走，
-        // 删完再查就只剩磁盘上一堆再也没人引用得到的文件（cleanOrphanedImages 也找不到它们）
-        val imageFileNames = documentIds.chunked(SQL_BIND_CHUNK)
-            .flatMap { chunk -> folderDao.imageFileNamesOf(chunk) }
 
-        folderDao.deleteSubtree(folderIds, documentIds, System.currentTimeMillis())
-        deleteFilesOf(documentIds, imageFileNames)
-    }
-
-    /**
-     * 删除已经从库里摘掉的正文文件与图片文件。
-     *
-     * 每一处失败都只记日志：事务已经提交，为了一个删不掉的文件回滚整次删除，
-     * 只会让用户卡在一个永远删不掉的文件夹上；留下来的是垃圾文件，不是数据不一致。
-     *
-     * 图片那半交给 [FileManager.deleteImageFiles]（同样是逐个 runCatching + PathSafety 段比较
-     * 校验 + 失败记日志）：删单篇文档也要做同一件事，两处各抄一份的话，那道包含校验的实际
-     * 强度就等于其中更弱的那一份。
-     */
-    private suspend fun deleteFilesOf(documentIds: List<String>, imageFileNames: List<String>) {
+        folderDao.trashSubtree(folderIds, documentIds, System.currentTimeMillis())
+        // RAG 索引摘除放事务外、逐篇 best-effort：失败的文档留在知识索引里，
+        // 恢复或彻底删除时都会再走一遍同一个入口，有自愈路径
         documentIds.forEach { docId ->
-            fileManager.deleteDocumentFile(docId)
-                .onFailure { e -> Log.w(TAG, "删除文档正文文件失败：${docId}", e) }
+            runCatching { ragPipeline.removeFromIndex(docId) }
+                .onFailure { e -> Log.w(TAG, "回收站移除文档知识索引失败：${docId}", e) }
         }
-        fileManager.deleteImageFiles(imageFileNames)
     }
 
     override suspend fun moveFolder(id: String, targetParentId: String?): Result<Unit> = runCatching {

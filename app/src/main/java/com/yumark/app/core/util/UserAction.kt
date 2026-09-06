@@ -22,6 +22,8 @@ enum class UserAction(@StringRes val labelRes: Int, val tag: String) {
     CREATE_DOCUMENT(R.string.action_create_document, "创建文档"),
     RENAME_DOCUMENT(R.string.action_rename_document, "重命名文档"),
     DELETE_DOCUMENT(R.string.action_delete_document, "删除文档"),
+    RESTORE_DOCUMENT(R.string.action_restore_document, "恢复文档"),
+    TRASH_LOAD(R.string.action_trash_load, "加载回收站"),
     MOVE_DOCUMENT(R.string.action_move_document, "移动文档"),
     CREATE_FOLDER(R.string.action_create_folder, "创建文件夹"),
     CREATE_SUBFOLDER(R.string.action_create_subfolder, "创建子文件夹"),

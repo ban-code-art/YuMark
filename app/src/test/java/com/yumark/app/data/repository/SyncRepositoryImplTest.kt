@@ -77,16 +77,24 @@ class SyncRepositoryImplTest {
         override suspend fun renameDocument(id: String, newName: String): Result<Unit> = TODO()
 
         /**
-         * 真实实现（[DocumentRepositoryImpl.deleteDocument]）会连带删正文文件、图片文件与索引行，
-         * 这里只需要「文档从库里消失」这一个可观察结果——同步侧关心的就是这个。
-         * [deletedIds] 用来钉住「删本地」这个动作确实是经仓库走的，而不是只改了 sync_state。
+         * 真实实现（[DocumentRepositoryImpl.moveToTrash]）把文档软删进回收站：
+         * 库行、正文、历史版本都在，只是从活跃清单里消失——同步侧关心的就是
+         * 「这篇文档不再出现在 locals 里」。[trashedIds] 用来钉住「删本地」这个动作
+         * 确实是经仓库走的，而不是只改了 sync_state。
          */
-        val deletedIds = mutableListOf<String>()
-        override suspend fun deleteDocument(id: String): Result<Unit> {
-            deletedIds += id
+        val trashedIds = mutableListOf<String>()
+        override suspend fun moveToTrash(id: String): Result<Unit> {
+            trashedIds += id
             docs.remove(id)
             return Result.success(Unit)
         }
+        override suspend fun restoreFromTrash(id: String): Result<Unit> = TODO()
+        override fun observeTrashCount(): Flow<Int> = flowOf(0)
+        override suspend fun isTrashed(id: String): Boolean = false
+        override suspend fun purgeDocument(id: String): Result<Unit> = TODO()
+        override suspend fun getTrashedDocuments(): Result<List<com.yumark.app.domain.model.TrashedDocument>> = TODO()
+        override suspend fun emptyTrash(): Result<Unit> = TODO()
+        override suspend fun purgeTrashExpired(nowMs: Long, retentionMs: Long): Result<Int> = TODO()
         override suspend fun toggleFavorite(id: String): Result<Unit> = TODO()
     }
 
@@ -125,7 +133,17 @@ class SyncRepositoryImplTest {
     ): SyncRepositoryImpl {
         val configStore = mockk<SyncConfigDataStore>(relaxed = true)
         every { configStore.configFlow } returns flowOf(config)
-        return SyncRepositoryImpl(configStore, dao, tombs, web, docRepo, SaveDocumentUseCase(docRepo), fileManager)
+        // appContext 只被 saveConfig 的后台任务重排用到；本类只测 syncNow，给个空壳即可
+        val appContext = mockk<android.content.Context>(relaxed = true)
+        // 媒体通道在 syncNow 尾部与 execute 的三个落点被 best-effort 调用；文档同步测试里
+        // 全部短路成空操作（pull 返回全零计数，push 不会碰网络——直接抛错就会被
+        // runCatching 吞掉暴露不了，所以给合法空实现）
+        val mediaSync = mockk<com.yumark.app.data.sync.MediaSync>(relaxed = true)
+        coEvery { mediaSync.pushLocalImages(any(), any()) } returns
+            com.yumark.app.data.sync.MediaSync.PushStats(0, 0)
+        coEvery { mediaSync.pullImagesFor(any(), any(), any(), any()) } returns
+            com.yumark.app.data.sync.MediaSync.PullStats(0, 0, 0)
+        return SyncRepositoryImpl(appContext, configStore, dao, tombs, web, docRepo, SaveDocumentUseCase(docRepo), fileManager, mediaSync)
     }
 
     /**
@@ -767,7 +785,7 @@ class SyncRepositoryImplTest {
 
         assertThat(outcome.deleted).isEqualTo(1)
         assertThat(outcome.failed).isEqualTo(0)
-        assertThat(docRepo.deletedIds).containsExactly("d1")
+        assertThat(docRepo.trashedIds).containsExactly("d1")
         assertThat(docRepo.docs).isEmpty()
         // 救援先于删除：CASCADE 吞掉 document_versions 之前，最后一份正文已落 sync_trash
         assertThat(rescueLog[fm]).containsExactly(Pair("d1", "Note"))
@@ -798,7 +816,7 @@ class SyncRepositoryImplTest {
         assertThat(outcome.failed).isEqualTo(1)
         assertThat(outcome.deleted).isEqualTo(0)
         // 关键否定断言：文档行、版本史、墓碑全都在
-        assertThat(docRepo.deletedIds).isEmpty()
+        assertThat(docRepo.trashedIds).isEmpty()
         assertThat(docRepo.docs).containsKey("d1")
     }
 
@@ -819,7 +837,7 @@ class SyncRepositoryImplTest {
 
         assertThat(outcome.uploaded).isEqualTo(1)
         assertThat(outcome.deleted).isEqualTo(0)
-        assertThat(docRepo.deletedIds).isEmpty()
+        assertThat(docRepo.trashedIds).isEmpty()
         assertThat(docRepo.docs["d1"]?.content).isEqualTo("new body")
     }
     @Test

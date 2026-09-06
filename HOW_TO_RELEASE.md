@@ -1,161 +1,56 @@
-# 🚀 快速发布 GitHub Release
+# 发布流程（Release Runbook）
 
-## 📋 你现在需要做的
+> 本文档描述当前实际生效的发布流程。签名发布已由 CI 承担（`.github/workflows/release.yml`），
+> 人工步骤集中在「改版本号 → 提交 → 打标签」。文中版本号以 v0.10（versionCode 21 /
+> versionName "0.10" / targetSdk 36 / compileSdk 37）为例，发布时顺延。
 
-### 1️⃣ 创建 GitHub Release
+## 前置条件（一次性）
 
-**访问这个链接：**
-```
-https://github.com/ban-code-art/YuMark/releases/new
-```
+1. **配置签名 Secrets**（仓库 Settings → Secrets and variables → Actions）：
 
-### 2️⃣ 填写以下信息
+   | Secret | 内容 | 生成方式 |
+   | --- | --- | --- |
+   | `KEYSTORE_BASE64` | release.keystore 的 base64 | `base64 -w0 release.keystore` |
+   | `KEYSTORE_PASSWORD` | keystore store 密码 | 本地 `keystore.properties` 里有 |
+   | `KEY_ALIAS` | 签名 key 别名 | 同上 |
+   | `KEY_PASSWORD` | 签名 key 密码 | 同上 |
 
-**Tag version:**（必须是 v 开头）
-```
-v1.1.2
-```
+   真实 keystore 与 keystore.properties **永远不入库**（.gitignore 已覆盖）。
+2. ⚠️ **换 keystore 是破坏性操作**：本应用带自更新，安装包签名必须与用户设备上已装
+   版本一致，否则覆盖安装会被系统与自更新链路的双重签名校验拒绝。除非旧 keystore
+   确认泄露（README 有历史记录），否则不要轮换；轮换即意味着全体用户手动重装。
 
-**Release title:**
-```
-YuMark v1.1.2 - 应用内更新功能
-```
+## 发布步骤
 
-**Description:**（复制粘贴以下内容）
+1. **准备提交**
+   - 确认 `main` 分支 CI（`android.yml`）绿：单测、lint、R8、Room schema 守卫全过；
+     迁移动过的话手动触发一次 `instrumented` job（模拟器真机迁移测试）。
+   - 更新 `CHANGELOG.md`（本版本条目），检查 `README.md` 的版本相关描述。
 
-```markdown
-# YuMark v1.1.2 更新日志
+2. **升版本号**（`app/build.gradle.kts`）：
+   - `versionCode` +1（自更新链路比较的是 versionName 逐段数字，但 versionCode
+     也要单调递增，别让它们脱钩）；
+   - `versionName = "0.11"`（与 CHANGELOG / git tag 对应）。
 
-## ✨ 新增功能
+3. **提交并打标签**：
+   ```bash
+   git add -A && git commit -m "release: v0.11 — <一句话摘要>"
+   git tag v0.11
+   git push origin main --tags
+   ```
 
-### 🔄 应用内更新检查
-- 在设置界面新增"检查更新"功能
-- 通过 GitHub Releases API 自动检查最新版本
-- 显示版本号、文件大小、发布日期和完整更新日志
-- 一键下载和自动安装新版本
-- 优雅的更新对话框和下载进度显示
+4. **CI 自动完成**（`release.yml`，Actions 页面可看进度）：
+   JS 供应链哈希校验 → JVM 单测 → `assembleRelease`（签名）→ 计算 SHA-256 →
+   上传 artifact → 创建 GitHub Release（APK + 摘要写进发布说明，自动生成变更日志）。
 
-### 🔗 外部链接浏览器打开
-- Markdown 预览中的外部链接（http/https）现在会在系统浏览器中打开
-- 锚点链接仍在应用内跳转
-- 修复了之前点击链接报错的问题
+5. **人工核对**（只读，不修改 CI 产物）：
+   - Release 页面的 APK 可下载，SHA-256 与发布说明一致；
+   - 本地装一个旧版本，用应用内「检查更新」走一遍自更新（它校验同一摘要与签名）；
+   - 多语言：`python scripts/check_strings.py` 已由 lint 的 MissingTranslation 门禁兜底，
+     但发布前跑一遍能提前看到 diff。
 
-### ⬅️ 优化预览返回体验
-- 预览模式下按返回键现在会先切换回编辑模式
-- 编辑模式下按返回键才会退出文档
-- 类似 Grok 应用的直观交互体验
+## 回滚
 
----
-
-## 🐛 问题修复
-
-### 📜 滚动同步优化
-- 改进了预览和编辑模式之间的滚动位置同步算法
-- 修复了滚动到文档底部时位置不准确的问题
-- 增加了 WebView 渲染等待时间，确保内容加载完成
-- 添加了详细的调试日志便于问题排查
-
-### 🔨 构建和代码质量
-- 修复了所有编译错误和警告
-- 完善了 ProGuard 混淆规则
-- 使用了更现代的 Kotlin API
-- 提升了代码质量和可维护性
-
----
-
-## 📦 技术细节
-
-- **APK 大小:** 3.8 MB（已压缩和混淆）
-- **最低 Android 版本:** 8.0 (API 26)
-- **目标 Android 版本:** 14 (API 34)
-- **新增依赖:** Ktor Client 2.3.7（用于网络请求）
-
----
-
-## 📥 安装方法
-
-1. 下载 `YuMark-v1.1.2.apk`
-2. 在设置中开启"允许安装未知应用"
-3. 点击 APK 文件安装
-
----
-
-## ⚠️ 注意事项
-
-1. **首次安装**需要开启"允许安装未知应用"权限
-2. **更新功能**需要网络连接和 GitHub 访问权限
-3. **滚动同步**已大幅改进，但极端情况下可能还有轻微偏差
-
----
-
-🔗 **完整文档:** https://github.com/ban-code-art/YuMark/blob/test/UPDATE_GUIDE.md
-```
-
-### 3️⃣ 上传 APK 文件
-
-在页面底部的 "Attach binaries by dropping them here or selecting them." 区域：
-
-1. 点击或拖拽文件
-2. 选择：`D:\CCguiPlay\Typora\YuMark\YuMark-v1.1.2.apk`
-3. 等待上传完成（3.8 MB）
-
-### 4️⃣ 发布
-
-点击绿色按钮：**Publish release**
-
----
-
-## ✅ 完成后
-
-Release 会出现在：
-```
-https://github.com/ban-code-art/YuMark/releases
-```
-
-APK 下载链接会是：
-```
-https://github.com/ban-code-art/YuMark/releases/download/v1.1.2/YuMark-v1.1.2.apk
-```
-
----
-
-## 🧪 测试更新功能
-
-### 修改代码
-1. 打开：`app/src/main/java/com/yumark/app/data/remote/UpdateChecker.kt`
-2. 找到第 31-32 行
-3. 修改为：
-```kotlin
-private val githubOwner = "ban-code-art"  // 你的 GitHub 用户名
-private val githubRepo = "YuMark"         // 仓库名
-```
-
-### 提交更改
-```bash
-cd D:/CCguiPlay/Typora/YuMark
-git add app/src/main/java/com/yumark/app/data/remote/UpdateChecker.kt
-git commit -m "chore: 配置更新检查仓库信息"
-git push origin test
-```
-
-### 在手机上测试
-1. 安装 `YuMark-v1.1.2.apk`
-2. 打开应用 → 设置
-3. 点击"检查更新"
-4. 应该显示"已是最新版本"
-
----
-
-## 📸 截图建议
-
-可以在 Release 中添加截图展示新功能：
-- 更新检查界面
-- 更新详情对话框
-- 下载进度
-- 外部链接打开效果
-
----
-
-**就是这么简单！** 🎉
-
-现在去 GitHub 创建 Release 吧！
+发布本身不打回滚补丁：发现严重问题时**不要删除 Release**（自更新按 versionName
+比较，删掉不会让已更新用户回退），而是立刻发布一个更高版本的修复 tag，并在旧
+Release 页面置顶说明。

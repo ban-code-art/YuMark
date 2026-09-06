@@ -87,6 +87,7 @@ class AiConfigDataStore @Inject constructor(
         val RAG_USE_MAIN_ENDPOINT = booleanPreferencesKey("rag_use_main_endpoint")
         val RAG_BASE_URL = stringPreferencesKey("rag_base_url")
         val RAG_AVAILABLE_MODELS = stringPreferencesKey("rag_available_models")
+        val CONSENT_ACKNOWLEDGED = booleanPreferencesKey("ai_consent_acknowledged")
     }
 
     private object EncryptedKeys {
@@ -171,7 +172,8 @@ class AiConfigDataStore @Inject constructor(
                 ragApiKey = readSecret(EncryptedKeys.RAG_API_KEY),
                 ragAvailableModels = prefs[Keys.RAG_AVAILABLE_MODELS]?.let {
                     runCatching { json.decodeFromString<List<String>>(it) }.getOrDefault(emptyList())
-                } ?: emptyList()
+                } ?: emptyList(),
+                consentAcknowledged = prefs[Keys.CONSENT_ACKNOWLEDGED] ?: false
             )
         }
         // 再收一层，位置必须在 map **之后**：上面那个 .catch 只在 map 的上游，看得见的只有
@@ -218,6 +220,7 @@ class AiConfigDataStore @Inject constructor(
             prefs[Keys.RAG_USE_MAIN_ENDPOINT] = config.ragUseMainEndpoint
             prefs[Keys.RAG_BASE_URL] = config.ragBaseUrl
             prefs[Keys.RAG_AVAILABLE_MODELS] = json.encodeToString(config.ragAvailableModels)
+            prefs[Keys.CONSENT_ACKNOWLEDGED] = config.consentAcknowledged
         }
         if (!secretOk) throw FriendlyIOException(UiMessage.of(R.string.secret_write_failed))
     }

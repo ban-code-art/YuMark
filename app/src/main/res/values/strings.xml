@@ -36,7 +36,7 @@
     <!-- 文档操作 -->
     <string name="document_name">文档名称</string>
     <string name="delete_document">删除文档</string>
-    <string name="delete_document_confirm">确定要删除文档"%1$s"吗？此操作无法撤销。</string>
+    <string name="delete_document_confirm">确定要删除文档"%1$s"吗？文档会移入回收站，30 天内可恢复。</string>
     <string name="rename_document">重命名文档</string>
     <string name="favorite">收藏</string>
     <string name="unfavorite">取消收藏</string>
@@ -317,4 +317,23 @@
          第三方应用发来的 VIEW intent 被 IncomingUriGuard 拒绝时的 Toast。走 Toast 而不是
          Snackbar：这时 Compose 树还没建起来，没有 SnackbarHost 可用。 -->
     <string name="open_external_rejected">无法打开该文件：来源不受支持</string>
+
+    <!-- ========== 回收站（schema 14 起） ==========
+         删除分两段：UI 的「删除」移入回收站（可恢复），只有回收站页的「彻底删除/清空」
+         与 30 天到期清理才真正销毁内容并把删除推到远端。 -->
+    <string name="trash_title">回收站</string>
+    <string name="cd_trash_back">返回</string>
+    <string name="trash_empty">回收站是空的</string>
+    <string name="trash_empty_hint">删除的文档会在这里保留 30 天，随时可以恢复。</string>
+    <string name="trash_restore">恢复</string>
+    <string name="trash_delete_forever">彻底删除</string>
+    <string name="trash_delete_forever_confirm">彻底删除"%1$s"？此操作无法撤销，远端同步的文件也会一并删除。</string>
+    <string name="trash_empty_action">清空回收站</string>
+    <string name="trash_empty_confirm">彻底删除回收站中的全部 %1$d 篇文档？此操作无法撤销，远端同步的文件也会一并删除。</string>
+    <string name="trash_restored">已恢复"%1$s"</string>
+    <string name="trash_purged">已彻底删除</string>
+    <string name="trash_deleted_at">移入于 %1$s</string>
+    <string name="trash_moved_snackbar">已移入回收站"%1$s"</string>
+    <string name="trash_moved_generic">已移入回收站</string>
+    <string name="trash_undo_action">撤销</string>
 </resources>

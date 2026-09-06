@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  网络安全策略：全局禁止明文流量（HTTP）。
+
+  targetSdk 36 的平台默认本来就是禁明文，这份配置是**把默认值显式写下来**：
+  审计与 roadmap（README「networkSecurityConfig」项）从此有据可查，且未来若有人
+  在 Manifest 上误开 usesCleartextTraffic，这里的 base-config 仍守住底线。
+
+  刻意**不**为「本地 Ollama / 自建服务的 http:// 地址」开白名单：network security
+  config 是静态清单，无法放行用户运行时填进来的任意 host——开了 debug-config
+  或整段放开 cleartext，等于把「AI 端点把笔记明文发出去」的门打开。用户配了
+  http:// 端点的表现与此前一致：连接失败，需改用 https 或经反代。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

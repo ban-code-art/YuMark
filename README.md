@@ -527,6 +527,10 @@ keyPassword=
 - [x] 文档历史版本
 - [x] 云端同步
 - [x] 平板与折叠屏布局优化
+- [x] 回收站（删除兜底：软删除 / 恢复 / 彻底删除 / 30 天到期清理）
+- [x] 图片附件 WebDAV 同步（_media 通道，按正文引用精确拉取）
+- [x] 后台自动同步（WorkManager 周期任务 + 启动静默增量同步）
+- [x] 隐私政策与 AI 数据出境知情确认
 
 ### 技术治理
 
@@ -534,11 +538,14 @@ keyPassword=
 - [x] APK 移出 git 历史
 - [x] Agent runtime 回归测试
 - [x] WebView 生命周期修复
-- [ ] Markdown HTML sanitizer
-- [ ] Room FTS 全文搜索
-- [ ] networkSecurityConfig
-- [ ] backup 策略收敛
+- [x] Room FTS 全文搜索（迁移 10 → 11 + 惰性回填）
+- [x] networkSecurityConfig（res/xml/network_security_config.xml，显式禁明文）
+- [x] backup 策略收敛（backup_rules / data_extraction_rules 排除密文与本地诊断产物）
+- [x] 签名发布流水线（release.yml：tag 触发构建签名 APK + SHA-256 发布）
+- [x] detekt 静态分析门禁（默认规则集 + 存量基线，拦新增违规）
+- [ ] Markdown HTML sanitizer（应用内渲染已有 DOMPurify + CSP；导出 HTML 以 CSP 收敛脚本面，原生 HTML 透传仍在）
 - [ ] Agent 架构拆分与 domain/data 依赖方向清理
+- [ ] 文件夹层级与媒体孤儿清理的 WebDAV 同步（P2 专项）
 
 ## 贡献
 

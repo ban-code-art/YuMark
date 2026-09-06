@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -43,6 +44,7 @@ import com.yumark.app.presentation.ai.AiAssistantHost
 import com.yumark.app.presentation.common.FolderConfirmDialog
 import com.yumark.app.presentation.common.SnackbarEffect
 import com.yumark.app.presentation.common.displayName
+import com.yumark.app.presentation.common.formatElapsedTime
 import com.yumark.app.presentation.common.resolveOrNull
 import com.yumark.app.presentation.navigation.Screen
 import com.yumark.app.presentation.sidebar.SidebarActions
@@ -143,6 +145,26 @@ fun FileListScreen(
     val actionError by viewModel.actionError.collectAsStateWithLifecycle()
     val actionErrorText = actionError.resolveOrNull()
     SnackbarEffect(actionErrorText, snackbarHostState) { viewModel.clearActionError() }
+
+    // 删除成功后的「可撤销」提示：移入回收站不是终点，10 秒内点撤销原样拿回。
+    // 撤销窗刻意用 Long（约 10s）——这是误删的主要挽回窗口，比普通提示长才有意义。
+    val trashUndo by viewModel.trashUndo.collectAsStateWithLifecycle()
+    val trashCount by viewModel.trashCount.collectAsStateWithLifecycle()
+    val undoText = stringResource(R.string.trash_undo_action)
+    val trashUndoMessage = trashUndo?.let { undo ->
+        undo.name?.let { stringResource(R.string.trash_moved_snackbar, it) }
+            ?: stringResource(R.string.trash_moved_generic)
+    }
+    SnackbarEffect(
+        message = trashUndoMessage,
+        actionLabel = undoText,
+        hostState = snackbarHostState,
+        duration = SnackbarDuration.Long,
+        onAction = { viewModel.undoTrashDelete() },
+        // 超时清理不交给 onConsumed：连续删除时旧 effect 的取消回调会吞掉新撤销项
+        // （竞态细节见 FileListViewModel.scheduleUndoExpiry），清理由超时任务按 id 对账完成
+        onConsumed = {}
+    )
 
     // 打开抽屉时自动重扫工作区，保持文件树新鲜
     LaunchedEffect(drawerState.isOpen) {
@@ -494,7 +516,7 @@ fun FileListScreen(
                             }
                         },
                         actions = {
-                            // 搜索/排序作用于内部文档库，工作区模式下隐藏避免语义混乱
+                            // 搜索/排序/回收站作用于内部文档库，工作区模式下隐藏避免语义混乱
                             if (workspace == null) {
                                 IconButton(onClick = { isSearchActive = true }) {
                                     Icon(Icons.Default.Search, stringResource(R.string.search))
@@ -504,6 +526,19 @@ fun FileListScreen(
                                     modifier = Modifier.testTag(FileListTags.SORT_TOGGLE)
                                 ) {
                                     Icon(Icons.AutoMirrored.Filled.Sort, stringResource(R.string.sort))
+                                }
+                                IconButton(onClick = { navController.navigate(Screen.Trash.route) }) {
+                                    // 角标 = 回收站非空计数：把「删过的东西还在」直接画在入口上，
+                                    // 不用点进去才知道有没有可恢复的内容
+                                    BadgedBox(
+                                        badge = {
+                                            if (trashCount > 0) {
+                                                Badge { Text(trashCount.toString()) }
+                                            }
+                                        }
+                                    ) {
+                                        Icon(Icons.Default.DeleteOutline, stringResource(R.string.trash_title))
+                                    }
                                 }
                             }
                             IconButton(onClick = { showAiSheet = true }) {
@@ -573,12 +608,29 @@ fun FileListScreen(
                     is FileListUiState.Success -> {
                         if (s.documents.isEmpty() && !s.isSearching) {
                             Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                                // 空态的视觉锚点：纯文字的空屏读起来像「出了问题」，
+                                // 一个降饱和的大图标先给出「这是正常的空状态」的信号
+                                Icon(
+                                    Icons.AutoMirrored.Filled.Notes,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(56.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                )
+                                Spacer(modifier = Modifier.height(AppSpacing.Cozy))
                                 Text(stringResource(R.string.empty_documents), style = MaterialTheme.typography.headlineSmall)
                                 Spacer(modifier = Modifier.height(AppSpacing.Default))
                                 Text(stringResource(R.string.empty_documents_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         } else if (s.isSearching && s.searchResults.isEmpty()) {
                             Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                                // 与「还没有文档」空态同一套视觉锚点手法（图标语义换成搜索）
+                                Icon(
+                                    Icons.Default.Search,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(56.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                )
+                                Spacer(modifier = Modifier.height(AppSpacing.Cozy))
                                 Text(stringResource(R.string.empty_search_results), style = MaterialTheme.typography.headlineSmall)
                             }
                         } else if (s.isSearching) {
@@ -1000,53 +1052,8 @@ fun DocumentCard(
     }
 }
 
-/**
- * 把「上次修改时间」渲染成相对时间。
- *
- * 标 @Composable 是为了能读 plurals：英文的 "1 minute ago" 和 "5 minutes ago" 不是同一条文案，
- * 只有 plurals 选得对分支，而 plurals 只能在 composition 里读。原来这里是五条硬编码中文
- * （"刚刚" / "N分钟前" …），英文用户看到的就是中文——资源表里 updated_* 那几条键一直都在，
- * 只是从来没人引用它们。
- *
- * 改名的原因：本项目里有两个 `formatDate`，另一个在 SettingsScreen 里把 ISO 字符串格式化成
- * 绝对日期。这个函数做的是相对时间，同名会让人以为是同一件事。
- *
- * 叫 formatElapsedTime 而不是 formatRelativeTime：ConversationListSheet 里另有一个曾经同名的
- * 函数，两者**不合并**。这个算的是已流逝时长（"5 分钟前" / "3 天前"），那个算的是日历归档
- * （今天报 HH:mm、昨天报「昨天」、本周报星期几、更早报 MM/dd）。合并只有两条路：改掉某个
- * 页面用户已经看惯的格式，或者加个开关参数把两套逻辑塞进一个函数体——都比同名更糟。
- * 于是各自按自己算的东西命名，冲突自然消失。
- *
- * 已知取舍：now 在 composition 期间只取一次，不会自己往前走。列表滚动或数据刷新会触发重组
- * 从而更新，但静止不动的卡片会一直显示旧值。要做到秒级自走得再引一个 ticker 状态，不值。
- *
- * 未来时间戳（设备时钟回拨、同步下来的文档带了未来时间）会落进第一个分支显示「刚刚」，
- * 而不是负数分钟，这是有意的降级。
- */
-@Composable
-private fun formatElapsedTime(instant: kotlinx.datetime.Instant): String {
-    val now = kotlinx.datetime.Clock.System.now()
-    val diff = now - instant
-    return when {
-        diff.inWholeMinutes < 1 -> stringResource(R.string.updated_just_now)
-        diff.inWholeMinutes < 60 -> {
-            val minutes = diff.inWholeMinutes.toInt()
-            pluralStringResource(R.plurals.updated_minutes_ago, minutes, minutes)
-        }
-        diff.inWholeHours < 24 -> {
-            val hours = diff.inWholeHours.toInt()
-            pluralStringResource(R.plurals.updated_hours_ago, hours, hours)
-        }
-        diff.inWholeDays < 7 -> {
-            val days = diff.inWholeDays.toInt()
-            pluralStringResource(R.plurals.updated_days_ago, days, days)
-        }
-        else -> {
-            val weeks = (diff.inWholeDays / 7).toInt()
-            pluralStringResource(R.plurals.updated_weeks_ago, weeks, weeks)
-        }
-    }
-}
+// formatElapsedTime 已抽到 presentation/common（回收站页复用同一套口径），
+// 这里只留 import；8 周以上退绝对日期是抽离时顺带补的分支，行为见 RelativeTime.kt。
 
 /**
  * 文件夹导入勾选对话框：列出扫描到的候选文件，默认全不选，用户手动勾选要导入的项。

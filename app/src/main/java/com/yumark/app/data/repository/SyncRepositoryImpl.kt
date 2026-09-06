@@ -23,6 +23,7 @@ import com.yumark.app.domain.repository.SyncRepository
 import com.yumark.app.domain.usecase.SaveDocumentUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.withLock
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -38,25 +39,44 @@ import kotlin.coroutines.cancellation.CancellationException
  */
 @Singleton
 class SyncRepositoryImpl @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context,
     private val configStore: SyncConfigDataStore,
     private val syncStateDao: SyncStateDao,
     private val syncTombstoneDao: SyncTombstoneDao,
     private val webDavClient: WebDavClient,
     private val documentRepository: DocumentRepository,
     private val saveDocument: SaveDocumentUseCase,
-    private val fileManager: FileManager
+    private val fileManager: FileManager,
+    private val mediaSync: com.yumark.app.data.sync.MediaSync
 ) : SyncRepository {
 
     override fun observeConfig(): Flow<WebDavConfig> = configStore.configFlow
 
-    override suspend fun saveConfig(config: WebDavConfig) = configStore.updateConfig(config)
+    override suspend fun saveConfig(config: WebDavConfig) {
+        configStore.updateConfig(config)
+        // 配置一变就重排后台任务：开 = 注册周期同步（KEEP，不重置已有排期），
+        // 关 = 注销。配置导入路径改了 enabled 的场景不经过这里，下次启动收编。
+        com.yumark.app.data.sync.SyncWorkScheduler.updateSchedule(appContext, config.enabled)
+    }
 
     override fun observeLastSyncedAt(): Flow<Long?> = configStore.lastSyncedAtFlow
 
     override suspend fun testConnection(config: WebDavConfig): Result<Unit> =
         webDavClient.testConnection(config)
 
+    /**
+     * 同步全程互斥。三个触发点（设置页手动、WorkManager 周期任务、启动静默同步）互不知情，
+     * 撞在一起就是两轮 planner 同时读同一份 sync_state、同时 PUT 同一批文件——
+     * 幂等性救得了数据，救不了流量与乱序的基线回写。排队等前一轮跑完即可。
+     */
+    private val syncMutex = kotlinx.coroutines.sync.Mutex()
+
     override suspend fun syncNow(): Result<SyncOutcome> = runCatching {
+        syncMutex.withLock { syncNowLocked() }
+    }.onFailure { if (it is CancellationException) throw it }
+
+    /** [syncNow] 的实体，调用方已持 [syncMutex]。返回值即本轮结果计数。 */
+    private suspend fun syncNowLocked(): SyncOutcome {
         val config = configStore.configFlow.first()
         // 这两句会直接出现在同步设置页的结果栏里。check/require 抛的是裸
         // IllegalState/IllegalArgument，会被 ErrorHandler 归类成「出现未知问题」——
@@ -155,9 +175,18 @@ class SyncRepositoryImpl @Inject constructor(
         }
 
         if (pendingBaseline.isNotEmpty()) refreshMissingBaselines(config, pendingBaseline, now)
+        // 媒体通道（_media/ 图片）在文档动作全部落地后补跑：推送本地缺的、
+        // 拉取本轮新落地文档引用的图在 execute 里已逐篇做过。整体 best-effort——
+        // 图片拉不到只是暂时裂图，绝不能把一次内容已经同步成功的轮次报成失败。
+        runCatching { mediaSync.pushLocalImages(config, webDavClient) }
+            .onSuccess { if (it.uploaded > 0) Log.i(TAG, "媒体同步：上传 ${it.uploaded} 张") }
+            .onFailure { e ->
+                if (e is CancellationException) throw e
+                Log.w(TAG, "媒体同步失败：${ErrorHandler.safeDetail(e)}")
+            }
         configStore.setLastSyncedAt(now)
-        SyncOutcome(uploaded, downloaded, deleted, conflicts, skipped, failed)
-    }.onFailure { if (it is CancellationException) throw it }
+        return SyncOutcome(uploaded, downloaded, deleted, conflicts, skipped, failed)
+    }
 
     /**
      * 给「基线不能采信 PUT 响应」的那些文档补上远端版本基线：整轮结束后**一次** PROPFIND，
@@ -199,6 +228,19 @@ class SyncRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * 文档从远端落地（新建/覆盖/冲突副本）后按正文引用补齐图片。整段 best-effort：
+     * [MediaSync.pullImagesFor] 内部已逐张容错，这里再兜一层是为了保证
+     * 「图片通道的任何意外都不影响文档同步的结果计数」。
+     */
+    private suspend fun pullImagesQuietly(config: WebDavConfig, documentId: String, content: String) {
+        runCatching { mediaSync.pullImagesFor(config, webDavClient, documentId, content) }
+            .onFailure { e ->
+                if (e is CancellationException) throw e
+                Log.w(TAG, "按引用拉取图片失败：${ErrorHandler.safeDetail(e)}")
+            }
+    }
+
     private suspend fun execute(
         config: WebDavConfig,
         action: SyncAction,
@@ -227,6 +269,7 @@ class SyncRepositoryImpl @Inject constructor(
                 val doc = docById.getValue(action.docId)
                 val content = webDavClient.download(config, action.fileName).getOrThrow()
                 saveDocument(doc.copy(content = content)).getOrThrow()
+                pullImagesQuietly(config, doc.id, content)
                 syncStateDao.upsert(stateOf(doc.id, action.fileName, action.remoteEtag, hash(content), now))
             }
 
@@ -235,6 +278,7 @@ class SyncRepositoryImpl @Inject constructor(
                 val created = documentRepository
                     .createDocument(nameFromFileName(action.fileName), null).getOrThrow()
                 saveDocument(created.copy(content = content)).getOrThrow()
+                pullImagesQuietly(config, created.id, content)
                 syncStateDao.upsert(stateOf(created.id, action.fileName, action.remoteEtag, hash(content), now))
             }
 
@@ -246,6 +290,9 @@ class SyncRepositoryImpl @Inject constructor(
                 val remoteContent = webDavClient.download(config, action.fileName).getOrThrow()
                 val copy = createConflictCopy(doc.name, now)
                 saveDocument(copy.copy(content = remoteContent)).getOrThrow()
+                // 冲突副本是真实落地的文档：它正文里引用的图同样要补齐，
+                // 否则用户打开副本看到的是一篇裂图的「远端版本」
+                pullImagesQuietly(config, copy.id, remoteContent)
                 // 2) 本地内容上行（本地在原文件名上胜出），刷新基线。
                 // 这一步**故意**不带 If-Match：远端版本已经在上一步存成本地副本了，没有丢数据的风险，
                 // 而列目录时读到的 etag 到这里已经隔了一次下载，带上只会平添一次 412 失败。
@@ -270,18 +317,19 @@ class SyncRepositoryImpl @Inject constructor(
 
             is SyncAction.DeleteLocal -> {
                 val doc = docById.getValue(action.docId)
-                // 救援先于删除：documents 行的 CASCADE 会把 document_versions 整段带走，
-                // 而 DeleteLocal 的前置条件（本地与基线一致）意味着此刻的正文是这篇文档
-                // 在世界上的最后一份拷贝——远端文件已经没了。救援失败整个动作判失败
-                // （getOrThrow），下轮重判仍是 DeleteLocal、重试幂等，绝不「救不了也照删」。
-                // 只救远端下行删除：用户手动删除不走这里（明确意图 + 版本史/WebDAV 兜底）。
+                // 救援先于一切：sync_trash 里那份带原名的拷贝是「删除确实发生过」的可浏览证据
+                // （设置页有入口）。schema 14 起本地删除落在回收站里不再销毁内容，救援从
+                // 「最后一份拷贝的抢救」降级为「证据副本」，但保留它——回收站可能被用户
+                // 清空，两份有界留存互为兜底。救援失败整个动作判失败（getOrThrow），
+                // 下轮重判仍是 DeleteLocal、重试幂等，绝不「救不了也照删」。
                 fileManager.rescueBeforeRemoteDelete(doc.id, doc.name).getOrThrow()
-                // 走 documentRepository 而不是直接删库行：正文文件、图片文件、全文索引行
-                // 都得一起清，那套顺序讲究全在 `deleteDocument` 的注释里。
-                documentRepository.deleteDocument(action.docId).getOrThrow()
-                // 上面那次删除会顺手立一块墓碑（它分不清这次删除是用户点的还是同步带来的）。
-                // 这次删除本就源自远端，远端文件已经不在了，墓碑留着只会让下一轮多发一次
-                // 注定 404 的 DELETE。清掉。
+                // 进回收站而不是彻底删除：远端删除的传播终点是「本地也删掉」，但另一台设备
+                // 上的删除动作未必是本机用户的本意——软删除保留一条应用内恢复路径，与
+                // SyncPlanner「宁可复活一篇，也不误删一篇」的删除原则同向。回收站里躺够
+                // 保留期或被显式清空时才走彻底删除，那时才立墓碑/清文件。
+                documentRepository.moveToTrash(action.docId).getOrThrow()
+                // 清一块可能存在的旧墓碑：这次删除源自远端，远端文件已经不在了，
+                // 任何残留墓碑都只会让下一轮多发一次注定 404 的 DELETE。
                 syncTombstoneDao.deleteByDocument(action.docId)
             }
 
