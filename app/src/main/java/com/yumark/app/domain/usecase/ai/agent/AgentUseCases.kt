@@ -158,7 +158,10 @@ class SendAgentMessageUseCase @Inject constructor(
         val intent = com.yumark.app.domain.usecase.ai.intent.IntentDetector.detect(effectiveUserMessage, appContext)
         val allTools = DocumentContextTools.getAllTools()
         val tools = com.yumark.app.domain.usecase.ai.intent.ToolSelector.selectTools(intent, allTools)
-        val systemPrompt = buildAgentSystemPrompt(currentDocumentName, currentDocumentContent, tools)
+        // 系统提示每轮重建：工具列表固定，但「当前任务计划」会随 update_plan 变化——
+        // 上下文裁剪可能丢掉早期的 update_plan 调用，不注入的话模型在长任务后半程
+        // 对自己的计划「失忆」（重复规划或偏离目标）。
+        var systemPrompt = buildAgentSystemPrompt(currentDocumentName, currentDocumentContent, tools)
         val full = StringBuilder()
         /** 上一轮已经显示给用户的正文（[full] 每轮清空，出错时不能用它判断「这条消息是空的」）。 */
         var shownSoFar = ""
@@ -243,6 +246,13 @@ class SendAgentMessageUseCase @Inject constructor(
                 // 上下文窗口管理：把历史+工具消息裁进 token 预算（扣除系统提示与响应余量）。
                 // 按回合组整体丢弃，assistant 工具调用与 tool 结果的配对永不拆散——
                 // 不裁的话长会话/长任务必然撞爆模型上下文（API 400），整轮 Agent 失败。
+                systemPrompt = buildAgentSystemPrompt(
+                    currentDocumentName, currentDocumentContent, tools,
+                    planContext = currentPlanContext(
+                        taskId?.let { agentTaskRepository.getTaskByConversationId(conversationId) },
+                        taskId
+                    )
+                )
                 val requestMessages = AgentContextTrimmer.trim(
                     messages = workingMessages,
                     budgetTokens = AgentContextTrimmer.DEFAULT_BUDGET_TOKENS,
@@ -752,24 +762,33 @@ private fun truncateToolResult(s: String, toolName: String): String {
 
 /** 构建 Agent 系统提示：工具优先、外科式编辑、模型驱动 todo，注入当前文档上下文。
  *  工具列表与说明按本轮实际下发的 [tools] 动态生成，避免提示描述与 tools 参数不一致。 */
+/**
+ * 系统提示的「当前上下文」节：打开的文档全量（预算内）或大纲（超预算退回）。
+ * 独立成函数：[buildAgentSystemPrompt] 已到方法长度阈值，这里是唯一可自然拆出的块。
+ */
+private fun buildDocumentContextSection(
+    documentName: String?,
+    documentContent: String?
+): String {
+    if (documentName == null) return "当前没有打开的文档。"
+    val content = documentContent.orEmpty()
+    val detail = if (content.isNotBlank() && content.length <= FULL_DOC_CONTEXT_BUDGET) {
+        "完整内容如下（编辑时基于此给出可唯一定位的 old_string）：\n$content"
+    } else {
+        val outline = content.takeIf { it.isNotBlank() }
+            ?.let { com.yumark.app.core.util.documentOutline(it) } ?: "(空)"
+        "$outline\n（文档较大，仅给出大纲；需要某段确切原文时用 read_document 获取）"
+    }
+    return "当前打开的文档：《$documentName》\n$detail"
+}
+
 internal fun buildAgentSystemPrompt(
     documentName: String?,
     documentContent: String?,
-    tools: List<AiTool>
+    tools: List<AiTool>,
+    planContext: String? = null
 ): String {
-    val docContext = if (documentName != null) {
-        val content = documentContent.orEmpty()
-        val detail = if (content.isNotBlank() && content.length <= FULL_DOC_CONTEXT_BUDGET) {
-            "完整内容如下（编辑时基于此给出可唯一定位的 old_string）：\n$content"
-        } else {
-            val outline = content.takeIf { it.isNotBlank() }
-                ?.let { com.yumark.app.core.util.documentOutline(it) } ?: "(空)"
-            "$outline\n（文档较大，仅给出大纲；需要某段确切原文时用 read_document 获取）"
-        }
-        "当前打开的文档：《$documentName》\n$detail"
-    } else {
-        "当前没有打开的文档。"
-    }
+    val docContext = buildDocumentContextSection(documentName, documentContent)
 
     val toolNames = tools.map { it.name }.toSet()
     val hasWrite = "create_document" in toolNames || "edit_document" in toolNames
@@ -782,37 +801,9 @@ internal fun buildAgentSystemPrompt(
         tools.joinToString("\n") { "- ${it.name}：${it.description}" }
     }
 
-    val editBlock = if (hasEdit) {
-        """
-        # 外科式编辑与整篇重写（重要）
-        用户要求修改文档时，必须让改动经过审批门（diff 预览）。**绝不能只在回复里写出改后内容就宣称"已完成/已修改"——那样文档不会被改动，用户也看不到审批。** 在产生审批门之前，不要说"已完成修改"。
-        按改动范围选一种方式：
-        1. **局部修改** → 调用 edit_document，提交 old_string→new_string（外科式编辑）：
-           - old_string 与文档**完全一致**且**唯一定位**（带上下文）；不确定就先 read_document。
-           - new_string 是改好后的真实正文，不要写"修改说明/改进要点"。
-           - 命中不唯一时补上下文或设 replace_all=true；未命中会收到错误说明，据此修正后重试。
-        2. **整篇润色 / 重写 / 改写全文** → 在 ```markdown 围栏内输出**完整的改后文档正文**（围栏外只放一句说明），它会自动转为整篇 diff 审批（等价于整体替换）。**不要用 edit_document 做整篇重写**——old_string 过长极易失配、且把整篇当一处替换是错误用法。
-        - 文档较大、缺确切原文时先 read_document 获取目标片段，再 edit_document。
-        """.trimIndent()
-    } else ""
-
-    val planBlock = if (hasPlan) {
-        """
-        # 计划（update_plan）
-        任务需要多步时，先用 update_plan 列出步骤（pending/in_progress/done/blocked），
-        并在推进时更新各步状态；单步小任务可不调用。
-        """.trimIndent()
-    } else ""
-
-    val approvalBlock = if (hasWrite) {
-        """
-        # 审批
-        任何创建/编辑都会先以预览或逐行 diff 呈现给用户，由用户确认后才真正写入。放心提出改动；但务必保证内容完整、准确。
-
-        # 仅当端点不支持函数调用时
-        （你确实无法发起 edit_document / create_document 工具调用）才改为：把**完整文档正文放进一个 ```markdown 围栏代码块**（围栏外只放一句说明），用户仍会收到审批预览，并非直接生效。围栏内必须是文档真实正文，**不能是"改了哪些地方"的说明或要点清单**。能调用工具时不要走这条路径——局部修改走 edit_document，整篇重写走上文的围栏输出。
-        """.trimIndent()
-    } else ""
+    val editBlock = if (hasEdit) surgicalEditGuidance() else ""
+    val planBlock = if (hasPlan) planGuidance() else ""
+    val approvalBlock = if (hasWrite) approvalGuidance() else ""
 
     return buildString {
         append("""
@@ -829,7 +820,67 @@ internal fun buildAgentSystemPrompt(
         if (planBlock.isNotBlank()) { append("\n\n").append(planBlock) }
         if (approvalBlock.isNotBlank()) { append("\n\n").append(approvalBlock) }
         append("\n\n# 当前上下文\n").append(docContext)
+        if (!planContext.isNullOrBlank()) {
+            append("\n\n").append(planContext)
+        }
     }.trimIndent()
+}
+
+/**
+ * 当前任务计划的提示注入块（null = 无进行中的任务）。
+ *
+ * 上下文裁剪可能丢掉早期的 update_plan 工具调用，注入是模型维持长任务方向感的
+ * 唯一来源。目标与各步骤状态都要给：模型据此决定下一步（推进/收尾/报告阻塞）。
+ */
+private fun surgicalEditGuidance(): String = """
+    # 外科式编辑与整篇重写（重要）
+    用户要求修改文档时，必须让改动经过审批门（diff 预览）。**绝不能只在回复里写出改后内容就宣称"已完成/已修改"——那样文档不会被改动，用户也看不到审批。** 在产生审批门之前，不要说"已完成修改"。
+    按改动范围选一种方式：
+    1. **局部修改** → 调用 edit_document，提交 old_string→new_string（外科式编辑）：
+       - old_string 与文档**完全一致**且**唯一定位**（带上下文）；不确定就先 read_document。
+       - new_string 是改好后的真实正文，不要写"修改说明/改进要点"。
+       - 命中不唯一时补上下文或设 replace_all=true；未命中会收到错误说明，据此修正后重试。
+    2. **整篇润色 / 重写 / 改写全文** → 在 ```markdown 围栏内输出**完整的改后文档正文**（围栏外只放一句说明），它会自动转为整篇 diff 审批（等价于整体替换）。**不要用 edit_document 做整篇重写**——old_string 过长极易失配、且把整篇当一处替换是错误用法。
+    - 文档较大、缺确切原文时先 read_document 获取目标片段，再 edit_document。
+    """.trimIndent()
+
+private fun planGuidance(): String = """
+    # 计划（update_plan）
+    任务需要多步时，先用 update_plan 列出步骤（pending/in_progress/done/blocked），
+    并在推进时更新各步状态；单步小任务可不调用。
+    """.trimIndent()
+
+private fun approvalGuidance(): String = """
+    # 审批
+    任何创建/编辑都会先以预览或逐行 diff 呈现给用户，由用户确认后才真正写入。放心提出改动；但务必保证内容完整、准确。
+
+    # 仅当端点不支持函数调用时
+    （你确实无法发起 edit_document / create_document 工具调用）才改为：把**完整文档正文放进一个 ```markdown 围栏代码块**（围栏外只放一句说明），用户仍会收到审批预览，并非直接生效。围栏内必须是文档真实正文，**不能是"改了哪些地方"的说明或要点清单**。能调用工具时不要走这条路径——局部修改走 edit_document，整篇重写走上文的围栏输出。
+    """.trimIndent()
+
+internal fun currentPlanContext(
+    aggregate: com.yumark.app.domain.model.AgentTaskAggregate?,
+    taskId: String?
+): String? {
+    val task = aggregate?.task?.takeIf { it.id == taskId } ?: return null
+    return aggregate.steps.takeIf { it.isNotEmpty() }
+        ?.joinToString("\n") { "${planMarker(it.status)} ${it.title}" }
+        ?.let { body ->
+            buildString {
+                append("# 当前任务计划（保持方向，完成后给出最终答复）\n")
+                append("目标：${task.goal}\n")
+                append(body)
+            }
+        }
+}
+
+private fun planMarker(status: AgentTaskStepStatus): String = when (status) {
+    AgentTaskStepStatus.DONE -> "[x]"
+    AgentTaskStepStatus.RUNNING -> "[~]"
+    AgentTaskStepStatus.BLOCKED -> "[!]"
+    AgentTaskStepStatus.FAILED -> "[!]"
+    AgentTaskStepStatus.SKIPPED -> "[-]"
+    AgentTaskStepStatus.PENDING -> "[ ]"
 }
 
 /** 从 AI 回复中解析 [[ACTION]] 操作意图（降级文本协议）。返回 null 表示无操作。 */

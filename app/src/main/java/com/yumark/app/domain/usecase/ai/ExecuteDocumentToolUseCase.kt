@@ -1,6 +1,5 @@
 package com.yumark.app.domain.usecase.ai
 
-import com.yumark.app.data.local.file.FileManager
 import com.yumark.app.domain.model.ToolCall
 import com.yumark.app.domain.repository.DocumentRepository
 import com.yumark.app.domain.repository.FolderRepository
@@ -56,8 +55,7 @@ private fun folderLabelOf(
 @Singleton
 class ExecuteDocumentToolUseCase @Inject constructor(
     private val documentRepository: DocumentRepository,
-    private val folderRepository: FolderRepository,
-    private val fileManager: FileManager
+    private val folderRepository: FolderRepository
 ) {
     suspend operator fun invoke(toolCall: ToolCall): Result<String> = runCatching {
         val args = Json.decodeFromString<Map<String, JsonElement>>(toolCall.arguments)
@@ -78,9 +76,8 @@ class ExecuteDocumentToolUseCase @Inject constructor(
             throw IllegalArgumentException("文档不存在: $docId")
         }
 
-        val content = fileManager.loadDocumentContent(doc.id).getOrElse {
-            throw IllegalArgumentException("无法读取文档内容: $docId")
-        }
+        // getDocumentById 已随元数据读取正文，无需再经 FileManager 二次 IO
+        val content = doc.content
         val header = "【文档名称】${doc.name}\n【所在文件夹】${resolveFolderLabel(doc.folderId)}\n"
 
         val mode = args["mode"]?.jsonPrimitive?.contentOrNull ?: "full"
@@ -161,7 +158,7 @@ class ExecuteDocumentToolUseCase @Inject constructor(
         )
 
         val ranked = allDocs.mapNotNull { doc ->
-            val content = fileManager.loadDocumentContent(doc.id).getOrElse { "" }
+            val content = doc.content
             val s = SearchRanker.score(doc.name, content, tokens)
             if (s <= 0) null
             else Ranked(doc, s, SearchRanker.snippets(content, tokens, maxResults))

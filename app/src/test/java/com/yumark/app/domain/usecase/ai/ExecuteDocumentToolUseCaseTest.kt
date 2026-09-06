@@ -1,7 +1,6 @@
 package com.yumark.app.domain.usecase.ai
 
 import com.google.common.truth.Truth.assertThat
-import com.yumark.app.data.local.file.FileManager
 import com.yumark.app.domain.model.Document
 import com.yumark.app.domain.model.Folder
 import com.yumark.app.domain.model.ToolCall
@@ -22,15 +21,13 @@ class ExecuteDocumentToolUseCaseTest {
 
     private val documentRepository: DocumentRepository = mockk()
     private val folderRepository: FolderRepository = mockk()
-    private val fileManager: FileManager = mockk()
-
     private lateinit var useCase: ExecuteDocumentToolUseCase
 
     @BeforeEach
     fun setup() {
         // 无文件夹的默认桩（「所在文件夹」解析用）；文件夹相关用例各自覆写
         coEvery { folderRepository.getAllFolders() } returns Result.success(emptyList())
-        useCase = ExecuteDocumentToolUseCase(documentRepository, folderRepository, fileManager)
+        useCase = ExecuteDocumentToolUseCase(documentRepository, folderRepository)
     }
 
     private fun doc(id: String, name: String, folderId: String?, content: String) =
@@ -44,7 +41,6 @@ class ExecuteDocumentToolUseCaseTest {
     fun `read_document 短文档返回表头加原文且无分页头`() = runTest {
         coEvery { documentRepository.getDocumentById("d1") } returns
             Result.success(doc("d1", "笔记", null, "# 标题\n正文"))
-        coEvery { fileManager.loadDocumentContent("d1") } returns Result.success("# 标题\n正文")
 
         val out = useCase(call("read_document", """{"document_id":"d1"}""")).getOrThrow()
 
@@ -60,7 +56,6 @@ class ExecuteDocumentToolUseCaseTest {
     fun `read_document outline 模式返回结构与全文规模`() = runTest {
         val content = "# 一级\n\n正文一\n## 二级\n\n正文二"
         coEvery { documentRepository.getDocumentById("d1") } returns Result.success(doc("d1", "长文", null, content))
-        coEvery { fileManager.loadDocumentContent("d1") } returns Result.success(content)
 
         val out = useCase(
             call("read_document", """{"document_id":"d1","mode":"outline"}""")
@@ -78,7 +73,6 @@ class ExecuteDocumentToolUseCaseTest {
     fun `read_document 分页返回窗口与续读指引`() = runTest {
         val content = "字".repeat(500)   // 已知精确长度
         coEvery { documentRepository.getDocumentById("d1") } returns Result.success(doc("d1", "长文", null, content))
-        coEvery { fileManager.loadDocumentContent("d1") } returns Result.success(content)
 
         val out = useCase(
             call(
@@ -98,7 +92,6 @@ class ExecuteDocumentToolUseCaseTest {
     fun `read_document 分页中段返回续读指引`() = runTest {
         val content = (1..100).joinToString("") { "字$it" }
         coEvery { documentRepository.getDocumentById("d1") } returns Result.success(doc("d1", "长文", null, content))
-        coEvery { fileManager.loadDocumentContent("d1") } returns Result.success(content)
 
         val out = useCase(
             call("read_document", """{"document_id":"d1","offset":0,"length":200}""")
