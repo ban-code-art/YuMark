@@ -47,7 +47,9 @@ SHA256=(
 )
 
 # KaTeX 字体（fonts/ 下 20 个 woff2）不逐个列哈希，用「排序后逐文件摘要再摘要」的聚合摘要覆盖。
-FONTS_DIGEST="c0abb2c7a38945547668c52488219977c0c31d7abe0dea0cc3f010807f0e0684"
+# 聚合只取哈希列（awk 去掉文件名与分隔符）：Windows Git Bash 的 sha256sum 输出带二进制模式的
+# `*` 标记而 Linux 是两个空格，带文件名的原始输出会让聚合摘要随平台变化（CI 曾因此误报）。
+FONTS_DIGEST="f94218b5d646e0b79e71c2bc420116a176e08f18e50058e744c1efdff6553028"
 
 # ─── 工具函数 ─────────────────────────────────────────────────────────────────
 sha_of() { sha256sum "$1" | cut -d' ' -f1; }
@@ -61,8 +63,10 @@ expected_for() {
 }
 
 fonts_digest_of() {
-  # 在 fonts/ 内部计算，使摘要与脚本的调用路径无关
-  ( cd "$ASSETS_DIR/fonts" && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -d' ' -f1 )
+  # 在 fonts/ 内部计算，使摘要与脚本的调用路径无关。
+  # awk 只取哈希列：sha256sum 的「哈希 文件名」分隔符随平台不同（Git Bash 二进制模式
+  # 是 `*`，Linux 是两个空格），带原始输出会让聚合摘要随平台漂移（CI 曾因此误报）。
+  ( cd "$ASSETS_DIR/fonts" && find . -type f | LC_ALL=C sort | xargs sha256sum | awk '{print $1}' | sha256sum | cut -d' ' -f1 )
 }
 
 # ─── verify：离线校验在库文件 ──────────────────────────────────────────────────
