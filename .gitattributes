@@ -1,0 +1,2 @@
+# vendored 渲染资源按字节锁定：任何行尾转换都会破坏 download-js-libs.sh 的哈希校验（CI 信任锚）
+app/src/main/assets/raw/** -text
