@@ -135,6 +135,58 @@ class SendAgentMessageUseCaseTest {
     }
 
     @Test
+    fun `同轮多个只读工具并行执行且消息按调用顺序回填`() = runTest {
+        coEvery { executeDocumentTool(any()) } returns Result.success("文档内容")
+        // 两个只读调用（read_document × 2）：应并行执行，tool 消息按调用顺序回填
+        val adapter = FakeAdapter(listOf(
+            listOf(
+                StreamEvent.ToolCallComplete(listOf(
+                    ToolCall("c1", "read_document", """{"document_id":"x"}"""),
+                    ToolCall("c2", "read_document", """{"document_id":"y"}""")
+                )),
+                StreamEvent.Done("")
+            ),
+            listOf(StreamEvent.Content("最终答案"), StreamEvent.Done("最终答案"))
+        ))
+
+        val states = useCase(adapter).invoke("c1", "读两篇", null, null, null).toList()
+
+        // 两个工具都执行了（mockk 记录两条不同 document_id 的调用）
+        coVerify(exactly = 1) { executeDocumentTool(match { it.arguments.contains("x") }) }
+        coVerify(exactly = 1) { executeDocumentTool(match { it.arguments.contains("y") }) }
+        assertThat(adapter.callCount).isEqualTo(2)
+        // tool 消息顺序与 tool_calls 顺序一致（OpenAI 协议硬约束）
+        val toolMessages = adapter.messagesByCall[1].filter { it.role == "tool" }
+        assertThat(toolMessages.map { it.toolCallId }).containsExactly("c1", "c2").inOrder()
+        assertThat(states.filterIsInstance<AgentMessageState.Completed>().map { it.fullText }).contains("最终答案")
+    }
+
+    @Test
+    fun `同轮写提议不参与并行并立即收敛等待审批`() = runTest {
+        val proposalAction = com.yumark.app.domain.model.AgentAction(
+            type = com.yumark.app.domain.model.AgentActionType.CREATE_DOCUMENT,
+            description = "新文档", targetDocumentId = null, content = "新内容"
+        )
+        coEvery { executeDocumentTool(any()) } returns Result.success("工具结果")
+        coEvery { buildWriteProposal(any(), any()) } returns Result.success(proposalAction)
+        val adapter = FakeAdapter(listOf(
+            listOf(
+                StreamEvent.ToolCallComplete(listOf(
+                    ToolCall("c1", "read_document", """{"document_id":"x"}"""),
+                    ToolCall("c2", "create_document", """{"content":"新内容"}""")
+                )),
+                StreamEvent.Done("")
+            )
+        ))
+
+        val states = useCase(adapter).invoke("c1", "建一篇", null, null, null).toList()
+
+        // 混合轮次走串行：写提议产生即收敛（不再进入下一轮）
+        assertThat(adapter.callCount).isEqualTo(1)
+        assertThat(states.filterIsInstance<AgentMessageState.ActionProposed>()).isNotEmpty()
+    }
+
+    @Test
     fun `update_plan creates a model-driven task`() = runTest {
         val planArgs = """{"steps":[{"title":"检索资料","status":"in_progress"},{"title":"撰写","status":"pending"}]}"""
         val adapter = FakeAdapter(listOf(

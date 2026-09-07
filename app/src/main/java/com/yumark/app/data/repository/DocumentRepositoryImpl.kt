@@ -14,6 +14,8 @@ import com.yumark.app.data.local.db.entity.DocumentSearchEntity
 import com.yumark.app.data.local.file.FileManager
 import com.yumark.app.data.mapper.DocumentMapper
 import com.yumark.app.domain.model.Document
+import com.yumark.app.domain.usecase.NamedEntry
+import com.yumark.app.domain.usecase.findNameConflict
 import com.yumark.app.domain.model.TrashedDocument
 import com.yumark.app.domain.repository.DocumentRepository
 import kotlinx.coroutines.Dispatchers

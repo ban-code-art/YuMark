@@ -7,8 +7,8 @@ import com.yumark.app.R
 import com.yumark.app.core.util.FriendlyIOException
 import com.yumark.app.core.util.UiMessage
 import com.yumark.app.data.local.file.FileManager
-import com.yumark.app.data.repository.NamedEntry
-import com.yumark.app.data.repository.findNameConflict
+import com.yumark.app.domain.usecase.NamedEntry
+import com.yumark.app.domain.usecase.findNameConflict
 import com.yumark.app.domain.repository.DocumentRepository
 import com.yumark.app.domain.repository.FolderRepository
 import dagger.hilt.android.qualifiers.ApplicationContext

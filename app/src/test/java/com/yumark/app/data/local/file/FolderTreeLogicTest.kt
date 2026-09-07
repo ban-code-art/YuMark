@@ -1,8 +1,8 @@
 package com.yumark.app.data.local.file
 
 import com.google.common.truth.Truth.assertThat
-import com.yumark.app.data.repository.NamedEntry
-import com.yumark.app.data.repository.findNameConflict
+import com.yumark.app.domain.usecase.NamedEntry
+import com.yumark.app.domain.usecase.findNameConflict
 import com.yumark.app.data.repository.folderSubtreeIds
 import org.junit.jupiter.api.Test
 

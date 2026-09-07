@@ -38,6 +38,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -104,6 +107,19 @@ class SendAgentMessageUseCase @Inject constructor(
         )
         conversationRepository.addMessage(userMsg)
         emit(AgentMessageState.UserMessageSaved)
+
+        // 会话自动命名：本会话的第一条用户消息派生标题（同 ChatGPT 首轮命名体验）。
+        // 取舍：用户若在发消息前手动改过名会被覆盖——发生窗口极小，且随时可再改名；
+        // 收益是「新对话」这种零信息标题不再永久驻留列表。
+        conversationBeforeTurn?.let { conversation ->
+            val isFirstExchange = conversation.messages
+                .none { it.role == MessageRole.USER && !it.isStreaming }
+            if (isFirstExchange) {
+                deriveConversationTitle(userMessage)?.let { title ->
+                    conversationRepository.updateConversation(conversation.copy(title = title))
+                }
+            }
+        }
 
         val config = configRepository.observeConfig().first()
         if (config.apiKey.isBlank() || config.modelName.isBlank()) {
@@ -394,9 +410,59 @@ class SendAgentMessageUseCase @Inject constructor(
                     ChatMessage(role = "assistant", content = full.toString().ifBlank { null }, toolCalls = calls)
                 )
 
-                // ③ 执行工具：读/计划工具内联回填续跑；首个写提议成功即结束本轮等待审批
+                // ③ 执行工具：读/计划工具内联回填续跑；首个写提议成功即结束本轮等待审批。
+                // 连续多个只读工具互不依赖时并行执行（墙钟时间 = 最慢一个），结果仍按
+                // 原始调用顺序回填——模型协议要求 tool 消息顺序与 tool_calls 一致。
+                // 含写提议/计划的轮次保持串行：写提议一旦产生即收敛等待审批，并行无收益。
                 var proposal: AgentAction? = null
-                for (call in calls) {
+                if (calls.size > 1 && calls.all { it.name !in WRITE_OR_PLAN_TOOLS }) {
+                    calls.forEach { call ->
+                        val callingStep = AgentStep.ToolCalling(call.name, summarize(call.arguments))
+                        agentSteps.add(callingStep)
+                        emit(AgentMessageState.ToolStep(callingStep))
+                    }
+                    val outcomes: List<Pair<ToolCall, Pair<AgentStep, ChatMessage>>> =
+                        kotlinx.coroutines.coroutineScope {
+                            calls.map { call ->
+                                async {
+                                    val result: Result<String> = runCatching {
+                                        readOnlyExecutor(
+                                            call, webSearchService, memoryService, ragPipeline, executeDocumentTool
+                                        )(call)
+                                    }.fold(
+                                        onSuccess = { it },
+                                        onFailure = { e -> Result.failure(e) }
+                                    )
+                                    call to result.fold(
+                                        onSuccess = { content ->
+                                            val truncated = truncateToolResult(content, call.name)
+                                            AgentStep.ToolDone(call.name, true, summarize(truncated)) to
+                                                ChatMessage(
+                                                    role = "tool", content = truncated,
+                                                    toolCallId = call.id, toolName = call.name
+                                                )
+                                        },
+                                        onFailure = { e ->
+                                            val msg = failureDetail(e, "工具执行失败")
+                                            AgentStep.ToolDone(call.name, false, summarize(msg)) to
+                                                ChatMessage(
+                                                    role = "tool", content = "ERROR: $msg",
+                                                    toolCallId = call.id, toolName = call.name
+                                                )
+                                        }
+                                    )
+                                }
+                            }.awaitAll()
+                        }
+                    outcomes.forEach { (_, pair) ->
+                        val (done, toolMessage) = pair
+                        workingMessages.add(toolMessage)
+                        agentSteps.add(done)
+                        emit(AgentMessageState.ToolStep(done))
+                    }
+                    // 并行轮次不含写提议，直接进入下一轮
+                } else {
+                    for (call in calls) {
                     val callingStep = AgentStep.ToolCalling(call.name, summarize(call.arguments))
                     agentSteps.add(callingStep)
                     emit(AgentMessageState.ToolStep(callingStep))
@@ -449,6 +515,7 @@ class SendAgentMessageUseCase @Inject constructor(
                         }
                     }
                     if (proposal != null) break
+                    }
                 }
 
                 val act = proposal
@@ -669,6 +736,36 @@ class ExecuteAgentActionUseCase @Inject constructor(
 }
 
 private const val MAX_TURNS = 10
+
+/** 需要串行（有状态/收敛语义）的工具：写提议与计划维护不参与并行。 */
+private val WRITE_OR_PLAN_TOOLS = setOf("create_document", "edit_document", "update_plan")
+
+/** 只读工具的执行器分发（并行轮次与串行轮次共用同一张表）。 */
+private fun readOnlyExecutor(
+    call: ToolCall,
+    webSearchService: com.yumark.app.data.ai.web.WebSearchService,
+    memoryService: com.yumark.app.data.ai.memory.MemoryService,
+    ragPipeline: com.yumark.app.data.ai.rag.RagPipeline,
+    executeDocumentTool: ExecuteDocumentToolUseCase
+): suspend (ToolCall) -> Result<String> = when (call.name) {
+    "web_search" -> { c -> webSearchService.search(c) }
+    "save_memory", "search_memory", "list_memories" -> { c -> memoryService.execute(c) }
+    "search_knowledge", "knowledge_stats" -> { c -> ragPipeline.execute(c) }
+    else -> { c -> executeDocumentTool(c) }
+}
+
+/** 会话标题的字符上限。 */
+private const val TITLE_MAX_CHARS = 24
+
+/**
+ * 从首条用户消息派生会话标题：取第一个非空行，剥掉 Markdown 前缀符号后截取前 [TITLE_MAX_CHARS] 字符。
+ * 无法派生（空消息/纯符号行）时返回 null，调用方保留原标题。
+ */
+internal fun deriveConversationTitle(userMessage: String): String? {
+    val line = userMessage.lineSequence().firstOrNull { it.isNotBlank() } ?: return null
+    val cleaned = line.trim().trimStart('#', '-', '*', '>', ' ').trim()
+    return cleaned.takeIf { it.isNotBlank() }?.take(TITLE_MAX_CHARS)
+}
 
 /** Agent 单轮请求的上下文保护区：最近的工具链必须完整落在其中（见 AgentContextTrimmer）。 */
 private const val MIN_KEEP_MESSAGES_IN_CONTEXT = 12
