@@ -15,6 +15,38 @@ private const val DEFAULT_READ_CHARS = 6000
 private const val MAX_FOLDER_DEPTH = 10
 
 /**
+ * 大纲模式返回体：每条标题带它在正文中的**字符偏移**，模型可以拿偏移直接当
+ * `offset` 参数精准跳读目标段落——没有偏移的分页只能盲猜，等于没有分页。
+ * 偏移单位与 `offset` 参数一致（UTF-16 char），`content.substring(offset, …)` 即从标题行开始。
+ */
+internal fun outlineWithOffsets(content: String): String {
+    val sb = StringBuilder()
+    var offset = 0
+    for (line in content.lineSequence()) {
+        if (line.trimStart().startsWith("#")) {
+            sb.append(offset).append(": ").append(line.trim()).append('\n')
+        }
+        offset += line.length + 1   // +1 为换行符（末行多计 1 不影响用作起点）
+    }
+    return sb.toString().trimEnd()
+}
+
+/**
+ * 把 [start]（含）与 [endExclusive]（不含）吸附到 UTF-16 代码点边界。
+ * substring 按 char 索引，截断点落在代理对中间（emoji 占 2 char）会产生孤代理——
+ * 模型读到乱码，并据此提出永远失配的 edit old_string。
+ */
+internal fun snapToCodePointBoundary(content: String, start: Int, endExclusive: Int): Pair<Int, Int> {
+    fun isLowSurrogateAt(index: Int) =
+        index in content.indices && Character.isLowSurrogate(content[index])
+    var s = start
+    if (isLowSurrogateAt(s)) s--            // 起点落在低代理：退到高代理
+    var e = endExclusive
+    if (e < content.length && isLowSurrogateAt(e)) e--   // 终点落在低代理：退回完整代理对
+    return s to e
+}
+
+/**
  * 文件夹 ID → 「a/b」名称链。悬空引用或超深（防环）回退为原始 ID，不给模型悬空引用。
  * 独立成纯函数：read_document 的「所在文件夹」与 list_documents 的结构节共用同一口径。
  */
@@ -83,15 +115,18 @@ class ExecuteDocumentToolUseCase @Inject constructor(
         val mode = args["mode"]?.jsonPrimitive?.contentOrNull ?: "full"
         if (mode == "outline") {
             return header +
-                "【大纲（全文共 ${content.length} 字符）】\n" +
-                com.yumark.app.core.util.documentOutline(content) + "\n" +
-                "（需要某段确切原文时，用 mode=full + offset/length 分页读取）"
+                "【大纲（每行格式：起始字符偏移: 标题；全文共 ${content.length} 字符）】\n" +
+                outlineWithOffsets(content) + "\n" +
+                "（用 mode=full + offset=<标题偏移> 读取该段原文）"
         }
 
-        val offset = args["offset"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(0) ?: 0
+        val rawOffset = args["offset"]?.jsonPrimitive?.intOrNull?.coerceAtLeast(0) ?: 0
         val length = args["length"]?.jsonPrimitive?.intOrNull?.takeIf { it > 0 } ?: DEFAULT_READ_CHARS
-        val safeOffset = offset.coerceAtMost(content.length)
-        val window = content.substring(safeOffset, minOf(content.length, safeOffset + length))
+        // 吸附到代码点边界：截断点落在 emoji 等代理对中间会产生孤代理乱码
+        val (safeOffset, rawEnd) = snapToCodePointBoundary(
+            content, rawOffset.coerceAtMost(content.length), (rawOffset + length).coerceAtMost(content.length)
+        )
+        val window = content.substring(safeOffset, rawEnd)
         val end = safeOffset + window.length
 
         val paging = if (end < content.length || safeOffset > 0) {

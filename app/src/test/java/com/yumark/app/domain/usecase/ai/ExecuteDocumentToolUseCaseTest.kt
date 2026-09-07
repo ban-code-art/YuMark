@@ -102,6 +102,41 @@ class ExecuteDocumentToolUseCaseTest {
     }
 
     @Test
+    fun `outline 模式每条标题带字符偏移且可用作跳读起点`() = runTest {
+        val content = "前言\n# 第一章\n第一章正文\n## 第二节\n第二节正文"
+        coEvery { documentRepository.getDocumentById("d1") } returns Result.success(doc("d1", "长文", null, content))
+
+        val out = useCase(
+            call("read_document", """{"document_id":"d1","mode":"outline"}""")
+        ).getOrThrow()
+
+        // 偏移是真实可用的跳读起点："前言\n"=3 char；"# 第一章\n"=5+1；"第一章正文\n"=6+1
+        assertThat(out).contains("3: # 第一章")
+        assertThat(out).contains("15: ## 第二节")
+        // 偏移可直接当 offset 用：从 15 跳读正好落在 "## 第二节" 上
+        val jumped = useCase(
+            call("read_document", """{"document_id":"d1","offset":15,"length":20}""")
+        ).getOrThrow()
+        assertThat(jumped).contains("## 第二节\n第二节正文")
+    }
+
+    @Test
+    fun `分页起点落在 emoji 低代理上时吸附到完整代码点`() = runTest {
+        // 5 个 BMP 字符 + 1 个 emoji（UTF-16 占 2 char：index 5 高代理、6 低代理）+ 尾随字符
+        val content = "abcde😀结束"
+        coEvery { documentRepository.getDocumentById("d1") } returns Result.success(doc("d1", "emoji", null, content))
+
+        // offset=6 落在低代理上（防御式吸附必须有）：退到 5，窗口从完整的 😀 开始
+        val out = useCase(
+            call("read_document", """{"document_id":"d1","offset":6,"length":4}""")
+        ).getOrThrow()
+
+        assertThat(out).contains("😀")
+        assertThat(out).contains("【正文片段：第 6–9 字符，共 9 字符】")
+        assertThat(out).contains("😀结束")
+    }
+
+    @Test
     fun `list_documents 返回文件夹结构与名称路径`() = runTest {
         coEvery { folderRepository.getAllFolders() } returns Result.success(
             listOf(

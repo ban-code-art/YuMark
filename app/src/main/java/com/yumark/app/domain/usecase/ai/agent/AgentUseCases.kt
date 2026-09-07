@@ -776,8 +776,8 @@ private fun buildDocumentContextSection(
         "完整内容如下（编辑时基于此给出可唯一定位的 old_string）：\n$content"
     } else {
         val outline = content.takeIf { it.isNotBlank() }
-            ?.let { com.yumark.app.core.util.documentOutline(it) } ?: "(空)"
-        "$outline\n（文档较大，仅给出大纲；需要某段确切原文时用 read_document 获取）"
+            ?.let { com.yumark.app.domain.usecase.ai.outlineWithOffsets(it) } ?: "(空)"
+        "$outline\n（文档较大，以上是带字符偏移的标题大纲；需要某段确切原文时用 mode=full + offset=<该标题的偏移> 分页读取）"
     }
     return "当前打开的文档：《$documentName》\n$detail"
 }

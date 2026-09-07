@@ -73,8 +73,9 @@ class AgentSystemPromptTest {
         val bigDoc = "# 标题\n" + "正文".repeat(4000)   // 12001 字符，超 FULL_DOC_CONTEXT_BUDGET
         val prompt = buildAgentSystemPrompt("长文", bigDoc, emptyList())
 
-        assertThat(prompt).contains("仅给出大纲")
-        assertThat(prompt).contains("read_document 获取")
+        // 超预算退回大纲模式：指引文案指向新的「带字符偏移的大纲 + 分页跳读」用法
+        assertThat(prompt).contains("带字符偏移的标题大纲")
+        assertThat(prompt).contains("offset=")
         assertThat(prompt).doesNotContain("完整内容如下")
     }
 
