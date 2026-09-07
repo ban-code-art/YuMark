@@ -175,7 +175,10 @@ data class MessageAttachment(
 @Serializable
 enum class AgentActionType {
     CREATE_DOCUMENT,    // 创建新文档
-    EDIT_DOCUMENT       // 编辑当前文档
+    EDIT_DOCUMENT,      // 编辑当前文档
+    MOVE_DOCUMENT,      // 移动文档到文件夹（可逆）
+    RENAME_DOCUMENT,    // 重命名文档（可逆；重名自动改名落座）
+    DELETE_DOCUMENT     // 删除文档（= 移入回收站；Agent 永远没有彻底删除权限）
 }
 
 /** Agent 操作状态 */
@@ -197,6 +200,13 @@ data class AgentAction(
     val description: String,
     val targetDocumentId: String? = null,
     val content: String,
+    // ===== 动作空间扩展（move/rename/delete，v0.12）=====
+    /** 批量动作的目标（多选移动/删除）；单目标动作用 [targetDocumentId]。 */
+    val targetIds: List<String> = emptyList(),
+    /** MOVE：目标文件夹 id；null = 根目录。 */
+    val destinationFolderId: String? = null,
+    /** RENAME：新名字（已按同级重名规则调整后的最终名）。 */
+    val newName: String? = null,
     val status: AgentActionStatus = AgentActionStatus.PENDING,
     /**
      * EDIT_DOCUMENT：提议生成那一刻目标文档原文的指纹

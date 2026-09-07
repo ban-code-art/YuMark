@@ -15,6 +15,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -204,7 +207,16 @@ private fun WholeContentCard(
                 modifier = Modifier.testTag(AgentActionTestTags.DESCRIPTION)
             )
 
-            TextButton(
+            // move/rename/delete 无正文可预览：不渲染「展开正文」，delete 附回收站警示行
+            if (action.type == AgentActionType.DELETE_DOCUMENT) {
+                Text(
+                    stringResource(R.string.agent_action_delete_warning),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.testTag(AgentActionTestTags.DESCRIPTION)
+                )
+            }
+            if (action.content.isNotBlank()) TextButton(
                 onClick = { expanded = !expanded },
                 contentPadding = PaddingValues(AppSpacing.None),
                 modifier = Modifier.testTag(AgentActionTestTags.CONTENT_TOGGLE)
@@ -219,7 +231,7 @@ private fun WholeContentCard(
                 )
             }
             AnimatedVisibility(
-                visible = expanded,
+                visible = expanded && action.content.isNotBlank(),
                 enter = expandVertically(AppMotion.enter()) + fadeIn(AppMotion.enter()),
                 exit = shrinkVertically(AppMotion.exit()) + fadeOut(AppMotion.exit())
             ) {
@@ -275,16 +287,31 @@ private fun ActionHeader(type: AgentActionType, status: AgentActionStatus) {
     val (icon, labelRes) = when (type) {
         AgentActionType.CREATE_DOCUMENT -> Icons.Default.Add to R.string.agent_action_type_create
         AgentActionType.EDIT_DOCUMENT -> Icons.Default.Edit to R.string.agent_action_type_edit
+        AgentActionType.MOVE_DOCUMENT -> Icons.Default.Folder to R.string.agent_action_type_move
+        AgentActionType.RENAME_DOCUMENT -> Icons.Default.DriveFileRenameOutline to R.string.agent_action_type_rename
+        AgentActionType.DELETE_DOCUMENT -> Icons.Default.Delete to R.string.agent_action_type_delete
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.Default)
     ) {
         Box(
-            modifier = Modifier.size(AgentActionMetrics.GlyphBadge).clip(CircleShape).background(cs.primaryContainer),
+            modifier = Modifier
+                .size(AgentActionMetrics.GlyphBadge)
+                .clip(CircleShape)
+                .background(
+                    if (type == AgentActionType.DELETE_DOCUMENT) cs.errorContainer
+                    else cs.primaryContainer
+                ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(AgentActionMetrics.GlyphIcon), tint = cs.onPrimaryContainer)
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(AgentActionMetrics.GlyphIcon),
+                tint = if (type == AgentActionType.DELETE_DOCUMENT) cs.onErrorContainer
+                else cs.onPrimaryContainer
+            )
         }
         Text(
             stringResource(labelRes),

@@ -215,4 +215,12 @@
     <string name="ai_config_streaming_unavailable">unavailable</string>
     <string name="ai_config_unknown_error">Unknown error</string>
 
+    <!-- Agent action card: action space extension (move/rename/delete) -->
+    <string name="agent_action_type_move">Move documents</string>
+    <string name="agent_action_type_rename">Rename document</string>
+    <string name="agent_action_type_delete">Delete documents (to trash)</string>
+    <string name="agent_action_move_desc">Move %1$d document(s) to \"%2$s\"</string>
+    <string name="agent_action_rename_desc">Rename document: %1$s → %2$s</string>
+    <string name="agent_action_delete_desc">Move %1$d document(s) to trash (recoverable for 30 days)</string>
+    <string name="agent_action_delete_warning">Deletion is not permanent: documents go to the trash and can be restored within 30 days.</string>
 </resources>

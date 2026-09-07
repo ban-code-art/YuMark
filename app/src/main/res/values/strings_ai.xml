@@ -261,4 +261,12 @@
     <string name="ai_config_streaming_unavailable">不可用</string>
     <string name="ai_config_unknown_error">未知错误</string>
 
+    <!-- Agent 动作卡片：动作空间扩展（move/rename/delete） -->
+    <string name="agent_action_type_move">移动文档</string>
+    <string name="agent_action_type_rename">重命名文档</string>
+    <string name="agent_action_type_delete">删除文档（移入回收站）</string>
+    <string name="agent_action_move_desc">将 %1$d 篇文档移动到「%2$s」</string>
+    <string name="agent_action_rename_desc">重命名文档：%1$s → %2$s</string>
+    <string name="agent_action_delete_desc">将 %1$d 篇文档移入回收站（30 天内可恢复）</string>
+    <string name="agent_action_delete_warning">删除不是永久的：文档会进入回收站，30 天内可随时恢复。</string>
 </resources>

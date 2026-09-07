@@ -134,6 +134,63 @@ object DocumentContextTools {
         )
     )
 
+    val MOVE_DOCUMENT = AiTool(
+        name = "move_documents",
+        description = "把若干文档移动到指定文件夹。先移动后可再移回，随时可逆。" +
+            "目标文件夹用 list_documents 查到的文件夹 ID；根目录传 null。",
+        parameters = mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "document_ids" to mapOf(
+                    "type" to "array",
+                    "description" to "要移动的文档 ID 列表",
+                    "items" to mapOf("type" to "string")
+                ),
+                "target_folder_id" to mapOf(
+                    "type" to "string",
+                    "description" to "目标文件夹 ID；null 或省略 = 根目录"
+                )
+            ),
+            "required" to listOf("document_ids")
+        )
+    )
+
+    val RENAME_DOCUMENT = AiTool(
+        name = "rename_document",
+        description = "重命名一篇文档。同级若有同名文档会自动在名字后加序号。",
+        parameters = mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "document_id" to mapOf(
+                    "type" to "string",
+                    "description" to "目标文档 ID"
+                ),
+                "new_name" to mapOf(
+                    "type" to "string",
+                    "description" to "新文档名"
+                )
+            ),
+            "required" to listOf("document_id", "new_name")
+        )
+    )
+
+    val DELETE_DOCUMENT = AiTool(
+        name = "delete_documents",
+        description = "把若干文档移入回收站（30 天内可恢复、可彻底删除）。**不是永久删除**——" +
+            "向用户转述时务必说明是移入回收站。",
+        parameters = mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "document_ids" to mapOf(
+                    "type" to "array",
+                    "description" to "要移入回收站的文档 ID 列表",
+                    "items" to mapOf("type" to "string")
+                )
+            ),
+            "required" to listOf("document_ids")
+        )
+    )
+
     val UPDATE_PLAN = AiTool(
         name = "update_plan",
         description = "维护当前任务的待办计划（todo）。多步任务时用它列出步骤并随进展更新状态；" +
@@ -175,6 +232,9 @@ object DocumentContextTools {
         SEARCH_IN_PROJECT,
         CREATE_DOCUMENT,
         EDIT_DOCUMENT,
+        MOVE_DOCUMENT,
+        RENAME_DOCUMENT,
+        DELETE_DOCUMENT,
         UPDATE_PLAN
     ) + WebTools.all + MemoryTools.all + KnowledgeTools.all
 }

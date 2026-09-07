@@ -17,7 +17,9 @@ import org.junit.jupiter.api.Test
 class BuildWriteProposalUseCaseTest {
 
     private val loadDocument: LoadDocumentUseCase = mockk()
-    private val useCase = BuildWriteProposalUseCase(loadDocument)
+    private val documentRepository: com.yumark.app.domain.repository.DocumentRepository = mockk(relaxed = true)
+    private val folderRepository: com.yumark.app.domain.repository.FolderRepository = mockk(relaxed = true)
+    private val useCase = BuildWriteProposalUseCase(loadDocument, documentRepository, folderRepository)
 
     private fun doc(text: String): Document = mockk { every { content } returns text }
 

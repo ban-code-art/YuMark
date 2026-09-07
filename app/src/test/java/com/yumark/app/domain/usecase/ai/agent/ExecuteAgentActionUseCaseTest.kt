@@ -41,7 +41,10 @@ class ExecuteAgentActionUseCaseTest {
     private val conversationRepository: ConversationRepository = mockk(relaxed = true)
     private val documentVersionRepository: DocumentVersionRepository = mockk(relaxed = true)
 
+    private val documentRepository: com.yumark.app.domain.repository.DocumentRepository = mockk(relaxed = true)
+
     private val useCase = ExecuteAgentActionUseCase(
+        documentRepository,
         createDocumentUseCase,
         saveDocumentUseCase,
         loadDocumentUseCase,

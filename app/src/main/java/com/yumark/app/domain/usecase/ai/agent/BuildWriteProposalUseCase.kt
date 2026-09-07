@@ -26,7 +26,9 @@ import javax.inject.Inject
  * 其 message 由 [SendAgentMessageUseCase] 回填给模型，引导自我修正。
  */
 class BuildWriteProposalUseCase @Inject constructor(
-    private val loadDocument: LoadDocumentUseCase
+    private val loadDocument: LoadDocumentUseCase,
+    private val documentRepository: com.yumark.app.domain.repository.DocumentRepository,
+    private val folderRepository: com.yumark.app.domain.repository.FolderRepository
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -74,9 +76,112 @@ class BuildWriteProposalUseCase @Inject constructor(
                     baseContentHash = ContentHash.of(base)
                 )
             }
+            "move_documents" -> moveProposal(call)
+            "rename_document" -> renameProposal(call)
+            "delete_documents" -> deleteProposal(call)
             else -> throw EditException("非写工具：${call.name}")
         }
     }
+
+    /** move_documents 提议：目标存在性 + 目标文件夹存在性全部前置验证，错误回喂模型自纠。 */
+    // 前置校验器形：每个 throw 是一条回喂模型的自纠指引（ ThrowsCount 阈值对校验器不适用）
+    @Suppress("ThrowsCount")
+    private suspend fun moveProposal(call: ToolCall): AgentAction {
+        val args = json.decodeFromString(MoveArgs.serializer(), call.arguments)
+        val ids = args.documentIds.filter { it.isNotBlank() }
+        if (ids.isEmpty()) throw EditException("move_documents 缺少 document_ids。")
+        val invalid = ids.filter { documentRepository.isTrashed(it) }
+        if (invalid.isNotEmpty()) {
+            throw EditException("以下文档已在回收站，无法移动：${invalid.joinToString()}。")
+        }
+        val folder = args.targetFolderId
+        val folderExists = folder == null || folderRepository.getAllFolders()
+            .getOrDefault(emptyList()).any { it.id == folder }
+        if (!folderExists) {
+            throw EditException("目标文件夹不存在：$folder（用 list_documents 查询正确 ID）。")
+        }
+        return AgentAction(
+            type = AgentActionType.MOVE_DOCUMENT,
+            description = "移动 ${ids.size} 篇文档",
+            targetIds = ids,
+            destinationFolderId = folder,
+            content = ""
+        )
+    }
+
+    /** rename_document 提议：目标存在 + 同级撞名自动追加序号（最终名写进 description）。 */
+    // 前置校验器形：每个 throw 是一条回喂模型的自纠指引（ ThrowsCount 阈值对校验器不适用）
+    @Suppress("ThrowsCount")
+    private suspend fun renameProposal(call: ToolCall): AgentAction {
+        val args = json.decodeFromString(RenameArgs.serializer(), call.arguments)
+        val docId = args.documentId?.ifBlank { null }
+            ?: throw EditException("rename_document 缺少 document_id。")
+        val rawName = args.newName?.trim().orEmpty()
+        if (rawName.isEmpty()) throw EditException("rename_document 缺少 new_name。")
+        val doc = loadDocument(docId).getOrElse {
+            throw EditException("目标文档不存在：$docId（用 list_documents 查询）。")
+        }
+        val siblings = documentRepository.getDocumentsByFolder(doc.folderId)
+            .getOrDefault(emptyList())
+            .map { com.yumark.app.domain.usecase.NamedEntry(it.id, it.name) }
+        val finalName = resolveRenamedTo(siblings, rawName, excludeId = docId)
+        return AgentAction(
+            type = AgentActionType.RENAME_DOCUMENT,
+            description = "重命名：${doc.name} → $finalName",
+            targetDocumentId = docId,
+            newName = finalName,
+            content = ""
+        )
+    }
+
+    /** delete_documents 提议：目标必须不在回收站（防重复提议），语义=移入回收站。 */
+    // 前置校验器形：每个 throw 是一条回喂模型的自纠指引（ ThrowsCount 阈值对校验器不适用）
+    @Suppress("ThrowsCount")
+    private suspend fun deleteProposal(call: ToolCall): AgentAction {
+        val args = json.decodeFromString(DeleteArgs.serializer(), call.arguments)
+        val ids = args.documentIds.filter { it.isNotBlank() }
+        if (ids.isEmpty()) throw EditException("delete_documents 缺少 document_ids。")
+        val trashed = ids.filter { documentRepository.isTrashed(it) }
+        if (trashed.isNotEmpty()) {
+            throw EditException("以下文档已在回收站：${trashed.joinToString()}（无需重复删除）。")
+        }
+        return AgentAction(
+            type = AgentActionType.DELETE_DOCUMENT,
+            description = "移入回收站 ${ids.size} 篇文档",
+            targetIds = ids,
+            content = ""
+        )
+    }
+}
+
+@Serializable
+private data class MoveArgs(
+    @SerialName("document_ids") val documentIds: List<String> = emptyList(),
+    @SerialName("target_folder_id") val targetFolderId: String? = null
+)
+
+@Serializable
+private data class RenameArgs(
+    @SerialName("document_id") val documentId: String? = null,
+    @SerialName("new_name") val newName: String? = null
+)
+
+@Serializable
+private data class DeleteArgs(
+    @SerialName("document_ids") val documentIds: List<String> = emptyList()
+)
+
+/** 同级重名时追加序号（与回收站恢复的 freeNameAmong 同规则，规则只留一份）。 */
+private fun resolveRenamedTo(
+    siblings: List<com.yumark.app.domain.usecase.NamedEntry>,
+    rawName: String,
+    excludeId: String
+): String {
+    val taken = siblings.filter { it.id != excludeId }.map { it.name }.toSet()
+    if (rawName !in taken) return rawName
+    var n = 2
+    while ("$rawName ($n)" in taken) n++
+    return "$rawName ($n)"
 }
 
 @Serializable

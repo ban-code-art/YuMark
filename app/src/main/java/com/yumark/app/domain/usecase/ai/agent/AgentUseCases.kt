@@ -476,7 +476,8 @@ class SendAgentMessageUseCase @Inject constructor(
                     emit(AgentMessageState.ToolStep(callingStep))
 
                     when (call.name) {
-                        "create_document", "edit_document" -> {
+                        "create_document", "edit_document",
+                        "move_documents", "rename_document", "delete_documents" -> {
                             buildWriteProposal(call, currentDocumentId).fold(
                                 onSuccess = { act ->
                                     proposal = act
@@ -654,19 +655,38 @@ class SendAgentMessageUseCase @Inject constructor(
  * 复用 [CreateDocumentUseCase] / [SaveDocumentUseCase] 以保持字数统计、时间戳逻辑一致。
  */
 class ExecuteAgentActionUseCase @Inject constructor(
+    private val documentRepository: com.yumark.app.domain.repository.DocumentRepository,
     private val createDocumentUseCase: CreateDocumentUseCase,
     private val saveDocumentUseCase: SaveDocumentUseCase,
     private val loadDocumentUseCase: LoadDocumentUseCase,
     private val conversationRepository: ConversationRepository,
     private val documentVersionRepository: DocumentVersionRepository
 ) {
-    /** @return 受影响文档的 id（CREATE 为新文档，EDIT 为目标文档） */
+    /** @return 受影响文档的 id（CREATE 为新文档，EDIT/MOVE/RENAME/DELETE 为目标或首个目标） */
     suspend operator fun invoke(
         message: Message,
         action: AgentAction,
         finalContent: String? = null
     ): Result<String> = runCatching {
         val documentId = when (action.type) {
+            AgentActionType.MOVE_DOCUMENT -> {
+                val targets = action.targetIds.ifEmpty { listOfNotNull(action.targetDocumentId) }
+                executeBatch(targets) { documentRepository.moveDocument(it, action.destinationFolderId) }
+            }
+            AgentActionType.RENAME_DOCUMENT -> {
+                val targetId = action.targetDocumentId
+                    ?: throw EditException("重命名提议缺少目标文档（重新生成）。")
+                val newName = action.newName
+                    ?: throw EditException("重命名提议缺少新名字（重新生成）。")
+                documentRepository.renameDocument(targetId, newName).getOrThrow()
+                targetId
+            }
+            AgentActionType.DELETE_DOCUMENT -> {
+                val targets = action.targetIds.ifEmpty { listOfNotNull(action.targetDocumentId) }
+                // 删除 = 移入回收站。Agent 没有彻底删除权限（结构红线：只有回收站页的人工
+                // 操作能 purge），墓碑/文件清理全部由回收站语义接管。
+                executeBatch(targets) { documentRepository.moveToTrash(it) }
+            }
             AgentActionType.CREATE_DOCUMENT -> createFromAction(action, action.description)
             AgentActionType.EDIT_DOCUMENT -> {
                 val targetId = action.targetDocumentId
@@ -692,6 +712,54 @@ class ExecuteAgentActionUseCase @Inject constructor(
         )
         documentId
     }
+
+    /**
+     * 批量动作逐条执行：一条失败记录后继续（与同步循环的失败处理同模式），
+     * 全部结束才汇总——部分成功不回滚（每条独立可逆），失败清单进异常消息。
+     * 返回首个成功的 id（无成功时抛汇总异常）。
+     */
+    private suspend fun executeBatch(
+        ids: List<String>,
+        op: suspend (String) -> Result<Unit>
+    ): String {
+        val summary = batchSummary(ids, op)
+        // 单一抛出点：三种结局（全空/全败/部分败）折成一条可操作消息
+        summary.error?.let { throw EditException(it) }
+        return summary.firstOk ?: throw EditException("批量操作目标为空（重新生成）。")
+    }
+
+    /** 批量执行结算：逐条容错（一条失败不挡其余，与同步循环同模式），失败清单进消息。 */
+    private suspend fun batchSummary(
+        ids: List<String>,
+        op: suspend (String) -> Result<Unit>
+    ): BatchOutcome {
+        if (ids.isEmpty()) return BatchOutcome(null, "批量操作目标为空（重新生成）。")
+        val failures = mutableListOf<String>()
+        var firstOk: String? = null
+        for (id in ids) {
+            val result = runCatching { op(id) }
+            val ok = result.isSuccess || (result.exceptionOrNull() as? Result<*>)?.isSuccess == true
+            if (ok) {
+                if (firstOk == null) firstOk = id
+            } else {
+                failures += id
+            }
+        }
+        return when {
+            firstOk == null -> BatchOutcome(
+                null, "批量操作全部失败（${ids.size} 篇）：${failures.joinToString()}"
+            )
+            failures.isNotEmpty() -> BatchOutcome(
+                firstOk,
+                "部分成功：${ids.size - failures.size} 篇完成，${failures.size} 篇失败" +
+                    "（${failures.joinToString()}）"
+            )
+            else -> BatchOutcome(firstOk, null)
+        }
+    }
+
+    /** 批量结算：首个成功 id 与可操作错误消息（null = 全部成功）。 */
+    private data class BatchOutcome(val firstOk: String?, val error: String?)
 
     /** 建文档 → 写入正文 → 落首个历史版本。CREATE 与「无 target 的 EDIT」降级共用。 */
     private suspend fun createFromAction(action: AgentAction, rawTitle: String): String {
@@ -747,7 +815,10 @@ class ExecuteAgentActionUseCase @Inject constructor(
 private const val MAX_TURNS = 10
 
 /** 需要串行（有状态/收敛语义）的工具：写提议与计划维护不参与并行。 */
-private val WRITE_OR_PLAN_TOOLS = setOf("create_document", "edit_document", "update_plan")
+private val WRITE_OR_PLAN_TOOLS = setOf(
+    "create_document", "edit_document", "update_plan",
+    "move_documents", "rename_document", "delete_documents"
+)
 
 /** 只读工具的执行器分发（并行轮次与串行轮次共用同一张表）。 */
 private fun readOnlyExecutor(
@@ -958,6 +1029,10 @@ private fun planGuidance(): String = """
 private fun approvalGuidance(): String = """
     # 审批
     任何创建/编辑都会先以预览或逐行 diff 呈现给用户，由用户确认后才真正写入。放心提出改动；但务必保证内容完整、准确。
+
+    # 整理类动作（move_documents / rename_document / delete_documents）
+    同样经过审批门。delete 是**移入回收站**（30 天内可恢复），向用户说明时不要说「永久删除」。
+    不确定目标文档或文件夹时，先用 list_documents 确认 ID 再提议，不要凭记忆猜测。
 
     # 仅当端点不支持函数调用时
     （你确实无法发起 edit_document / create_document 工具调用）才改为：把**完整文档正文放进一个 ```markdown 围栏代码块**（围栏外只放一句说明），用户仍会收到审批预览，并非直接生效。围栏内必须是文档真实正文，**不能是"改了哪些地方"的说明或要点清单**。能调用工具时不要走这条路径——局部修改走 edit_document，整篇重写走上文的围栏输出。
