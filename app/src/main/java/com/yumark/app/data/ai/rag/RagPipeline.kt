@@ -50,12 +50,13 @@ private const val JOB_ERROR_MAX_CHARS = 300
  * 幂等：同一文档内容哈希未变则跳过重复索引（避免重复付费）。
  */
 @Singleton
+@Suppress("TooManyFunctions")  // AgentToolService 桥接 +1，类本体内聚不拆
 class RagPipeline @Inject constructor(
     private val ragDao: RagDao,
     private val vectorStore: VectorStore,
     private val adapterFactory: AiAdapterFactory,
     private val configRepository: AiConfigRepository
-) {
+) : com.yumark.app.domain.repository.ai.AgentToolService {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val indexMutex = Mutex()
@@ -72,7 +73,7 @@ class RagPipeline @Inject constructor(
 
     // ---------- 工具执行 ----------
 
-    suspend fun execute(toolCall: ToolCall): Result<String> = runCatching {
+    override suspend fun execute(toolCall: ToolCall): Result<String> = runCatching {
         val args = json.decodeFromString<Map<String, JsonElement>>(toolCall.arguments)
         when (toolCall.name) {
             "search_knowledge" -> searchKnowledge(args)

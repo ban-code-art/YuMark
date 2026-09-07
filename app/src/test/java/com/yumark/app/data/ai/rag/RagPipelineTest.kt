@@ -47,7 +47,7 @@ class RagPipelineTest {
 
     private val ragDao: RagDao = mockk(relaxed = true)
     private val vectorStore: VectorStore = mockk(relaxed = true)
-    private val adapterFactory: AiAdapterFactory = mockk()
+    private val adapterFactory: com.yumark.app.data.ai.AiAdapterFactory = mockk()
     private val configRepository: AiConfigRepository = mockk()
 
     private val configFlow = MutableStateFlow(

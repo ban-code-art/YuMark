@@ -6,7 +6,8 @@ import androidx.documentfile.provider.DocumentFile
 import com.yumark.app.R
 import com.yumark.app.core.util.FriendlyIOException
 import com.yumark.app.core.util.UiMessage
-import com.yumark.app.data.local.file.FileManager
+import com.yumark.app.domain.repository.ImportFilePort
+import com.yumark.app.domain.repository.ImportFilePort.ImportImageSpec
 import com.yumark.app.domain.usecase.NamedEntry
 import com.yumark.app.domain.usecase.findNameConflict
 import com.yumark.app.domain.repository.DocumentRepository
@@ -59,7 +60,7 @@ class ImportFolderUseCase @Inject constructor(
     @ApplicationContext private val context: Context,
     private val documentRepository: DocumentRepository,
     private val folderRepository: FolderRepository,
-    private val fileManager: FileManager
+    private val fileManager: ImportFilePort
 ) {
     companion object {
         private val SUPPORTED_EXTENSIONS = setOf("md", "markdown", "txt")
@@ -67,7 +68,6 @@ class ImportFolderUseCase @Inject constructor(
         private const val MAX_DEPTH = 10
         private const val MAX_FILES = 2000
         private const val MAX_IMAGES = 2000
-        private const val MAX_IMAGE_BYTES = 25L * 1024 * 1024
     }
 
     /**
@@ -233,39 +233,15 @@ class ImportFolderUseCase @Inject constructor(
     }
 
     /**
-     * 复制图片到 import_assets 镜像目录，保留相对结构；单张失败/超限不中断整体导入。
+     * 复制图片到 import_assets 镜像目录：纯文件操作已下沉 FileManager.copyImportImages
+     * （依赖倒置：use case 不再 import data 层的文件工具）。
      * 复制所选树内全部图片：文档可能用 ../ 引用任意树内位置，按文档目录过滤会漏。
      */
     private fun copyImages(images: List<ImportCandidate>) {
-        val assetsRoot = fileManager.getImportAssetsDir()
-        for (image in images) {
-            runCatching {
-                val dir = image.relativeFolderPath
-                    .map { FileManager.sanitizeImportSegment(it) }
-                    .fold(assetsRoot) { parent, segment -> File(parent, segment) }
-                dir.mkdirs()
-                val target = File(dir, FileManager.sanitizeImportSegment(image.displayName))
-                val complete = context.contentResolver.openInputStream(image.uri.toUri())
-                    ?.use { input -> copyWithLimit(input, target) } ?: false
-                // 超过单张大小上限：不留半截文件
-                if (!complete) target.delete()
-            }
-        }
-    }
-
-    /** 边复制边限量，超过 MAX_IMAGE_BYTES 返回 false（替代扫描期逐文件 length() 查询） */
-    private fun copyWithLimit(input: java.io.InputStream, target: File): Boolean {
-        target.outputStream().use { out ->
-            val buf = ByteArray(64 * 1024)
-            var total = 0L
-            while (true) {
-                val n = input.read(buf)
-                if (n < 0) return true
-                total += n
-                if (total > MAX_IMAGE_BYTES) return false
-                out.write(buf, 0, n)
-            }
-        }
+        fileManager.copyImportImages(
+            context,
+            images.map { ImportImageSpec(it.uri, it.displayName, it.relativeFolderPath) }
+        )
     }
 
     /**

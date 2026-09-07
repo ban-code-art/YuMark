@@ -106,6 +106,19 @@ jobs:
     - name: Detekt static analysis
       run: ./gradlew :app:detekt
 
+    # 分层依赖方向门禁：domain 禁止 import data（依赖倒置后 domain 只认契约接口）。
+    # 违规曾经靠 review 靠眼（v0.11 前有 7 处、修了 6 处都是它漏掉的）——现在提交即红。
+    # 与 Room schema 守卫同一模式：grep 即规则，零维护成本。
+    - name: Guard domain layer imports
+      run: |
+        violations="$(grep -rn "import com.yumark.app.data" app/src/main/java/com/yumark/app/domain/ || true)"
+        if [ -n "$violations" ]; then
+          echo "::error::domain 层禁止 import data 层（依赖倒置：请依赖 domain/repository 的契约接口）"
+          echo "$violations"
+          exit 1
+        fi
+        echo "domain → data 依赖方向检查通过"
+
     # Room 在 KSP 阶段把每个版本的 schema 导出到 app/schemas/，该目录已纳入 git 跟踪。
     # 改了 @Entity 或 @Database(version) 却没提交重新导出的 json，这里的 diff 就非空。
     #

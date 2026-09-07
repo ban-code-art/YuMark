@@ -33,7 +33,8 @@ import com.yumark.app.domain.usecase.SaveDocumentUseCase
 import com.yumark.app.domain.usecase.ai.DocumentContextTools
 import com.yumark.app.domain.usecase.ai.EditException
 import com.yumark.app.domain.usecase.ai.ExecuteDocumentToolUseCase
-import com.yumark.app.data.ai.AiAdapterFactory
+import com.yumark.app.domain.repository.ai.AgentToolService
+import com.yumark.app.domain.repository.ai.AiAdapterProvider
 import kotlinx.serialization.Serializable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -74,17 +75,24 @@ sealed class AgentMessageState {
  *
  * 保留：doom-loop 重复签名检测、最大轮次、空响应兜底、取消/异常 finally 终态化。
  */
+// 8 个依赖：已从 10 个收拢（外围服务经 AgentToolService 端口聚合）。再合并
+//（如把文档工具也折进端口）会把「审批门」「任务仓储」这些异质依赖搅进一个端口，
+// 可读性损失大于参数数收益，故对阈值保留 1 的越界并注明。
+@Suppress("LongParameterList")
 class SendAgentMessageUseCase @Inject constructor(
     private val conversationRepository: ConversationRepository,
     private val configRepository: AiConfigRepository,
-    private val adapterFactory: AiAdapterFactory,
+    private val adapterProvider: AiAdapterProvider,
     private val imageProcessor: com.yumark.app.core.image.ImageProcessor,
     private val agentTaskRepository: AgentTaskRepository,
     private val executeDocumentTool: ExecuteDocumentToolUseCase,
     private val buildWriteProposal: BuildWriteProposalUseCase,
-    private val webSearchService: com.yumark.app.data.ai.web.WebSearchService,
-    private val memoryService: com.yumark.app.data.ai.memory.MemoryService,
-    private val ragPipeline: com.yumark.app.data.ai.rag.RagPipeline
+    // 外围工具端口（联网搜索 / 记忆+知识检索）：实现是 data 侧三个服务，
+    // 经 AgentToolService 接口注入——构造从 10 参收拢到 8，且 domain 不再 import data
+    @com.yumark.app.di.WebSearchPort
+    private val webSearchService: com.yumark.app.domain.repository.ai.AgentToolService,
+    @com.yumark.app.di.MemoryKnowledgePort
+    private val memoryAndKnowledge: com.yumark.app.domain.repository.ai.AgentToolService
 ) {
     operator fun invoke(
         conversationId: String,
@@ -135,7 +143,7 @@ class SendAgentMessageUseCase @Inject constructor(
             userMessage = userMessage
         )
 
-        val adapter = adapterFactory.createAdapter(config)
+        val adapter = adapterProvider.chatAdapter(config)
 
         // 历史（纯文本，排除本轮用户消息——本轮单独构造，可能带图）
         val priorMessages = conversationRepository.observeConversation(conversationId).first()
@@ -427,7 +435,7 @@ class SendAgentMessageUseCase @Inject constructor(
                                 async {
                                     val result: Result<String> = runCatching {
                                         readOnlyExecutor(
-                                            call, webSearchService, memoryService, ragPipeline, executeDocumentTool
+                                            call, webSearchService, memoryAndKnowledge, executeDocumentTool
                                         )(call)
                                     }.fold(
                                         onSuccess = { it },
@@ -506,9 +514,10 @@ class SendAgentMessageUseCase @Inject constructor(
                             agentSteps.add(done)
                             emit(AgentMessageState.ToolStep(done))
                         }
-                        "web_search" -> runReadOnlyTool(call) { webSearchService.search(it) }
-                        "save_memory", "search_memory", "list_memories" -> runReadOnlyTool(call) { memoryService.execute(it) }
-                        "search_knowledge", "knowledge_stats" -> runReadOnlyTool(call) { ragPipeline.execute(it) }
+                        "web_search" -> runReadOnlyTool(call) { webSearchService.execute(it) }
+                        "save_memory", "search_memory", "list_memories",
+                        "search_knowledge", "knowledge_stats" ->
+                            runReadOnlyTool(call) { memoryAndKnowledge.execute(it) }
                         else -> {
                             // 只读工具：read_document / list_documents / search_in_project
                             runReadOnlyTool(call) { executeDocumentTool(it) }
@@ -743,14 +752,13 @@ private val WRITE_OR_PLAN_TOOLS = setOf("create_document", "edit_document", "upd
 /** 只读工具的执行器分发（并行轮次与串行轮次共用同一张表）。 */
 private fun readOnlyExecutor(
     call: ToolCall,
-    webSearchService: com.yumark.app.data.ai.web.WebSearchService,
-    memoryService: com.yumark.app.data.ai.memory.MemoryService,
-    ragPipeline: com.yumark.app.data.ai.rag.RagPipeline,
+    webSearchService: com.yumark.app.domain.repository.ai.AgentToolService,
+    memoryAndKnowledge: com.yumark.app.domain.repository.ai.AgentToolService,
     executeDocumentTool: ExecuteDocumentToolUseCase
 ): suspend (ToolCall) -> Result<String> = when (call.name) {
-    "web_search" -> { c -> webSearchService.search(c) }
-    "save_memory", "search_memory", "list_memories" -> { c -> memoryService.execute(c) }
-    "search_knowledge", "knowledge_stats" -> { c -> ragPipeline.execute(c) }
+    "web_search" -> { c -> webSearchService.execute(c) }
+    "save_memory", "search_memory", "list_memories",
+    "search_knowledge", "knowledge_stats" -> { c -> memoryAndKnowledge.execute(c) }
     else -> { c -> executeDocumentTool(c) }
 }
 

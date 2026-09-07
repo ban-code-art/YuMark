@@ -1,7 +1,7 @@
 package com.yumark.app.domain.usecase.ai.agent
 
 import com.google.common.truth.Truth.assertThat
-import com.yumark.app.data.ai.AiAdapterFactory
+import com.yumark.app.domain.repository.ai.AiAdapterProvider
 import com.yumark.app.data.ai.AiApiAdapter
 import com.yumark.app.domain.model.AgentAction
 import com.yumark.app.domain.model.AgentActionType
@@ -68,7 +68,7 @@ class SendAgentMessageUseCaseTest {
 
     private val conversationRepository: ConversationRepository = mockk(relaxed = true)
     private val configRepository: AiConfigRepository = mockk()
-    private val adapterFactory: AiAdapterFactory = mockk()
+    private val adapterFactory: AiAdapterProvider = mockk()
     private val executeDocumentTool: ExecuteDocumentToolUseCase = mockk()
     private val imageProcessor: com.yumark.app.core.image.ImageProcessor = mockk()
     private val agentTaskRepository: AgentTaskRepository = mockk(relaxed = true)
@@ -91,7 +91,16 @@ class SendAgentMessageUseCaseTest {
     }
 
     private fun useCase(adapter: AiApiAdapter): SendAgentMessageUseCase {
-        every { adapterFactory.createAdapter(any()) } returns adapter
+        every { adapterFactory.chatAdapter(any()) } returns adapter
+        // 两个端口：webSearch 直连，memory+rag 聚合为一个 AgentToolService（按工具名分发）
+        val memoryAndKnowledge = object : com.yumark.app.domain.repository.ai.AgentToolService {
+            override suspend fun execute(toolCall: com.yumark.app.domain.model.ToolCall): Result<String> =
+                if (toolCall.name in setOf("save_memory", "search_memory", "list_memories")) {
+                    memoryService.execute(toolCall)
+                } else {
+                    ragPipeline.execute(toolCall)
+                }
+        }
         return SendAgentMessageUseCase(
             conversationRepository,
             configRepository,
@@ -101,8 +110,7 @@ class SendAgentMessageUseCaseTest {
             executeDocumentTool,
             buildWriteProposal,
             webSearchService,
-            memoryService,
-            ragPipeline
+            memoryAndKnowledge
         )
     }
 

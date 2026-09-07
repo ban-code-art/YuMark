@@ -34,7 +34,7 @@ import com.yumark.app.domain.model.AiTool
 import com.yumark.app.domain.model.ChatMessage
 import com.yumark.app.domain.model.StreamEvent
 import com.yumark.app.domain.repository.AiConfigRepository
-import com.yumark.app.data.ai.AiAdapterFactory
+import com.yumark.app.domain.repository.ai.AiAdapterProvider
 import com.yumark.app.presentation.ai.agent.AgentActionCard
 import com.yumark.app.presentation.ai.common.MessageBubble
 import com.yumark.app.presentation.common.resolveOrNull
@@ -516,7 +516,7 @@ fun AiQuickDialog(
 @HiltViewModel
 class AiQuickViewModel @Inject constructor(
     private val configRepository: AiConfigRepository,
-    private val adapterFactory: AiAdapterFactory
+    private val adapterProvider: AiAdapterProvider
 ) : ViewModel() {
 
     private val _userInput = MutableStateFlow("")
@@ -643,7 +643,7 @@ class AiQuickViewModel @Inject constructor(
                     return@launch
                 }
 
-                val adapter = adapterFactory.createAdapter(config)
+                val adapter = adapterProvider.chatAdapter(config)
 
                 // 构建消息：传给 AI 的是剥离 yy 后的指令
                 val systemPrompt = buildSystemPrompt(currentModeSnapshot)

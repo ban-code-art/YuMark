@@ -50,7 +50,7 @@ class AiQuickViewModelTest {
     }
 
     private val configRepository: AiConfigRepository = mockk()
-    private val adapterFactory: AiAdapterFactory = mockk()
+    private val adapterFactory: com.yumark.app.domain.repository.ai.AiAdapterProvider = mockk()
     private val testDispatcher = StandardTestDispatcher()
 
     @BeforeEach
@@ -66,7 +66,7 @@ class AiQuickViewModelTest {
     }
 
     private fun viewModel(adapter: AiApiAdapter): AiQuickViewModel {
-        every { adapterFactory.createAdapter(any()) } returns adapter
+        every { adapterFactory.chatAdapter(any()) } returns adapter
         return AiQuickViewModel(configRepository, adapterFactory)
     }
 

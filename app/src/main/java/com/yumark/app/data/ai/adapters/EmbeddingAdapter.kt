@@ -28,13 +28,11 @@ import kotlinx.serialization.json.putJsonArray
  * 而 embedding 恰是最值得指向本地 Ollama 或自建 vLLM 的一段）。解析规则在
  * [com.yumark.app.domain.model.ragBaseUrlResolved]，本类只接受已解析好的一对参数。
  */
-interface EmbeddingAdapter {
-    /**
-     * 对 [input] 批量生成向量。返回顺序与输入一致（显式按响应 index 对齐，兼容乱序端点）。
-     * 单次请求过大时由调用方分批；本方法不做内部分批。
-     */
-    suspend fun embed(input: List<String>, model: String): List<FloatArray>
-}
+/**
+ * 兼容别名：接口本体已上移 domain（domain/repository/ai/EmbeddingApiAdapter.kt）。
+ * 本文件保留 OpenAiEmbeddingAdapter 实现与既有 data 层引用。
+ */
+typealias EmbeddingAdapter = com.yumark.app.domain.repository.ai.EmbeddingApiAdapter
 
 class OpenAiEmbeddingAdapter(
     private val baseUrl: String,

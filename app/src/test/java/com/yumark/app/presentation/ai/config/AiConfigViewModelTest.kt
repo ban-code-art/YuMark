@@ -56,7 +56,7 @@ class AiConfigViewModelTest {
 
     private lateinit var viewModel: AiConfigViewModel
     private val repository: AiConfigRepository = mockk()
-    private val adapterFactory: AiAdapterFactory = mockk()
+    private val adapterFactory: com.yumark.app.domain.repository.ai.AiAdapterProvider = mockk()
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -191,7 +191,7 @@ class AiConfigViewModelTest {
         viewModel.fetchRagModelList()
         advanceUntilIdle()
 
-        coVerify(exactly = 0) { adapterFactory.createRagModelListAdapter(any()) }
+        coVerify(exactly = 0) { adapterFactory.ragModelListAdapter(any()) }
         assertThat(viewModel.state.value.isFetchingRagModels).isFalse()
         assertThat(viewModel.state.value.message)
             .isEqualTo(expectedFailure(UserAction.FETCH_MODELS, R.string.ai_config_rag_base_url_required))
@@ -205,7 +205,7 @@ class AiConfigViewModelTest {
         advanceUntilIdle()
 
         val listAdapter = mockk<AiApiAdapter>()
-        coEvery { adapterFactory.createRagModelListAdapter(any()) } returns listAdapter
+        coEvery { adapterFactory.ragModelListAdapter(any()) } returns listAdapter
         coEvery { listAdapter.fetchAvailableModels() } returns listOf(
             ModelInfo(id = "text-embedding-3-small", name = "Embedding 3 Small")
         )

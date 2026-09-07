@@ -40,10 +40,14 @@ private data class SearchResult(val title: String, val url: String, val snippet:
  * [search] 解析工具调用参数，返回格式化后的上下文字符串（或失败）。
  */
 @Singleton
+@Suppress("TooManyFunctions")  // AgentToolService 桥接 +1，类本体内聚不拆
 class WebSearchService @Inject constructor(
     @WebSearchClient private val client: HttpClient,
     private val configRepository: AiConfigRepository
-) {
+) : com.yumark.app.domain.repository.ai.AgentToolService {
+
+    override suspend fun execute(toolCall: ToolCall): Result<String> = search(toolCall)
+
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     /** 执行 web_search 工具调用，返回注入下轮上下文的字符串。 */

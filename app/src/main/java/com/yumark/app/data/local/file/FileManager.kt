@@ -20,9 +20,10 @@ import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
 
 @Singleton
+@Suppress("TooManyFunctions")  // 文件域聚合根：方法即职责清单，拆类只会制造跳转
 class FileManager @Inject constructor(
     @ApplicationContext private val context: Context
-) {
+) : com.yumark.app.domain.repository.ImportFilePort {
     private val documentsDir = File(context.filesDir, "documents")
     private val imagesDir = File(context.filesDir, "images")
     private val exportsDir = File(context.filesDir, "exports")
@@ -314,6 +315,45 @@ class FileManager @Inject constructor(
     fun getImagesDir(): File = imagesDir
     fun getExportsDir(): File = exportsDir
     fun getImportAssetsDir(): File = importAssetsDir
+
+    /**
+     * 把导入图片复制到 import_assets 镜像目录，保留相对结构；单张失败/超限不中断整体。
+     * [images] 的元素只需提供 uri / displayName / relativeFolderPath 三样。
+     * 超过单张大小上限的：不留半截文件（边复制边限量，删半截）。
+     */
+    override fun copyImportImages(
+        context: android.content.Context,
+        images: List<com.yumark.app.domain.repository.ImportFilePort.ImportImageSpec>
+    ) {
+        for (image in images) {
+            runCatching {
+                val dir = image.relativeFolderPath
+                    .map { sanitizeImportSegment(it) }
+                    .fold(importAssetsDir) { parent, segment -> File(parent, segment) }
+                dir.mkdirs()
+                val target = File(dir, sanitizeImportSegment(image.displayName))
+                val complete = context.contentResolver.openInputStream(android.net.Uri.parse(image.uri))
+                    ?.use { input -> copyWithLimit(input, target, MAX_IMPORT_IMAGE_BYTES) } ?: false
+                if (!complete) target.delete()
+            }
+        }
+    }
+
+    /** 边复制边限量，超过 [maxBytes] 返回 false（调用方删半截文件）。 */
+    private fun copyWithLimit(input: java.io.InputStream, target: File, maxBytes: Long): Boolean {
+        target.outputStream().use { out ->
+            val buf = ByteArray(COPY_BUFFER_BYTES)
+            var total = 0L
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) return true
+                total += n
+                if (total > maxBytes) return false
+                out.write(buf, 0, n)
+            }
+        }
+    }
+
     fun getAiAttachmentsDir(): File = aiAttachmentsDir
 
     /**
@@ -400,6 +440,12 @@ class FileManager @Inject constructor(
          * 导入库镜像目录（import_assets）的路径段消毒：防 SAF 返回的名称带路径分隔符或 ".."。
          * 写镜像（导入复制）与算镜像路径（重命名/删除同步）必须用同一规则，否则对不上。
          */
+        /** 导入单张图片的大小上限（与旧 ImportFolderUseCase 的 MAX_IMAGE_BYTES 一致）。 */
+        private const val MAX_IMPORT_IMAGE_BYTES = 25L * 1024 * 1024
+
+        /** 流式复制的缓冲区大小。 */
+        private const val COPY_BUFFER_BYTES = 64 * 1024
+
         fun sanitizeImportSegment(segment: String): String {
             val cleaned = segment.replace('/', '_').replace('\\', '_')
             return if (cleaned == "..") "_" else cleaned

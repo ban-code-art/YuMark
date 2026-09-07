@@ -27,11 +27,11 @@ private data class Memory(val id: String, val content: String, val category: Mem
 @Singleton
 class MemoryService @Inject constructor(
     private val memoryDao: MemoryDao
-) {
+) : com.yumark.app.domain.repository.ai.AgentToolService {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     /** 执行记忆类工具调用，返回注入下轮上下文的状态/结果字符串。 */
-    suspend fun execute(toolCall: ToolCall): Result<String> = runCatching {
+    override suspend fun execute(toolCall: ToolCall): Result<String> = runCatching {
         val args = json.decodeFromString<Map<String, JsonElement>>(toolCall.arguments)
         when (toolCall.name) {
             "save_memory" -> saveMemory(args)

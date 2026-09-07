@@ -2,7 +2,7 @@ package com.yumark.app.domain.usecase.ai.chat
 
 import com.yumark.app.R
 import com.yumark.app.core.util.UiMessage
-import com.yumark.app.data.ai.AiAdapterFactory
+import com.yumark.app.domain.repository.ai.AiAdapterProvider
 import com.yumark.app.domain.model.AiRequestConfig
 import com.yumark.app.domain.model.ChatMessage
 import com.yumark.app.domain.model.Message
@@ -41,7 +41,7 @@ sealed class ChatMessageState {
 class SendChatMessageUseCase @Inject constructor(
     private val conversationRepository: ConversationRepository,
     private val configRepository: AiConfigRepository,
-    private val adapterFactory: AiAdapterFactory
+    private val adapterProvider: AiAdapterProvider
 ) {
     operator fun invoke(
         conversationId: String,
@@ -59,7 +59,7 @@ class SendChatMessageUseCase @Inject constructor(
             emit(ChatMessageState.Error(UiMessage.Res(R.string.ai_error_not_configured)))
             return@flow
         }
-        val adapter = adapterFactory.createAdapter(config)
+        val adapter = adapterProvider.chatAdapter(config)
 
         // 3. 构建上下文（含刚保存的用户消息，排除流式占位消息）
         // 真正把占位消息挡掉的是 `content.isNotBlank()`：`isStreaming` 没有落库（messages 表无此列），

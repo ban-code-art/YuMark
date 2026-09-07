@@ -73,6 +73,10 @@ YuMark 的版本变更记录。本文件自 v0.11 起恢复维护：此前的变
 ### 设计文档（专项排期）
 - 新增 `docs/design/` 四份专项设计：Agent 对话压缩/摘要（v0.13 头号专项）、Agent 动作空间扩展（move/rename/delete，复用审批门与回收站）、AiAdapterFactory 接口抽取（消除最后 3 处 domain→data 违规 + detekt 分层门禁）、WebDAV 文件夹层级同步（P2，`_folders.json` 清单方案 + 真机联调硬性前置）
 
+### 架构治理
+- **domain→data 分层违规清零（原 7 处）**：AiAdapterProvider（适配器提供契约）+ AgentToolService（联网搜索/记忆/知识检索统一端口）+ ImportFilePort（导入文件操作窄接口）三个 domain 契约落地，data 侧实现并经 Hilt 绑定接线；Agent 用例构造从 10 参收拢到 8
+- **分层方向 CI 门禁**：`Guard domain layer imports` 步骤（与 Room schema 守卫同模式）——domain import data 提交即红，从 review 靠眼变成机器把关
+
 ### 工程化
 - 新增签名发布流水线 `.github/workflows/release.yml`：打 `v*` 标签自动构建签名 release APK、计算 SHA-256 并发布 GitHub Release（签名材料经仓库 Secrets 注入，不入库）。
 - 接入 detekt 静态分析（默认规则集 + 存量基线 `config/detekt-baseline.xml`），CI 只拦新增违规。

@@ -21,8 +21,10 @@ import javax.inject.Singleton
 @Singleton
 class AiAdapterFactory @Inject constructor(
     private val client: HttpClient
-) {
+) : com.yumark.app.domain.repository.ai.AiAdapterProvider {
     private var current: AiApiAdapter? = null
+
+    override fun chatAdapter(config: AiConfig): AiApiAdapter = createAdapter(config)
 
     fun createAdapter(config: AiConfig): AiApiAdapter {
         current?.close()
@@ -47,6 +49,12 @@ class AiAdapterFactory @Inject constructor(
      */
     fun createEmbeddingAdapter(config: AiConfig): EmbeddingAdapter =
         OpenAiEmbeddingAdapter(config.ragBaseUrlResolved, config.ragApiKeyResolved, client)
+
+    override fun embeddingAdapter(config: AiConfig): EmbeddingAdapter =
+        createEmbeddingAdapter(config)
+
+    override fun ragModelListAdapter(config: AiConfig): AiApiAdapter =
+        createRagModelListAdapter(config)
 
     /**
      * 为「获取 embedding 模型列表」按钮创建一个一次性适配器。

@@ -3,7 +3,7 @@ package com.yumark.app.domain.usecase.ai.chat
 import com.google.common.truth.Truth.assertThat
 import com.yumark.app.R
 import com.yumark.app.core.util.UiMessage
-import com.yumark.app.data.ai.AiAdapterFactory
+import com.yumark.app.domain.repository.ai.AiAdapterProvider
 import com.yumark.app.data.ai.AiApiAdapter
 import com.yumark.app.domain.model.AiConfig
 import com.yumark.app.domain.model.AiRequestConfig
@@ -56,7 +56,7 @@ class SendChatMessageUseCaseTest {
 
     private val conversationRepository: ConversationRepository = mockk(relaxed = true)
     private val configRepository: AiConfigRepository = mockk()
-    private val adapterFactory: AiAdapterFactory = mockk()
+    private val adapterFactory: AiAdapterProvider = mockk()
 
     private val config = AiConfig(apiKey = "k", modelName = "m")
     private val conversation = Conversation(id = "c1", title = "t", type = ConversationType.CHAT)
@@ -68,7 +68,7 @@ class SendChatMessageUseCaseTest {
     }
 
     private fun useCase(adapter: AiApiAdapter): SendChatMessageUseCase {
-        every { adapterFactory.createAdapter(any()) } returns adapter
+        every { adapterFactory.chatAdapter(any()) } returns adapter
         return SendChatMessageUseCase(conversationRepository, configRepository, adapterFactory)
     }
 

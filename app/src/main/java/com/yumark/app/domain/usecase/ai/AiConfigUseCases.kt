@@ -3,7 +3,7 @@ package com.yumark.app.domain.usecase.ai
 import com.yumark.app.R
 import com.yumark.app.core.util.FriendlyValidationException
 import com.yumark.app.core.util.UiMessage
-import com.yumark.app.data.ai.AiAdapterFactory
+import com.yumark.app.domain.repository.ai.AiAdapterProvider
 import com.yumark.app.domain.model.AiConfig
 import com.yumark.app.domain.model.ModelInfo
 import com.yumark.app.domain.model.ModelTestResult
@@ -28,19 +28,19 @@ class UpdateAiConfigUseCase @Inject constructor(
 
 /** 测试连接与性能 */
 class TestAiConnectionUseCase @Inject constructor(
-    private val factory: AiAdapterFactory
+    private val factory: AiAdapterProvider
 ) {
     suspend operator fun invoke(config: AiConfig): ModelTestResult =
-        factory.createAdapter(config).testConnection(config.modelName)
+        factory.chatAdapter(config).testConnection(config.modelName)
 }
 
 /** 拉取可用模型列表，并写回配置的 availableModels */
 class FetchAvailableModelsUseCase @Inject constructor(
-    private val factory: AiAdapterFactory,
+    private val factory: AiAdapterProvider,
     private val repository: AiConfigRepository
 ) {
     suspend operator fun invoke(config: AiConfig): Result<List<ModelInfo>> = runCatching {
-        val models = factory.createAdapter(config).fetchAvailableModels()
+        val models = factory.chatAdapter(config).fetchAvailableModels()
         repository.updateConfig(config.copy(availableModels = models.map { it.id }))
         models
     }
@@ -57,7 +57,7 @@ class FetchAvailableModelsUseCase @Inject constructor(
  * 则是 embedding 那个框没填。放它走下去只会得到一条 Ktor 的相对 URL 异常。
  */
 class FetchRagModelsUseCase @Inject constructor(
-    private val factory: AiAdapterFactory,
+    private val factory: AiAdapterProvider,
     private val repository: AiConfigRepository
 ) {
     suspend operator fun invoke(config: AiConfig): Result<List<ModelInfo>> = runCatching {
@@ -67,7 +67,7 @@ class FetchRagModelsUseCase @Inject constructor(
                 else R.string.ai_config_rag_base_url_required
             throw FriendlyValidationException(UiMessage.of(reason))
         }
-        val models = factory.createRagModelListAdapter(config).fetchAvailableModels()
+        val models = factory.ragModelListAdapter(config).fetchAvailableModels()
         repository.updateConfig(config.copy(ragAvailableModels = models.map { it.id }))
         models
     }
