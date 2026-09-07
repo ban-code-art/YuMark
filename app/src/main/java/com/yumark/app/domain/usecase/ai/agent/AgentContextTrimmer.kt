@@ -87,6 +87,66 @@ object AgentContextTrimmer {
         return if (oldestKept == 0) messages else groups.subList(oldestKept, groups.size).flatten()
     }
 
+    /**
+     * 压缩切分（与 [trim] 同一套分组逻辑）：返回 (待压缩部分, 保留部分)。
+     *
+     * 触发条件与 trim 判丢弃完全一致（保护区之外且超预算）——保证「会被裁掉的部分」
+     * 恰好是「拿去压缩的部分」，压缩成功则摘要替代丢弃，失败回退 trim（丢弃）。
+     * null = 无需压缩（未超预算或保护区即全部）。
+     */
+    fun splitForCompression(
+        messages: List<ChatMessage>,
+        budgetTokens: Int = DEFAULT_BUDGET_TOKENS,
+        reservedTokens: Int = 0,
+        minKeepMessages: Int = MIN_KEEP_MESSAGES
+    ): Pair<List<ChatMessage>, List<ChatMessage>>? {
+        // 三类「无需压缩」合并为一个守卫出口：条数不足 / 未超预算 / 保护区即全部
+        val groups = groupByTurn(messages)
+        val effectiveBudget = (budgetTokens - reservedTokens).coerceAtLeast(MINIMUM_BUDGET)
+        val groupTokens = groups.map { group -> group.sumOf { estimateTokens(it.content.orEmpty()) } }
+        val oldestKept = oldestKeptGroupIndex(groups, groupTokens, effectiveBudget, minKeepMessages)
+        val noSplit = messages.size <= minKeepMessages ||
+            groupTokens.sum() <= effectiveBudget ||
+            oldestKept <= 0
+        if (noSplit) return null
+        val oldPart = groups.subList(0, oldestKept).flatten()
+        val keptPart = groups.subList(oldestKept, groups.size).flatten()
+        return oldPart.takeIf { it.isNotEmpty() }?.let { it to keptPart }
+    }
+
+    /** 回合分组：user 开组，assistant/tool 归入当前组（trim 与 splitForCompression 共用）。 */
+    private fun groupByTurn(messages: List<ChatMessage>): List<List<ChatMessage>> {
+        val groups = ArrayList<List<ChatMessage>>()
+        for (message in messages) {
+            if (message.role == "user" || groups.isEmpty()) {
+                groups.add(listOf(message))
+            } else {
+                groups[groups.size - 1] = groups[groups.size - 1] + message
+            }
+        }
+        return groups
+    }
+
+    /** 从最新往最旧累计的保留判定：返回首个保留组下标（0 = 保护区即全部）。 */
+    private fun oldestKeptGroupIndex(
+        groups: List<List<ChatMessage>>,
+        groupTokens: List<Int>,
+        effectiveBudget: Int,
+        minKeepMessages: Int
+    ): Int {
+        var oldestKept = groups.size
+        var keptCount = 0
+        var keptTokens = 0
+        for (index in groups.indices.reversed()) {
+            val wouldExceedBudget = keptTokens + groupTokens[index] > effectiveBudget
+            if (wouldExceedBudget && keptCount >= minKeepMessages) break
+            oldestKept = index
+            keptTokens += groupTokens[index]
+            keptCount += groups[index].size
+        }
+        return oldestKept
+    }
+
     /** CJK 感知的 token 估算：CJK 字符 ≈ 1 token，其余按 4 字符 ≈ 1 token。宁高勿低。 */
     fun estimateTokens(text: String): Int {
         var cjk = 0

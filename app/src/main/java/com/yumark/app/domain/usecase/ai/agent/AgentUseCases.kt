@@ -83,6 +83,7 @@ class SendAgentMessageUseCase @Inject constructor(
     private val conversationRepository: ConversationRepository,
     private val configRepository: AiConfigRepository,
     private val adapterProvider: AiAdapterProvider,
+    private val conversationCompressor: ConversationCompressor,
     private val imageProcessor: com.yumark.app.core.image.ImageProcessor,
     private val agentTaskRepository: AgentTaskRepository,
     private val executeDocumentTool: ExecuteDocumentToolUseCase,
@@ -196,6 +197,9 @@ class SendAgentMessageUseCase @Inject constructor(
         var taskId: String? = agentTaskRepository.getTaskByConversationId(conversationId)?.task?.id
         var taskFinalized = false
 
+        // 压缩记账：每会话最多 3 次，超限永久回退纯裁剪——防「摘要越压越多又触发压缩」滚雪球
+        var compressionsUsed = compressionBudgets.getOrDefault(conversationId, 0)
+
         suspend fun finalizeTask(status: AgentTaskStatus, summary: String, blockingReason: String? = null) {
             taskFinalized = true
             val id = taskId ?: return
@@ -277,13 +281,37 @@ class SendAgentMessageUseCase @Inject constructor(
                         taskId
                     )
                 )
-                val requestMessages = AgentContextTrimmer.trim(
-                    messages = workingMessages,
-                    budgetTokens = AgentContextTrimmer.DEFAULT_BUDGET_TOKENS,
-                    reservedTokens = AgentContextTrimmer.estimateTokens(systemPrompt) +
-                        config.maxTokens,
-                    minKeepMessages = MIN_KEEP_MESSAGES_IN_CONTEXT
-                )
+                val reserved = AgentContextTrimmer.estimateTokens(systemPrompt) + config.maxTokens
+                // 压缩优先、裁剪兜底（专项①）：被裁掉的回合先尝试摘要成一条注入消息，
+                // 模型对早期任务保留语义级记忆；压缩失败/超限回退纯裁剪（现状行为）。
+                val split = if (compressionsUsed < MAX_COMPRESSIONS_PER_CONVERSATION) {
+                    AgentContextTrimmer.splitForCompression(
+                        messages = workingMessages,
+                        budgetTokens = AgentContextTrimmer.DEFAULT_BUDGET_TOKENS,
+                        reservedTokens = reserved,
+                        minKeepMessages = MIN_KEEP_MESSAGES_IN_CONTEXT
+                    )
+                } else null
+                val summaryMessage = split?.let { (oldPart, _) ->
+                    compressionsUsed++
+                    compressionBudgets[conversationId] = compressionsUsed
+                    conversationCompressor.compress(oldPart, config)
+                }?.let { summary ->
+                    ChatMessage(
+                        role = "user",
+                        content = "[此前对话的历史摘要（非当前对话内容）]\n" + summary
+                    )
+                }
+                val requestMessages = if (summaryMessage != null && split != null) {
+                    listOf(summaryMessage) + split.second
+                } else {
+                    AgentContextTrimmer.trim(
+                        messages = workingMessages,
+                        budgetTokens = AgentContextTrimmer.DEFAULT_BUDGET_TOKENS,
+                        reservedTokens = reserved,
+                        minKeepMessages = MIN_KEEP_MESSAGES_IN_CONTEXT
+                    )
+                }
                 adapter.sendChatStream(
                     requestMessages,
                     AiRequestConfig(
@@ -813,6 +841,12 @@ class ExecuteAgentActionUseCase @Inject constructor(
 }
 
 private const val MAX_TURNS = 10
+
+/** 每会话的压缩次数上限（成本护栏：防摘要滚雪球）。 */
+private const val MAX_COMPRESSIONS_PER_CONVERSATION = 3
+
+/** 会话级压缩记账（进程内存，P1 范围；P2 再持久化到 conversations 表）。 */
+private val compressionBudgets = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
 /** 需要串行（有状态/收敛语义）的工具：写提议与计划维护不参与并行。 */
 private val WRITE_OR_PLAN_TOOLS = setOf(

@@ -54,6 +54,8 @@ enum class UserAction(@StringRes val labelRes: Int, val tag: String) {
     RAG_ENQUEUE(R.string.action_rag_enqueue, "RAG 索引入队"),
     /** Agent 应用改写/新建等动作的兜底标签——那一步具体做什么由模型决定，说不出更细的名字。 */
     APPLY_ACTION(R.string.action_apply_action, "操作"),
+    /** Agent 长会话的历史压缩（后台摘要）。失败只留非致命记录，对话回退纯裁剪。 */
+    COMPRESS_HISTORY(R.string.action_compress_history, "压缩对话历史"),
 
     // ---- 设置 / 同步 ----
     CHECK_UPDATE(R.string.action_check_update, "检查更新"),

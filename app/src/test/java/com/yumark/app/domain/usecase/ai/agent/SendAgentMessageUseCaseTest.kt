@@ -69,6 +69,11 @@ class SendAgentMessageUseCaseTest {
     private val conversationRepository: ConversationRepository = mockk(relaxed = true)
     private val configRepository: AiConfigRepository = mockk()
     private val adapterFactory: AiAdapterProvider = mockk()
+
+    /** 压缩器桩：默认返回 null（回退纯裁剪，既有用例行为不变）。 */
+    private val conversationCompressor: com.yumark.app.domain.usecase.ai.agent.ConversationCompressor = mockk {
+        coEvery { compress(any(), any()) } returns null
+    }
     private val executeDocumentTool: ExecuteDocumentToolUseCase = mockk()
     private val imageProcessor: com.yumark.app.core.image.ImageProcessor = mockk()
     private val agentTaskRepository: AgentTaskRepository = mockk(relaxed = true)
@@ -105,6 +110,7 @@ class SendAgentMessageUseCaseTest {
             conversationRepository,
             configRepository,
             adapterFactory,
+            conversationCompressor,
             imageProcessor,
             agentTaskRepository,
             executeDocumentTool,

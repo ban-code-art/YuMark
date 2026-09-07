@@ -79,6 +79,7 @@
     <string name="action_load_target_document">加载目标文档内容</string>
     <string name="action_fetch_models">获取模型列表</string>
     <string name="action_rag_enqueue">RAG 索引入队</string>
+    <string name="action_compress_history">压缩对话历史</string>
     <!-- Agent 动作的兜底标签：那一步具体做什么由模型决定，说不出更细的名字 -->
     <string name="action_apply_action">操作</string>
     <string name="action_check_update">检查更新</string>

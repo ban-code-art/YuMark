@@ -75,6 +75,7 @@
     <string name="action_load_target_document">Load target document</string>
     <string name="action_fetch_models">Fetch model list</string>
     <string name="action_rag_enqueue">Queue RAG indexing</string>
+    <string name="action_compress_history">Compress conversation history</string>
     <!-- Fallback label for agent actions: the model decides what the step actually does -->
     <string name="action_apply_action">Operation</string>
     <string name="action_check_update">Check for updates</string>
