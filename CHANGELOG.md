@@ -70,6 +70,9 @@ YuMark 的版本变更记录。本文件自 v0.11 起恢复维护：此前的变
 - 文件列表与搜索的空态加降饱和大图标锚点，与回收站空态同一手法。
 - 通过项目自带的 WCAG 对比度审计（120 对 0 不达标）与多语言字符串一致性检查（FATAL/WARN 均 0）。
 
+### 设计文档（专项排期）
+- 新增 `docs/design/` 四份专项设计：Agent 对话压缩/摘要（v0.13 头号专项）、Agent 动作空间扩展（move/rename/delete，复用审批门与回收站）、AiAdapterFactory 接口抽取（消除最后 3 处 domain→data 违规 + detekt 分层门禁）、WebDAV 文件夹层级同步（P2，`_folders.json` 清单方案 + 真机联调硬性前置）
+
 ### 工程化
 - 新增签名发布流水线 `.github/workflows/release.yml`：打 `v*` 标签自动构建签名 release APK、计算 SHA-256 并发布 GitHub Release（签名材料经仓库 Secrets 注入，不入库）。
 - 接入 detekt 静态分析（默认规则集 + 存量基线 `config/detekt-baseline.xml`），CI 只拦新增违规。
